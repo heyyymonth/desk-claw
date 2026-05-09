@@ -81,6 +81,7 @@ class RecommendationService:
         return model_recommendation.model_copy(
             update={
                 "decision": deterministic.decision,
+                "rationale": deterministic.rationale,
                 "risks": deterministic.risks or model_recommendation.risks,
                 "risk_level": deterministic.risk_level,
                 "safe_action": deterministic.safe_action,

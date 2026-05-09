@@ -10,8 +10,8 @@ export function Panel({
   aside?: ReactNode;
 }) {
   return (
-    <section className="rounded-lg border border-line bg-white shadow-[0_8px_24px_rgba(15,31,61,0.06)]">
-      <div className="flex min-h-14 items-center justify-between gap-3 border-b border-line bg-[#fbfdff] px-4 py-3">
+    <section className="rounded-lg border border-white/70 bg-glass shadow-[0_18px_44px_rgba(31,38,50,0.10)] backdrop-blur-md">
+      <div className="flex min-h-14 items-center justify-between gap-3 border-b border-line/80 bg-white/45 px-4 py-3">
         <h2 className="text-base font-semibold text-ink">{title}</h2>
         {aside}
       </div>
@@ -29,7 +29,7 @@ export function ErrorState({ message }: { message: string }) {
 }
 
 export function EmptyState({ children }: { children: ReactNode }) {
-  return <div className="rounded-md border border-dashed border-line bg-panel px-3 py-4 text-sm text-steel">{children}</div>;
+  return <div className="rounded-md border border-dashed border-line bg-white/45 px-3 py-4 text-sm text-steel">{children}</div>;
 }
 
 export function FieldLabel({ children }: { children: ReactNode }) {
@@ -40,7 +40,7 @@ export function PrimaryButton(props: React.ButtonHTMLAttributes<HTMLButtonElemen
   return (
     <button
       {...props}
-      className={`inline-flex min-h-10 items-center justify-center rounded-md bg-brand px-4 text-sm font-semibold text-white shadow-sm hover:bg-brandDark disabled:cursor-not-allowed disabled:bg-slate-400 ${props.className ?? ''}`}
+      className={`inline-flex min-h-10 items-center justify-center rounded-md bg-brandDark px-4 text-sm font-semibold text-white shadow-[0_10px_24px_rgba(32,39,52,0.16)] hover:bg-brand disabled:cursor-not-allowed disabled:bg-slate-400 ${props.className ?? ''}`}
     />
   );
 }
@@ -49,7 +49,7 @@ export function SecondaryButton(props: React.ButtonHTMLAttributes<HTMLButtonElem
   return (
     <button
       {...props}
-      className={`inline-flex min-h-10 items-center justify-center rounded-md border border-line bg-white px-3 text-sm font-semibold text-brandDark hover:bg-brandSoft disabled:cursor-not-allowed disabled:text-slate-400 ${props.className ?? ''}`}
+      className={`inline-flex min-h-10 items-center justify-center rounded-md border border-line bg-white/70 px-3 text-sm font-semibold text-brandDark shadow-sm hover:bg-brandSoft disabled:cursor-not-allowed disabled:text-slate-400 ${props.className ?? ''}`}
     />
   );
 }

@@ -79,3 +79,42 @@ def test_recommendation_falls_back_when_calendar_has_no_slot():
     assert recommendation.decision == "defer"
     assert recommendation.proposed_slots == []
     assert recommendation.model_status == "not_configured"
+
+
+def test_recommendation_guardrails_rationale_for_escalation():
+    request = parsed_request().model_copy(
+        update={
+            "intent": parsed_request().intent.model_copy(
+                update={
+                    "meeting_type": "customer",
+                    "priority": "urgent",
+                    "escalation_required": True,
+                }
+            )
+        }
+    )
+    llm = StubLLM(
+        {
+            "decision": "schedule",
+            "confidence": 0.9,
+            "rationale": ["A suitable open slot is available on May 10th morning."],
+            "risks": [],
+            "risk_level": "low",
+            "safe_action": "propose_slot_for_human_review_before_final_send",
+            "proposed_slots": [
+                {
+                    "start": "2026-05-11T09:00:00-07:00",
+                    "end": "2026-05-11T09:30:00-07:00",
+                    "reason": "Open slot",
+                }
+            ],
+            "model_status": "used",
+        }
+    )
+
+    recommendation = RecommendationService(llm).generate(request, rules(), [])
+
+    assert recommendation.decision == "defer"
+    assert recommendation.proposed_slots == []
+    assert recommendation.rationale == ["Human escalation is required before replying or scheduling."]
+    assert recommendation.risk_level == "high"

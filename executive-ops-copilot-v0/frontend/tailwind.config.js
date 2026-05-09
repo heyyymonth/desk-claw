@@ -4,13 +4,14 @@ export default {
   theme: {
     extend: {
       colors: {
-        ink: '#0f1f3d',
-        steel: '#52647a',
-        line: '#d8e2ef',
-        panel: '#f6f9fd',
-        brand: '#1455d9',
-        brandDark: '#0b367f',
-        brandSoft: '#e8f1ff',
+        ink: '#161a22',
+        steel: '#5d6673',
+        line: '#d7dbe2',
+        panel: '#f6f7f9',
+        brand: '#3d4654',
+        brandDark: '#202734',
+        brandSoft: '#eef0f4',
+        glass: 'rgba(255,255,255,0.72)',
         amberRisk: '#b45309',
         redRisk: '#b91c1c',
         greenRisk: '#047857',
