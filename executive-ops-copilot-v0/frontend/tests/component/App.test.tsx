@@ -70,6 +70,7 @@ describe("App", () => {
       </QueryClientProvider>,
     );
 
+    await userEvent.click(screen.getAllByRole("button", { name: /admin center/i })[0]);
     await screen.findByText("Avoid protected blocks.");
     await userEvent.type(screen.getByLabelText("Meeting request"), meetingRequest.raw_text);
     await userEvent.click(screen.getByRole("button", { name: /parse request/i }));

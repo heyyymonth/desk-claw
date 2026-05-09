@@ -10,8 +10,8 @@ export function Panel({
   aside?: ReactNode;
 }) {
   return (
-    <section className="rounded-lg border border-white/70 bg-glass shadow-[0_18px_44px_rgba(31,38,50,0.10)] backdrop-blur-md">
-      <div className="flex min-h-14 items-center justify-between gap-3 border-b border-line/80 bg-white/45 px-4 py-3">
+    <section className="overflow-hidden rounded-lg border border-white/75 bg-glass shadow-[0_20px_48px_rgba(31,38,50,0.11)] backdrop-blur-md">
+      <div className="flex min-h-14 items-center justify-between gap-3 border-b border-line/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.72),rgba(255,255,255,0.42))] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.88)]">
         <h2 className="text-base font-semibold text-ink">{title}</h2>
         {aside}
       </div>
@@ -40,7 +40,7 @@ export function PrimaryButton(props: React.ButtonHTMLAttributes<HTMLButtonElemen
   return (
     <button
       {...props}
-      className={`inline-flex min-h-10 items-center justify-center rounded-md bg-brandDark px-4 text-sm font-semibold text-white shadow-[0_10px_24px_rgba(32,39,52,0.16)] hover:bg-brand disabled:cursor-not-allowed disabled:bg-slate-400 ${props.className ?? ''}`}
+      className={`inline-flex min-h-10 items-center justify-center rounded-md border border-white/10 bg-[linear-gradient(180deg,#2f3745,#171d28)] px-4 text-sm font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_12px_26px_rgba(32,39,52,0.20)] hover:bg-brand disabled:cursor-not-allowed disabled:border-transparent disabled:bg-none disabled:bg-slate-400 ${props.className ?? ''}`}
     />
   );
 }
@@ -49,7 +49,7 @@ export function SecondaryButton(props: React.ButtonHTMLAttributes<HTMLButtonElem
   return (
     <button
       {...props}
-      className={`inline-flex min-h-10 items-center justify-center rounded-md border border-line bg-white/70 px-3 text-sm font-semibold text-brandDark shadow-sm hover:bg-brandSoft disabled:cursor-not-allowed disabled:text-slate-400 ${props.className ?? ''}`}
+      className={`inline-flex min-h-10 items-center justify-center rounded-md border border-line bg-white/75 px-3 text-sm font-semibold text-brandDark shadow-[inset_0_1px_0_rgba(255,255,255,0.72),0_8px_18px_rgba(31,38,50,0.06)] hover:bg-brandSoft disabled:cursor-not-allowed disabled:text-slate-400 ${props.className ?? ''}`}
     />
   );
 }
