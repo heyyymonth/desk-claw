@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.executive-ops-copilot/contracts/executive_rules.schema.json",
+  "title": "ExecutiveRulesProfile",
+  "description": "Single-executive scheduling rules for V0.",
+  "$ref": "#/$defs/ExecutiveRulesProfile",
+  "$defs": {
+    "RulePriority": { "type": "string", "enum": ["low", "medium", "high", "hard"] },
+    "Importance": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+    "MeetingType": { "type": "string", "enum": ["intro", "internal", "customer", "investor", "candidate", "vendor", "board", "personal", "other"] },
+    "WorkingHours": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["days", "start_time", "end_time", "timezone"],
+      "properties": {
+        "days": { "type": "array", "minItems": 1, "items": { "type": "string", "enum": ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] } },
+        "start_time": { "type": "string", "pattern": "^([01]\d|2[0-3]):[0-5]\d$" },
+        "end_time": { "type": "string", "pattern": "^([01]\d|2[0-3]):[0-5]\d$" },
+        "timezone": { "type": "string", "minLength": 1 }
+      }
+    },
+    "RuleStatement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rule_id", "description", "priority"],
+      "properties": {
+        "rule_id": { "type": "string", "pattern": "^rule_[A-Za-z0-9_-]+$" },
+        "description": { "type": "string", "minLength": 1 },
+        "priority": { "$ref": "#/$defs/RulePriority" },
+        "applies_to_meeting_types": { "type": "array", "items": { "$ref": "#/$defs/MeetingType" } }
+      }
+    },
+    "ExecutiveRulesProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile_id", "executive_name", "timezone", "working_hours", "minimum_notice_hours", "default_meeting_duration_minutes", "meeting_type_priorities", "rules", "updated_at"],
+      "properties": {
+        "profile_id": { "type": "string", "pattern": "^rules_[A-Za-z0-9_-]+$" },
+        "executive_name": { "type": "string", "minLength": 1 },
+        "timezone": { "type": "string", "minLength": 1 },
+        "working_hours": { "$ref": "#/$defs/WorkingHours" },
+        "minimum_notice_hours": { "type": "integer", "minimum": 0, "maximum": 720 },
+        "default_meeting_duration_minutes": { "type": "integer", "minimum": 15, "maximum": 240, "multipleOf": 5 },
+        "meeting_type_priorities": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["intro", "internal", "customer", "investor", "candidate", "vendor", "board", "personal", "other"],
+          "properties": {
+            "intro": { "$ref": "#/$defs/Importance" },
+            "internal": { "$ref": "#/$defs/Importance" },
+            "customer": { "$ref": "#/$defs/Importance" },
+            "investor": { "$ref": "#/$defs/Importance" },
+            "candidate": { "$ref": "#/$defs/Importance" },
+            "vendor": { "$ref": "#/$defs/Importance" },
+            "board": { "$ref": "#/$defs/Importance" },
+            "personal": { "$ref": "#/$defs/Importance" },
+            "other": { "$ref": "#/$defs/Importance" }
+          }
+        },
+        "preferred_meeting_days": { "type": "array", "items": { "type": "string", "enum": ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] } },
+        "avoid_time_windows": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["label", "start_time", "end_time", "priority"],
+            "properties": {
+              "label": { "type": "string", "minLength": 1 },
+              "start_time": { "type": "string", "pattern": "^([01]\d|2[0-3]):[0-5]\d$" },
+              "end_time": { "type": "string", "pattern": "^([01]\d|2[0-3]):[0-5]\d$" },
+              "priority": { "$ref": "#/$defs/RulePriority" }
+            }
+          }
+        },
+        "rules": { "type": "array", "items": { "$ref": "#/$defs/RuleStatement" } },
+        "updated_at": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

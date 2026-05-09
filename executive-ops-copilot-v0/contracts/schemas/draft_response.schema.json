@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.executive-ops-copilot/contracts/draft_response.schema.json",
+  "title": "DraftResponse",
+  "description": "Editable draft response generated from a recommendation.",
+  "$ref": "#/$defs/DraftResponse",
+  "$defs": {
+    "DraftType": { "type": "string", "enum": ["accept", "decline", "clarify", "defer"] },
+    "ModelStatus": { "type": "string", "enum": ["not_used", "used", "unavailable", "invalid_output"] },
+    "DraftResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["draft_id", "request_id", "recommendation_id", "draft_type", "subject", "body", "tone", "model_status", "created_at"],
+      "properties": {
+        "draft_id": { "type": "string", "pattern": "^draft_[A-Za-z0-9_-]+$" },
+        "request_id": { "type": "string", "pattern": "^req_[A-Za-z0-9_-]+$" },
+        "recommendation_id": { "type": "string", "pattern": "^rec_[A-Za-z0-9_-]+$" },
+        "draft_type": { "$ref": "#/$defs/DraftType" },
+        "subject": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "body": { "type": "string", "minLength": 1, "maxLength": 6000 },
+        "tone": { "type": "string", "enum": ["concise", "warm", "firm"] },
+        "editable": { "type": "boolean", "default": true },
+        "model_status": { "$ref": "#/$defs/ModelStatus" },
+        "created_at": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}
