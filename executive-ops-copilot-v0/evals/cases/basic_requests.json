@@ -1,0 +1,18 @@
+[
+  {
+    "id": "urgent-investor",
+    "raw_text": "Urgent investor meeting from Maya for 45 minutes next week",
+    "expected": {
+      "title": "Investor meeting",
+      "priority": "urgent",
+      "duration_minutes": 45
+    }
+  },
+  {
+    "id": "missing-requester",
+    "raw_text": "Can we meet about pricing next week?",
+    "expected": {
+      "decision": "clarify"
+    }
+  }
+]

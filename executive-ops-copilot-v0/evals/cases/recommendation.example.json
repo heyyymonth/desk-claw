@@ -1,0 +1,32 @@
+{
+  "recommendation_id": "rec_01HXAMPLE001",
+  "request_id": "req_01HXAMPLE001",
+  "recommended_action": "propose_times",
+  "confidence": 0.82,
+  "risk_level": "medium",
+  "human_review_required": false,
+  "risks": [
+    {
+      "risk_level": "medium",
+      "message": "Only one preferred afternoon slot is conflict-free.",
+      "related_rule_ids": ["rule_customer_risk"]
+    }
+  ],
+  "rationale": [
+    "Customer renewal risk is high priority.",
+    "The proposed slot avoids focus time and existing busy blocks."
+  ],
+  "proposed_slots": [
+    {
+      "start": "2026-05-12T15:00:00-07:00",
+      "end": "2026-05-12T15:30:00-07:00",
+      "timezone": "America/Los_Angeles",
+      "reason": "Matches requester window and preserves executive prep time.",
+      "calendar_conflicts": []
+    }
+  ],
+  "applied_rule_ids": ["rule_customer_risk"],
+  "calendar_block_ids_considered": ["cal_01HXAMPLE001"],
+  "model_status": "used",
+  "created_at": "2026-05-08T09:01:00-07:00"
+}

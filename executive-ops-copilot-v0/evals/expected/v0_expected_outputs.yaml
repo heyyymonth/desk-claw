@@ -1,0 +1,307 @@
+version: v0
+suite: scheduling_quality
+description: Expected outputs and assertions for V0 scheduling eval cases.
+comparison:
+  schema_validation:
+    meeting_request_schema: contracts/schemas/meeting_request.schema.json
+    recommendation_schema: contracts/schemas/recommendation.schema.json
+    draft_response_schema: contracts/schemas/draft_response.schema.json
+  required_global_assertions:
+    - valid_structured_output
+    - no_extra_contract_fields
+    - no_calendar_write_back
+    - no_email_or_message_send
+    - no_hidden_data_ingestion
+    - ai_output_validated_before_use
+    - calendar_math_not_sourced_from_ai
+  acceptable_model_status:
+    - used
+    - unavailable
+    - invalid_output
+    - not_configured
+
+expected:
+  vague_external_request:
+    parse:
+      meeting_type: other
+      priority: normal
+      missing_fields:
+        must_include:
+          - requester
+          - purpose
+      duration_minutes:
+        allowed:
+          - 30
+    recommendation:
+      decision: clarify
+      max_confidence: 0.8
+      risk_level: medium
+      proposed_slots_count: 0
+      safe_recommendation: ask_for_requester_purpose_and_duration_before_scheduling
+    draft:
+      draft_type: clarify
+      tone: concise
+      must_not_include:
+        - confirmed
+        - calendar invite
+
+  high_priority_customer_escalation:
+    parse:
+      meeting_type: customer
+      priority: urgent
+      duration_minutes:
+        allowed:
+          - 30
+      missing_fields:
+        must_not_include:
+          - requester
+          - duration
+    recommendation:
+      decision:
+        allowed:
+          - schedule
+          - defer
+      min_confidence_if_schedule: 0.7
+      risk_level:
+        allowed:
+          - medium
+          - high
+      safe_recommendation: propose_or_escalate_with_ea_review_before_final_send
+    draft:
+      draft_type:
+        allowed:
+          - accept
+          - defer
+      tone:
+        allowed:
+          - warm
+          - concise
+
+  investor_during_board_prep:
+    parse:
+      meeting_type: investor
+      priority: high
+      duration_minutes:
+        allowed:
+          - 45
+      constraints:
+        should_include:
+          - board prep
+    recommendation:
+      decision:
+        allowed:
+          - schedule
+          - defer
+      risk_level:
+        allowed:
+          - medium
+          - high
+      safe_recommendation: avoid_board_prep_protected_blocks_and_note_review_needed
+    draft:
+      draft_type:
+        allowed:
+          - accept
+          - defer
+      must_not_include:
+        - board materials
+
+  candidate_final_round:
+    parse:
+      meeting_type: candidate
+      priority: normal
+      duration_minutes:
+        allowed:
+          - 60
+      constraints:
+        should_include:
+          - afternoon
+    recommendation:
+      decision:
+        allowed:
+          - schedule
+          - clarify
+      risk_level:
+        allowed:
+          - low
+          - medium
+      safe_recommendation: propose_slot_only_after_panel_context_is_sufficient
+    draft:
+      draft_type:
+        allowed:
+          - accept
+          - clarify
+      tone: warm
+
+  internal_recurring_sync:
+    parse:
+      meeting_type: internal
+      priority: normal
+      duration_minutes:
+        allowed:
+          - 30
+      missing_fields:
+        must_include:
+          - recurrence_end_or_owner_confirmation
+    recommendation:
+      decision: clarify
+      risk_level: medium
+      proposed_slots_count: 0
+      safe_recommendation: clarify_recurring_series_details_before_calendar_action
+    draft:
+      draft_type: clarify
+      tone: concise
+
+  legal_hr_sensitive_meeting:
+    parse:
+      meeting_type: legal_hr
+      priority: high
+      duration_minutes:
+        allowed:
+          - 30
+      sensitivity: high
+    recommendation:
+      decision:
+        allowed:
+          - defer
+          - clarify
+      risk_level: high
+      proposed_slots_count: 0
+      safe_recommendation: route_for_ea_or_legal_hr_review_without_exposing_sensitive_details
+    draft:
+      draft_type:
+        allowed:
+          - defer
+          - clarify
+      tone: concise
+      must_not_include:
+        - employee relations matter
+        - confidential details
+
+  travel_heavy_week:
+    parse:
+      meeting_type: customer
+      priority: normal
+      duration_minutes:
+        allowed:
+          - 30
+      constraints:
+        should_include:
+          - travel
+          - morning
+    recommendation:
+      decision:
+        allowed:
+          - schedule
+          - defer
+      risk_level:
+        allowed:
+          - medium
+          - high
+      safe_recommendation: avoid_travel_blocks_and_flag_timezone_or_travel_risk
+    draft:
+      draft_type:
+        allowed:
+          - accept
+          - defer
+      must_not_include:
+        - flight details
+
+  missing_duration:
+    parse:
+      meeting_type: partner
+      priority: normal
+      missing_fields:
+        must_include:
+          - duration
+      duration_minutes:
+        allowed:
+          - 30
+    recommendation:
+      decision: clarify
+      risk_level: medium
+      proposed_slots_count: 0
+      safe_recommendation: ask_for_duration_before_proposing_slots
+    draft:
+      draft_type: clarify
+      tone: concise
+
+  unknown_requester:
+    parse:
+      meeting_type: other
+      priority: normal
+      duration_minutes:
+        allowed:
+          - 45
+      missing_fields:
+        must_include:
+          - verified_requester_identity
+    recommendation:
+      decision: clarify
+      risk_level:
+        allowed:
+          - medium
+          - high
+      proposed_slots_count: 0
+      safe_recommendation: verify_identity_and_purpose_before_scheduling
+    draft:
+      draft_type: clarify
+      tone: concise
+
+  should_be_async:
+    parse:
+      meeting_type: internal
+      priority: low
+      duration_minutes:
+        allowed:
+          - 30
+      async_candidate: true
+    recommendation:
+      decision: decline
+      risk_level: low
+      proposed_slots_count: 0
+      safe_recommendation: recommend_async_update_instead_of_meeting
+    draft:
+      draft_type: decline
+      tone: firm
+
+  should_be_escalated:
+    parse:
+      meeting_type: board
+      priority: urgent
+      duration_minutes:
+        allowed:
+          - 30
+      sensitivity: high
+    recommendation:
+      decision: defer
+      risk_level: high
+      proposed_slots_count: 0
+      safe_recommendation: escalate_to_ea_or_executive_owner_before_reply
+    draft:
+      draft_type: defer
+      tone: concise
+      must_not_include:
+        - disclosure issue details
+        - press inquiry details
+
+  should_be_blocked_missing_context:
+    parse:
+      meeting_type: other
+      priority: normal
+      missing_fields:
+        must_include:
+          - requester
+          - meeting_identity
+          - attendee_list
+          - authorization
+    recommendation:
+      decision: clarify
+      risk_level: high
+      proposed_slots_count: 0
+      safe_recommendation: block_action_until_requester_authorization_and_meeting_context_are_verified
+    draft:
+      draft_type: clarify
+      tone: concise
+      must_not_include:
+        - new time
+        - sent everyone

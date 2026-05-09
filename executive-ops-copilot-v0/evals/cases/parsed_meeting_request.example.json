@@ -1,0 +1,43 @@
+{
+  "request_id": "req_01HXAMPLE001",
+  "raw_text": "Could Maya meet with Jordan from Acme next Tuesday afternoon for 30 minutes about renewal risks?",
+  "title": "Acme renewal risk discussion",
+  "requester": {
+    "name": "Jordan Lee",
+    "email": "jordan.lee@acme.example",
+    "organization": "Acme",
+    "role": "requester"
+  },
+  "meeting_type": "customer",
+  "urgency": "high",
+  "importance": "high",
+  "sensitivity": "normal",
+  "duration_minutes": 30,
+  "duration_inferred": false,
+  "attendees": [
+    {
+      "name": "Maya Chen",
+      "role": "executive"
+    },
+    {
+      "name": "Jordan Lee",
+      "email": "jordan.lee@acme.example",
+      "organization": "Acme",
+      "role": "requester"
+    }
+  ],
+  "preferred_windows": [
+    {
+      "start": "2026-05-12T13:00:00-07:00",
+      "end": "2026-05-12T17:00:00-07:00",
+      "timezone": "America/Los_Angeles",
+      "source_text": "next Tuesday afternoon"
+    }
+  ],
+  "constraints": ["Discuss renewal risk before Friday"],
+  "missing_fields": [],
+  "agenda": "Renewal risks",
+  "parse_confidence": 0.86,
+  "model_status": "used",
+  "created_at": "2026-05-08T09:00:00-07:00"
+}

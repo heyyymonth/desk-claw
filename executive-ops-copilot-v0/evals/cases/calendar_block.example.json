@@ -1,0 +1,10 @@
+{
+  "block_id": "cal_01HXAMPLE001",
+  "title": "Executive focus block",
+  "start": "2026-05-12T13:00:00-07:00",
+  "end": "2026-05-12T14:30:00-07:00",
+  "timezone": "America/Los_Angeles",
+  "block_type": "focus",
+  "is_movable": false,
+  "notes": "Protected focus time."
+}
