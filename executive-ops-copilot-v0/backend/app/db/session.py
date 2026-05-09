@@ -29,4 +29,38 @@ class Database:
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS app_users (
+                actor_id TEXT PRIMARY KEY,
+                email TEXT,
+                display_name TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ai_audit_log (
+                id TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                actor_id TEXT NOT NULL,
+                operation TEXT NOT NULL,
+                endpoint TEXT NOT NULL,
+                model_name TEXT NOT NULL,
+                model_status TEXT NOT NULL,
+                status TEXT NOT NULL,
+                latency_ms INTEGER NOT NULL,
+                request_payload TEXT NOT NULL,
+                response_payload TEXT,
+                error_code TEXT,
+                error_message TEXT,
+                FOREIGN KEY(actor_id) REFERENCES app_users(actor_id)
+            )
+            """
+        )
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_ai_audit_created_at ON ai_audit_log(created_at)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_ai_audit_actor_id ON ai_audit_log(actor_id)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_ai_audit_operation ON ai_audit_log(operation)")
         connection.commit()

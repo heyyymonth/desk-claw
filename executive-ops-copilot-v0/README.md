@@ -14,7 +14,7 @@ In scope:
 - Structured request parsing into contract-shaped models.
 - Recommendation generation with policy checks and local Gemma assistance.
 - Draft response generation for accept, decline, clarify, or defer paths.
-- Decision feedback capture and local SQLite decision log storage.
+- Decision feedback capture, local SQLite decision log storage, and AI audit logging.
 - Local eval cases and JSON Schema/OpenAPI contracts.
 
 Out of scope for V0:
@@ -87,6 +87,43 @@ LLM_MODE=ollama OLLAMA_MODEL=gemma4:latest python3 -m uvicorn app.main:app --hos
 
 The default SQLite database path is `backend/data/deskclaw.db` when running from `backend/`. Local database files are ignored by git.
 
+## Persistence and Audit
+
+The backend uses SQLite for local durable storage. The default database is:
+
+```text
+backend/data/deskclaw.db
+```
+
+Override it with:
+
+```bash
+DATABASE_URL=sqlite:///./data/deskclaw.db
+```
+
+Persisted tables include:
+
+- `app_users`: actor identity captured from request headers.
+- `ai_audit_log`: AI workflow input/output audit records for parse, recommendation, and draft calls.
+- `decisions`: simple feedback events from `POST /api/feedback`.
+- `decision_log`: full workflow decision records from `POST /api/decisions`.
+
+AI audit records include actor ID, endpoint, operation, configured model, model status, request payload, response payload or error, status, timestamp, and latency. Pass actor details with optional headers:
+
+```text
+X-Actor-Id: ea-1
+X-Actor-Email: ea@example.com
+X-Actor-Name: EA User
+```
+
+Retrieve audit events:
+
+```bash
+curl http://127.0.0.1:8000/api/audit/ai?limit=50
+```
+
+The audit endpoint is local and intended for development/admin inspection in V0. Future enterprise auth should protect it before multi-user deployment.
+
 ## Run Frontend
 
 ```bash
@@ -135,6 +172,7 @@ Primary contract endpoints:
 - `POST /api/calendar/blocks`
 - `POST /api/feedback`
 - `GET /api/decisions`
+- `GET /api/audit/ai`
 - `POST /api/evals/run`
 
 Compatibility endpoints used by the current frontend:

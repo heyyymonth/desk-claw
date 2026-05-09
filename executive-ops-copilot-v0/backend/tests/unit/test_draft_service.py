@@ -53,3 +53,24 @@ def test_draft_service_falls_back_without_llm():
     assert draft.tone == "firm"
     assert draft.model_status == "not_configured"
     assert "not able" in draft.body.lower()
+
+
+def test_draft_service_guardrails_defer_draft_from_llm():
+    service = DraftService(
+        StubLLM(
+            {
+                "subject": "Meeting time available",
+                "body": "We can meet Monday at 9:00 AM. Please confirm.",
+                "tone": "warm",
+                "draft_type": "accept",
+                "model_status": "used",
+            }
+        )
+    )
+
+    draft = service.generate(recommendation("defer"))
+
+    assert draft.draft_type == "defer"
+    assert draft.model_status == "used"
+    assert "before proposing a time" in draft.body
+    assert "9:00 AM" not in draft.body

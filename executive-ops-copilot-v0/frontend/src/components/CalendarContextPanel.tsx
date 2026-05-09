@@ -1,3 +1,5 @@
+import { useState } from 'react';
+import { fromDateTimeLocalValue, toDateTimeLocalValue } from '../lib/dateTime';
 import type { CalendarContext, MeetingRequest } from '../types';
 import { EmptyState, Panel, SecondaryButton } from './ui';
 
@@ -12,6 +14,7 @@ export function CalendarContextPanel({
   meetingRequest?: MeetingRequest;
   error?: string;
 }) {
+  const [confirmed, setConfirmed] = useState(false);
   const missing = [
     ...(calendar?.missing_context ?? []),
     ...(meetingRequest?.intent.missing_fields ?? []),
@@ -72,7 +75,7 @@ export function CalendarContextPanel({
           {calendar?.busy_blocks?.length ? (
             <div className="mt-2 space-y-3">
               {calendar.busy_blocks.map((block, index) => (
-                <div key={`${block.start}-${index}`} className="grid gap-2 rounded-md bg-panel p-3 md:grid-cols-[1fr_1fr_1fr_auto]">
+                <div key={`${block.start}-${index}`} className="grid min-w-0 gap-2 rounded-md bg-panel p-3">
                   <input
                     aria-label={`Busy block ${index + 1} title`}
                     value={block.title ?? ''}
@@ -84,33 +87,35 @@ export function CalendarContextPanel({
                         ),
                       })
                     }
-                    className="rounded-md border border-line px-3 py-2 text-sm"
+                    className="min-w-0 rounded-md border border-line px-3 py-2 text-sm"
                   />
                   <input
                     aria-label={`Busy block ${index + 1} start`}
-                    value={block.start}
+                    type="datetime-local"
+                    value={toDateTimeLocalValue(block.start)}
                     onChange={(event) =>
                       onChange({
                         ...calendar,
                         busy_blocks: calendar.busy_blocks?.map((busyBlock, blockIndex) =>
-                          blockIndex === index ? { ...busyBlock, start: event.target.value } : busyBlock,
+                          blockIndex === index ? { ...busyBlock, start: fromDateTimeLocalValue(event.target.value) } : busyBlock,
                         ),
                       })
                     }
-                    className="rounded-md border border-line px-3 py-2 text-sm"
+                    className="min-w-0 rounded-md border border-line px-3 py-2 text-sm"
                   />
                   <input
                     aria-label={`Busy block ${index + 1} end`}
-                    value={block.end}
+                    type="datetime-local"
+                    value={toDateTimeLocalValue(block.end)}
                     onChange={(event) =>
                       onChange({
                         ...calendar,
                         busy_blocks: calendar.busy_blocks?.map((busyBlock, blockIndex) =>
-                          blockIndex === index ? { ...busyBlock, end: event.target.value } : busyBlock,
+                          blockIndex === index ? { ...busyBlock, end: fromDateTimeLocalValue(event.target.value) } : busyBlock,
                         ),
                       })
                     }
-                    className="rounded-md border border-line px-3 py-2 text-sm"
+                    className="min-w-0 rounded-md border border-line px-3 py-2 text-sm"
                   />
                   <SecondaryButton
                     type="button"
@@ -121,7 +126,7 @@ export function CalendarContextPanel({
                         busy_blocks: calendar.busy_blocks?.filter((_block, blockIndex) => blockIndex !== index),
                       })
                     }
-                    className="min-h-9"
+                    className="min-h-9 whitespace-nowrap"
                   >
                     Remove
                   </SecondaryButton>
@@ -132,8 +137,8 @@ export function CalendarContextPanel({
             <EmptyState>Mock calendar availability will appear here when FastAPI is available.</EmptyState>
           )}
         </div>
-        <SecondaryButton type="button" aria-label="Confirm mock calendar">
-          Confirm mock calendar
+        <SecondaryButton type="button" aria-label="Confirm mock calendar" onClick={() => setConfirmed(true)}>
+          {confirmed ? 'Calendar confirmed' : 'Confirm mock calendar'}
         </SecondaryButton>
       </div>
     </Panel>

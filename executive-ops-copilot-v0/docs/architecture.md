@@ -5,7 +5,7 @@
 - Frontend: local React, TypeScript, Vite web app.
 - Backend: local FastAPI service with Pydantic models aligned to `/contracts`.
 - Model runtime: optional local Ollama model accessed only by the backend.
-- Storage: local SQLite for rules, calendar blocks, decision feedback, and decision logs.
+- Storage: local SQLite for actor records, AI audit logs, decision feedback, and decision logs.
 - Contracts: OpenAPI and JSON Schema under `/contracts`.
 - Evals: local cases under `/evals/cases` and an API trigger for V0 eval runs.
 
@@ -18,6 +18,7 @@
 - Deterministic policy checks and model-generated text are separate service boundaries.
 - Raw LLM output is validated into contract-shaped models before it can cross the API boundary.
 - All persisted records use backend-generated IDs and timestamps.
+- AI workflow calls are audited with actor context, endpoint, operation, model, model status, request payload, response payload or error, status, and latency.
 
 ## Backend Responsibilities
 
@@ -27,6 +28,7 @@
 - Generate `Recommendation` records from parsed request, rules, and calendar context.
 - Generate `DraftResponse` records from recommendation context.
 - Accept `DecisionFeedback` and write `DecisionLogEntry` records.
+- Persist AI request/response audit records for parse, recommendation, and draft operations.
 - Run local eval cases and return summarized results.
 
 ## Frontend Responsibilities
@@ -51,6 +53,7 @@
 8. Frontend sends `POST /api/feedback` with `DecisionFeedback`.
 9. Backend writes and returns `DecisionLogEntry`.
 10. Frontend can retrieve logs with `GET /api/decisions`.
+11. Admin/development audit inspection can retrieve AI audit records with `GET /api/audit/ai`.
 
 ## Data Ownership
 
@@ -59,6 +62,8 @@
 - `draft_id` is created when a draft is generated.
 - `decision_id` is created when feedback is logged.
 - The backend is the source of truth for generated IDs and `created_at` timestamps.
+- `actor_id` defaults to `local-user` and can be supplied with `X-Actor-Id`; `X-Actor-Email` and `X-Actor-Name` are persisted when present.
+- AI audit entries are append-only records in `ai_audit_log`.
 
 ## Failure States
 

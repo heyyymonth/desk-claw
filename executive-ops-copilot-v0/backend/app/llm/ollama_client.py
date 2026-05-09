@@ -40,3 +40,16 @@ class OllamaClient:
             return json.loads(raw_response)
         except json.JSONDecodeError as exc:
             raise ServiceError("ollama_invalid_json", "Ollama returned non-JSON model output.") from exc
+
+    def has_model(self) -> bool:
+        request = urllib.request.Request(f"{self.base_url}/api/tags", method="GET")
+        try:
+            with urllib.request.urlopen(request, timeout=min(self.timeout_seconds, 2.0)) as response:
+                body = json.loads(response.read().decode("utf-8"))
+        except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError):
+            return False
+
+        models = body.get("models")
+        if not isinstance(models, list):
+            return False
+        return any(model.get("name") == self.model or model.get("model") == self.model for model in models if isinstance(model, dict))

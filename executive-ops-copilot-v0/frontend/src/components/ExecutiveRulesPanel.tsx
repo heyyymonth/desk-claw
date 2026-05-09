@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import type { ExecutiveRules } from '../types';
+import { fromDateTimeLocalValue, toDateTimeLocalValue } from '../lib/dateTime';
 import { EmptyState, FieldLabel, Panel, SecondaryButton } from './ui';
 
 export function ExecutiveRulesPanel({
@@ -10,6 +12,8 @@ export function ExecutiveRulesPanel({
   onChange: (rules: ExecutiveRules) => void;
   error?: string;
 }) {
+  const [confirmed, setConfirmed] = useState(false);
+
   if (!rules) {
     return (
       <Panel title="Executive Rules Panel">
@@ -56,6 +60,7 @@ export function ExecutiveRulesPanel({
           <FieldLabel>Working start</FieldLabel>
           <input
             aria-label="Working start"
+            type="time"
             value={rules.working_hours.start}
             onChange={(event) => update({ working_hours: { ...rules.working_hours, start: event.target.value } })}
             className="w-full rounded-md border border-line px-3 py-2 text-sm"
@@ -65,6 +70,7 @@ export function ExecutiveRulesPanel({
           <FieldLabel>Working end</FieldLabel>
           <input
             aria-label="Working end"
+            type="time"
             value={rules.working_hours.end}
             onChange={(event) => update({ working_hours: { ...rules.working_hours, end: event.target.value } })}
             className="w-full rounded-md border border-line px-3 py-2 text-sm"
@@ -113,24 +119,26 @@ export function ExecutiveRulesPanel({
           {rules.protected_blocks.length ? (
             <div className="mt-2 space-y-3">
               {rules.protected_blocks.map((block, index) => (
-                <div key={`${block.label}-${index}`} className="grid gap-2 rounded-md bg-panel p-3 md:grid-cols-[1fr_1fr_1fr_auto]">
+                <div key={`${block.label}-${index}`} className="grid min-w-0 gap-2 rounded-md bg-panel p-3">
                   <input
                     aria-label={`Protected block ${index + 1} label`}
                     value={block.label}
                     onChange={(event) => updateProtectedBlock(index, { label: event.target.value })}
-                    className="rounded-md border border-line px-3 py-2 text-sm"
+                    className="min-w-0 rounded-md border border-line px-3 py-2 text-sm"
                   />
                   <input
                     aria-label={`Protected block ${index + 1} start`}
-                    value={block.start}
-                    onChange={(event) => updateProtectedBlock(index, { start: event.target.value })}
-                    className="rounded-md border border-line px-3 py-2 text-sm"
+                    type="datetime-local"
+                    value={toDateTimeLocalValue(block.start)}
+                    onChange={(event) => updateProtectedBlock(index, { start: fromDateTimeLocalValue(event.target.value) })}
+                    className="min-w-0 rounded-md border border-line px-3 py-2 text-sm"
                   />
                   <input
                     aria-label={`Protected block ${index + 1} end`}
-                    value={block.end}
-                    onChange={(event) => updateProtectedBlock(index, { end: event.target.value })}
-                    className="rounded-md border border-line px-3 py-2 text-sm"
+                    type="datetime-local"
+                    value={toDateTimeLocalValue(block.end)}
+                    onChange={(event) => updateProtectedBlock(index, { end: fromDateTimeLocalValue(event.target.value) })}
+                    className="min-w-0 rounded-md border border-line px-3 py-2 text-sm"
                   />
                   <SecondaryButton
                     type="button"
@@ -141,7 +149,7 @@ export function ExecutiveRulesPanel({
                         protected_blocks: rules.protected_blocks.filter((_block, blockIndex) => blockIndex !== index),
                       })
                     }
-                    className="min-h-9"
+                    className="min-h-9 whitespace-nowrap"
                   >
                     Remove
                   </SecondaryButton>
@@ -154,8 +162,8 @@ export function ExecutiveRulesPanel({
         </div>
       </div>
       <div className="mt-4">
-        <SecondaryButton type="button" aria-label="Confirm executive rules">
-          Confirm executive rules
+        <SecondaryButton type="button" aria-label="Confirm executive rules" onClick={() => setConfirmed(true)}>
+          {confirmed ? 'Rules confirmed' : 'Confirm executive rules'}
         </SecondaryButton>
       </div>
     </Panel>

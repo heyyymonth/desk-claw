@@ -136,3 +136,23 @@ def test_workflow_decision_log_contract():
 def test_default_rules_and_calendar_endpoints():
     assert client.get("/api/rules/default").status_code == 200
     assert client.get("/api/calendar/mock").status_code == 200
+
+
+def test_ai_audit_endpoint_records_ai_workflow_calls():
+    parse = client.post(
+        "/api/requests/parse",
+        json={"raw_text": "From Jordan: need 30 minutes with Dana tomorrow."},
+        headers={"X-Actor-Id": "ea-1", "X-Actor-Email": "ea@example.com", "X-Actor-Name": "EA User"},
+    )
+
+    assert parse.status_code == 200
+
+    audit = client.get("/api/audit/ai?limit=5")
+
+    assert audit.status_code == 200
+    body = audit.json()
+    assert body["limit"] == 5
+    assert body["events"][0]["actor_id"] == "ea-1"
+    assert body["events"][0]["operation"] == "parse_request"
+    assert body["events"][0]["request_payload"]["raw_text"].startswith("From Jordan")
+    assert body["events"][0]["response_payload"]["intent"]["requester"]

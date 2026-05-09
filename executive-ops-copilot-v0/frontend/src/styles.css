@@ -10,9 +10,14 @@
     sans-serif;
 }
 
+* {
+  box-sizing: border-box;
+}
+
 body {
   margin: 0;
   min-width: 320px;
+  overflow-x: hidden;
 }
 
 button,
@@ -20,6 +25,8 @@ textarea,
 input,
 select {
   font: inherit;
+  max-width: 100%;
+  min-width: 0;
 }
 
 button:focus-visible,

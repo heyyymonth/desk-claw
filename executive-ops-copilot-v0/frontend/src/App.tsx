@@ -122,11 +122,19 @@ export function App() {
     if (!meetingRequest || !recommendation) {
       return;
     }
+    const finalNotes =
+      finalDecision === 'edited' && draft
+        ? [
+            notes || 'Draft edited before use.',
+            `Edited draft subject: ${draft.subject}`,
+            `Edited draft body: ${draft.body}`,
+          ].join('\n')
+        : notes;
     logDecisionMutation.mutate({
       meeting_request: meetingRequest,
       recommendation,
       final_decision: finalDecision,
-      notes,
+      notes: finalNotes,
     });
   };
 
@@ -149,7 +157,7 @@ export function App() {
         {topError ? <ErrorState message={errorMessage(topError, 'FastAPI request failed.')} /> : null}
 
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
-          <div className="space-y-5">
+          <div className="min-w-0 space-y-5">
             <RequestIntakePanel
               rawText={rawText}
               onRawTextChange={(value) => {
@@ -183,7 +191,7 @@ export function App() {
             />
           </div>
 
-          <aside className="space-y-5">
+          <aside className="min-w-0 space-y-5">
             <ExecutiveRulesPanel
               rules={rules}
               onChange={setRules}
