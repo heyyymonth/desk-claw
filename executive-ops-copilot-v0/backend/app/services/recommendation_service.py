@@ -60,32 +60,34 @@ class RecommendationService:
         if self.llm_client is None:
             return deterministic
 
-        try:
-            output = self.llm_client.generate_structured(
-                recommendation_prompt(
-                    {
-                        "parsed_request": parsed_request.model_dump(mode="json"),
-                        "rules": rules.model_dump(mode="json"),
-                        "analysis": analysis.model_dump(mode="json"),
-                    }
-                ),
-                Recommendation,
-            )
-            model_recommendation = parse_llm_output(output, Recommendation)
-            return model_recommendation.model_copy(
-                update={
-                    "decision": deterministic.decision,
-                    "risks": deterministic.risks or model_recommendation.risks,
-                    "risk_level": deterministic.risk_level,
-                    "safe_action": deterministic.safe_action,
-                    "proposed_slots": deterministic.proposed_slots,
-                    "model_status": "used",
+        output = self.llm_client.generate_structured(
+            recommendation_prompt(
+                {
+                    "parsed_request": parsed_request.model_dump(mode="json"),
+                    "rules": rules.model_dump(mode="json"),
+                    "analysis": analysis.model_dump(mode="json"),
                 }
+            ),
+            Recommendation,
+        )
+        try:
+            model_recommendation = parse_llm_output(output, Recommendation)
+        except InvalidLLMOutput as exc:
+            raise ServiceError(
+                "ollama_invalid_output",
+                "Gemma returned invalid recommendation output.",
+                status_code=502,
+            ) from exc
+        return model_recommendation.model_copy(
+            update={
+                "decision": deterministic.decision,
+                "risks": deterministic.risks or model_recommendation.risks,
+                "risk_level": deterministic.risk_level,
+                "safe_action": deterministic.safe_action,
+                "proposed_slots": deterministic.proposed_slots,
+                "model_status": "used",
+            }
             )
-        except InvalidLLMOutput:
-            return deterministic.model_copy(update={"model_status": "invalid_output"})
-        except ServiceError:
-            return deterministic.model_copy(update={"model_status": "unavailable"})
 
     @staticmethod
     def _decision(parsed_request: ParsedMeetingRequest, analysis) -> str:

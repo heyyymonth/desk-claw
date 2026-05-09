@@ -10,7 +10,7 @@ class Settings:
         self.llm_mode = getenv("LLM_MODE", "ollama")
         self.ollama_base_url = getenv("OLLAMA_BASE_URL", "http://localhost:11434")
         self.ollama_url = self.ollama_base_url
-        self.ollama_model = getenv("OLLAMA_MODEL", "gemma3:latest")
+        self.ollama_model = getenv("OLLAMA_MODEL", "gemma4:latest")
         self.timezone = getenv("APP_TIMEZONE", "America/Los_Angeles")
 
 

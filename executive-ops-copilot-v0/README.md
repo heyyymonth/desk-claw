@@ -29,9 +29,9 @@ npm install
 npm run dev
 ```
 
-## Optional Ollama
+## Ollama
 
 ```bash
 ollama serve
-ollama pull gemma
+ollama pull gemma4:latest
 ```

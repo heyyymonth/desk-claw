@@ -2,89 +2,63 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://local.executive-ops-copilot/contracts/meeting_request.schema.json",
   "title": "ParsedMeetingRequest",
-  "description": "Contracts for raw and parsed meeting requests plus local calendar blocks.",
+  "description": "Parsed meeting request returned by the backend parser endpoint.",
   "$ref": "#/$defs/ParsedMeetingRequest",
   "$defs": {
+    "Priority": { "type": "string", "enum": ["low", "normal", "high", "urgent"] },
     "MeetingType": {
       "type": "string",
-      "enum": ["intro", "internal", "customer", "investor", "candidate", "vendor", "board", "personal", "other"]
+      "enum": ["intro", "internal", "customer", "investor", "candidate", "vendor", "board", "partner", "legal_hr", "personal", "other"]
     },
-    "Urgency": { "type": "string", "enum": ["low", "normal", "high", "urgent"] },
-    "Importance": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
-    "Sensitivity": { "type": "string", "enum": ["normal", "confidential", "restricted"] },
-    "CalendarBlockType": { "type": "string", "enum": ["busy", "tentative", "hold", "travel", "focus"] },
-    "MeetingRequestRaw": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["raw_text"],
-      "properties": {
-        "raw_text": { "type": "string", "minLength": 1, "maxLength": 12000 },
-        "source": { "type": "string", "enum": ["paste", "manual_entry"], "default": "paste" },
-        "received_at": { "type": "string", "format": "date-time" }
-      }
-    },
-    "Attendee": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["name"],
-      "properties": {
-        "name": { "type": "string", "minLength": 1 },
-        "email": { "type": "string", "format": "email" },
-        "organization": { "type": "string" },
-        "role": { "type": "string", "enum": ["requester", "executive", "required", "optional", "unknown"], "default": "unknown" }
-      }
-    },
+    "Sensitivity": { "type": "string", "enum": ["low", "medium", "high"] },
     "TimeWindow": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["start", "end", "timezone"],
+      "required": ["start", "end"],
       "properties": {
         "start": { "type": "string", "format": "date-time" },
-        "end": { "type": "string", "format": "date-time" },
-        "timezone": { "type": "string", "minLength": 1 },
-        "source_text": { "type": "string" }
+        "end": { "type": "string", "format": "date-time" }
+      }
+    },
+    "MeetingIntent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "title",
+        "requester",
+        "duration_minutes",
+        "priority",
+        "meeting_type",
+        "attendees",
+        "preferred_windows",
+        "constraints",
+        "missing_fields",
+        "sensitivity",
+        "async_candidate",
+        "escalation_required"
+      ],
+      "properties": {
+        "title": { "type": "string", "minLength": 1 },
+        "requester": { "type": "string", "minLength": 1 },
+        "duration_minutes": { "type": "integer", "minimum": 15, "maximum": 240 },
+        "priority": { "$ref": "#/$defs/Priority" },
+        "meeting_type": { "$ref": "#/$defs/MeetingType" },
+        "attendees": { "type": "array", "items": { "type": "string" } },
+        "preferred_windows": { "type": "array", "items": { "$ref": "#/$defs/TimeWindow" } },
+        "constraints": { "type": "array", "items": { "type": "string" } },
+        "missing_fields": { "type": "array", "items": { "type": "string" } },
+        "sensitivity": { "$ref": "#/$defs/Sensitivity" },
+        "async_candidate": { "type": "boolean" },
+        "escalation_required": { "type": "boolean" }
       }
     },
     "ParsedMeetingRequest": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["request_id", "raw_text", "title", "requester", "meeting_type", "urgency", "importance", "sensitivity", "duration_minutes", "attendees", "preferred_windows", "constraints", "missing_fields", "parse_confidence", "model_status", "created_at"],
+      "required": ["raw_text", "intent"],
       "properties": {
-        "request_id": { "type": "string", "pattern": "^req_[A-Za-z0-9_-]+$" },
         "raw_text": { "type": "string", "minLength": 1, "maxLength": 12000 },
-        "title": { "type": "string", "minLength": 1 },
-        "requester": { "$ref": "#/$defs/Attendee" },
-        "meeting_type": { "$ref": "#/$defs/MeetingType" },
-        "urgency": { "$ref": "#/$defs/Urgency" },
-        "importance": { "$ref": "#/$defs/Importance" },
-        "sensitivity": { "$ref": "#/$defs/Sensitivity" },
-        "duration_minutes": { "type": "integer", "minimum": 15, "maximum": 480, "multipleOf": 5 },
-        "duration_inferred": { "type": "boolean", "default": false },
-        "attendees": { "type": "array", "items": { "$ref": "#/$defs/Attendee" } },
-        "preferred_windows": { "type": "array", "items": { "$ref": "#/$defs/TimeWindow" } },
-        "deadline": { "type": "string", "format": "date-time" },
-        "constraints": { "type": "array", "items": { "type": "string", "minLength": 1 } },
-        "missing_fields": { "type": "array", "items": { "type": "string", "enum": ["requester_email", "duration", "timezone", "attendees", "preferred_times", "agenda", "location"] } },
-        "agenda": { "type": "string" },
-        "location": { "type": "string" },
-        "parse_confidence": { "type": "number", "minimum": 0, "maximum": 1 },
-        "model_status": { "type": "string", "enum": ["not_used", "used", "unavailable", "invalid_output"] },
-        "created_at": { "type": "string", "format": "date-time" }
-      }
-    },
-    "CalendarBlock": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["block_id", "title", "start", "end", "timezone", "block_type"],
-      "properties": {
-        "block_id": { "type": "string", "pattern": "^cal_[A-Za-z0-9_-]+$" },
-        "title": { "type": "string", "minLength": 1 },
-        "start": { "type": "string", "format": "date-time" },
-        "end": { "type": "string", "format": "date-time" },
-        "timezone": { "type": "string", "minLength": 1 },
-        "block_type": { "$ref": "#/$defs/CalendarBlockType" },
-        "is_movable": { "type": "boolean", "default": false },
-        "notes": { "type": "string" }
+        "intent": { "$ref": "#/$defs/MeetingIntent" }
       }
     }
   }

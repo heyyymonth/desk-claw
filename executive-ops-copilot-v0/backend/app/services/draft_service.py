@@ -1,3 +1,4 @@
+from app.core.errors import ServiceError
 from app.llm.output_parser import InvalidLLMOutput, parse_llm_output
 from app.llm.prompts import draft_prompt
 from app.llm.schemas import DraftResponse, Recommendation
@@ -12,8 +13,8 @@ class DraftService:
             output = self.llm.generate_structured(draft_prompt(recommendation.model_dump(mode="json")), DraftResponse)
             try:
                 return parse_llm_output(output, DraftResponse)
-            except InvalidLLMOutput:
-                pass
+            except InvalidLLMOutput as exc:
+                raise ServiceError("ollama_invalid_output", "Gemma returned invalid draft output.", status_code=502) from exc
 
         if recommendation.decision == "schedule" and recommendation.proposed_slots:
             slot = recommendation.proposed_slots[0]

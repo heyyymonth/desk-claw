@@ -9,7 +9,7 @@ from app.core.errors import ServiceError
 
 
 class OllamaClient:
-    def __init__(self, base_url: str, model: str, timeout_seconds: float = 10.0) -> None:
+    def __init__(self, base_url: str, model: str, timeout_seconds: float = 120.0) -> None:
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.timeout_seconds = timeout_seconds
@@ -31,7 +31,7 @@ class OllamaClient:
             with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
                 body = json.loads(response.read().decode("utf-8"))
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
-            raise ServiceError("ollama_unavailable", "Ollama is unavailable. Use LLM_MODE=mock for tests.") from exc
+            raise ServiceError("ollama_unavailable", "Ollama is unavailable.") from exc
 
         raw_response = body.get("response")
         if not isinstance(raw_response, str):

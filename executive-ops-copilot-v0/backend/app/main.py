@@ -1,6 +1,8 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import calendar, deps, drafts, evals, feedback, recommendations, requests, rules
+from app.core.settings import get_settings
 from app.core.errors import ServiceError, service_error_handler
 from app.llm.schemas import DraftPayload, RecommendationPayload, ParsedMeetingRequest, Recommendation, ExecutiveRules, CalendarBlock
 from app.models import DraftResponse as ApiDraftResponse
@@ -10,6 +12,16 @@ from app.models import Recommendation as ApiRecommendation
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Executive Ops Scheduling Copilot API", version="0.1.0")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+        ],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     app.add_exception_handler(ServiceError, service_error_handler)
     app.include_router(requests.router)
     app.include_router(recommendations.router)
@@ -22,7 +34,8 @@ def create_app() -> FastAPI:
 
     @app.get("/api/health")
     def health():
-        return {"status": "ok"}
+        settings = get_settings()
+        return {"status": "ok", "ollama": "used", "model": settings.ollama_model}
 
     return app
 

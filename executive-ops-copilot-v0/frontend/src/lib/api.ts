@@ -9,7 +9,9 @@ import type {
   TimeWindow,
 } from '../types';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
+const DEFAULT_API_BASE_URL =
+  typeof window === 'undefined' ? 'http://localhost:8000' : `${window.location.protocol}//${window.location.hostname}:8000`;
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? DEFAULT_API_BASE_URL;
 
 type BackendCalendarEvent = TimeWindow & { title: string };
 type BackendCalendarResponse = { blocks: BackendCalendarEvent[] };
@@ -25,11 +27,25 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    const detail = await response.text().catch(() => '');
-    throw new Error(detail || `API request failed: ${response.status}`);
+    throw new Error(await errorMessage(response));
   }
 
   return response.json() as Promise<T>;
+}
+
+async function errorMessage(response: Response): Promise<string> {
+  const fallback = `API request failed: ${response.status}`;
+  const body = await response.text().catch(() => '');
+  if (!body) {
+    return fallback;
+  }
+
+  try {
+    const payload = JSON.parse(body) as { error?: { message?: string }; detail?: string };
+    return payload.error?.message ?? payload.detail ?? fallback;
+  } catch {
+    return body;
+  }
 }
 
 function normalizeCalendar(payload: CalendarContext | BackendCalendarEvent[] | BackendCalendarResponse): CalendarContext {

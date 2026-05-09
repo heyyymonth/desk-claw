@@ -14,10 +14,32 @@ class RequestParser:
         if self.llm_client is not None:
             try:
                 output = self.llm_client.generate_structured(parse_request_prompt(raw_text), ParsedMeetingRequest)
-                return parse_llm_output(output, ParsedMeetingRequest)
-            except (InvalidLLMOutput, ServiceError):
-                pass
+                parsed = parse_llm_output(output, ParsedMeetingRequest)
+                return parsed.model_copy(update={"intent": _normalize_intent(raw_text, parsed.intent)})
+            except InvalidLLMOutput as exc:
+                raise ServiceError("ollama_invalid_output", "Gemma returned invalid parse output.", status_code=502) from exc
         return ParsedMeetingRequest(raw_text=raw_text, intent=_fallback_intent(raw_text))
+
+
+def _normalize_intent(raw_text: str, intent: MeetingIntent) -> MeetingIntent:
+    fallback = _fallback_intent(raw_text)
+    constraints = list(dict.fromkeys([*intent.constraints, *fallback.constraints]))
+    missing_fields = list(dict.fromkeys([*fallback.missing_fields, *intent.missing_fields]))
+    attendees = list(dict.fromkeys([*intent.attendees, *fallback.attendees]))
+    requester = fallback.requester if fallback.requester != "Unknown requester" else intent.requester
+    return intent.model_copy(
+        update={
+            "requester": requester,
+            "priority": fallback.priority,
+            "meeting_type": fallback.meeting_type,
+            "constraints": constraints,
+            "missing_fields": missing_fields,
+            "attendees": attendees,
+            "sensitivity": fallback.sensitivity,
+            "async_candidate": fallback.async_candidate,
+            "escalation_required": fallback.escalation_required,
+        }
+    )
 
 
 def _fallback_intent(raw_text: str) -> MeetingIntent:
