@@ -10,8 +10,8 @@ export function Panel({
   aside?: ReactNode;
 }) {
   return (
-    <section className="overflow-hidden rounded-lg border border-white/75 bg-glass shadow-[0_20px_48px_rgba(31,38,50,0.11)] backdrop-blur-md">
-      <div className="flex min-h-14 items-center justify-between gap-3 border-b border-line/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.72),rgba(255,255,255,0.42))] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.88)]">
+    <section className="overflow-hidden rounded-lg border border-white/68 bg-[rgba(247,248,250,0.70)] shadow-[0_18px_42px_rgba(31,38,50,0.10)] backdrop-blur-md">
+      <div className="flex min-h-14 items-center justify-between gap-3 border-b border-line/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.62),rgba(241,244,248,0.42))] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.76)]">
         <h2 className="text-base font-semibold text-ink">{title}</h2>
         {aside}
       </div>

@@ -232,20 +232,20 @@ export function App() {
     <main className="min-h-screen">
       <div className="flex min-h-screen">
         <aside
-          className={`group/sidebar fixed inset-y-0 left-0 z-30 hidden border-r border-white/20 bg-[linear-gradient(180deg,#2d3542,#171d27)] text-white shadow-[18px_0_48px_rgba(31,38,50,0.20)] transition-[width] duration-200 lg:block ${
-            isNavPinned ? 'w-64' : 'w-20 hover:w-64'
+          className={`group/sidebar fixed inset-y-0 left-0 z-30 hidden border-r border-white/20 bg-[linear-gradient(180deg,#303947,#202735)] text-white shadow-[12px_0_36px_rgba(31,38,50,0.16)] transition-[width] duration-300 ease-out lg:block ${
+            isNavPinned ? 'w-60' : 'w-16 hover:w-60'
           }`}
         >
-          <div className={`flex h-full flex-col ${isNavPinned ? 'p-3' : 'px-3 py-3 group-hover/sidebar:p-3'}`}>
-            <div className="flex min-h-14 items-center gap-3 border-b border-white/10 pb-3">
-              <BrandLogo variant="mark" className="h-10 w-10 shrink-0" />
+          <div className={`flex h-full flex-col ${isNavPinned ? 'p-2.5' : 'px-2.5 py-2.5 group-hover/sidebar:p-2.5'}`}>
+            <div className="flex min-h-12 items-center gap-3 border-b border-white/10 pb-2.5">
+              <BrandLogo variant="mark" className="h-9 w-9 shrink-0" />
               <div className={`min-w-0 ${navExpanded ? 'block' : 'hidden group-hover/sidebar:block'}`}>
                 <div className="font-bold leading-tight text-white">desk.ai</div>
                 <div className="text-xs text-white/52">Ops command suite</div>
               </div>
             </div>
 
-            <nav className="mt-4 space-y-2" aria-label="Primary pages">
+            <nav className="mt-3 space-y-1.5" aria-label="Primary pages">
               {pages.map((page) => {
                 const Icon = page.icon;
                 const isActive = activePage === page.id;
@@ -255,7 +255,7 @@ export function App() {
                     type="button"
                     aria-label={page.label}
                     onClick={() => setActivePage(page.id)}
-                    className={`flex h-12 w-full items-center rounded-lg border text-left text-sm transition ${
+                    className={`flex h-10 w-full items-center rounded-md border text-left text-sm transition-colors duration-200 ${
                       isActive
                         ? 'border-white/20 bg-white text-brandDark shadow-[0_14px_34px_rgba(0,0,0,0.24)]'
                         : 'border-white/[0.08] bg-white/[0.04] text-white/72 hover:bg-white/[0.10] hover:text-white'
@@ -274,7 +274,7 @@ export function App() {
             <button
               type="button"
               onClick={() => setIsNavPinned((current) => !current)}
-              className={`mt-auto flex h-11 w-full items-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-sm font-semibold text-white/72 hover:bg-white/[0.10] hover:text-white ${
+              className={`mt-auto flex h-10 w-full items-center rounded-md border border-white/[0.08] bg-white/[0.04] text-sm font-semibold text-white/72 transition-colors duration-200 hover:bg-white/[0.10] hover:text-white ${
                 navExpanded ? 'gap-3 px-3 justify-start' : 'justify-center group-hover/sidebar:justify-start group-hover/sidebar:gap-3 group-hover/sidebar:px-3'
               }`}
             >
@@ -286,15 +286,15 @@ export function App() {
           </div>
         </aside>
 
-        <div className={`min-w-0 flex-1 transition-[padding] duration-200 ${isNavPinned ? 'lg:pl-64' : 'lg:pl-20'}`}>
-          <div className="sticky top-0 z-20 border-b border-white/35 bg-[linear-gradient(180deg,rgba(67,76,91,0.96),rgba(36,43,55,0.94))] px-4 py-3 text-white shadow-[0_18px_46px_rgba(31,38,50,0.18)] backdrop-blur-xl lg:px-6">
-            <div className="mx-auto grid max-w-7xl grid-cols-[1fr_auto_1fr] items-center gap-x-3 gap-y-2">
+        <div className={`min-w-0 flex-1 transition-[padding] duration-300 ease-out ${isNavPinned ? 'lg:pl-60' : 'lg:pl-16'}`}>
+          <div className="sticky top-0 z-20 border-b border-white/25 bg-[linear-gradient(180deg,rgba(61,70,84,0.94),rgba(35,42,54,0.92))] px-4 py-1.5 text-white shadow-[0_8px_24px_rgba(31,38,50,0.12)] backdrop-blur-xl lg:px-6">
+            <div className="mx-auto grid max-w-7xl grid-cols-[1fr_auto_1fr] items-center gap-x-3 gap-y-1.5">
               <div className="flex min-w-0 items-center gap-2">
-                <BrandLogo variant="mark" className="h-9 w-9 shrink-0" />
+                <BrandLogo variant="mark" className="h-7 w-7 shrink-0" />
                 <span className="hidden text-xs font-semibold uppercase tracking-wide text-white/62 sm:inline">Executive Ops Workbench</span>
               </div>
               <div className="flex justify-center">
-                <BrandLogo variant="wordmark" className="h-9" />
+                <BrandLogo variant="wordmark" className="h-7" />
               </div>
               <div className="col-span-3 row-start-2 flex min-w-0 justify-center sm:col-span-1 sm:col-start-3 sm:row-start-1 sm:justify-end">
                 <StatusIndicator health={healthQuery.data} isLoading={healthQuery.isLoading} error={healthQuery.error} />
@@ -420,12 +420,12 @@ function HomePage({
 }) {
   return (
     <>
-      <section className="relative overflow-hidden rounded-lg border border-white/75 bg-[linear-gradient(145deg,rgba(255,255,255,0.90),rgba(238,241,245,0.70))] shadow-[0_28px_70px_rgba(31,38,50,0.14)] backdrop-blur-xl">
-        <div className="absolute inset-x-8 top-0 h-px bg-white/95" aria-hidden="true" />
-        <div className="absolute right-0 top-0 h-56 w-1/2 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.96),transparent_68%)]" aria-hidden="true" />
+      <section className="relative overflow-hidden rounded-lg border border-white/70 bg-[linear-gradient(145deg,rgba(245,247,250,0.84),rgba(225,230,237,0.70))] shadow-[0_24px_62px_rgba(31,38,50,0.12)] backdrop-blur-xl">
+        <div className="absolute inset-x-8 top-0 h-px bg-white/80" aria-hidden="true" />
+        <div className="absolute right-0 top-0 h-56 w-1/2 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.72),transparent_68%)]" aria-hidden="true" />
         <div className="relative grid gap-5 p-4 lg:grid-cols-[minmax(0,1fr)_420px] lg:p-5">
           <div className="min-w-0">
-            <div className="inline-flex max-w-full items-center gap-2 rounded-md border border-line/80 bg-white/70 px-2.5 py-1 text-xs font-semibold uppercase tracking-wide text-brandDark shadow-sm">
+            <div className="inline-flex max-w-full items-center gap-2 rounded-md border border-line/80 bg-white/55 px-2.5 py-1 text-xs font-semibold uppercase tracking-wide text-brandDark shadow-sm">
               <Building2 size={14} aria-hidden="true" />
               <span className="truncate">Exec command center</span>
             </div>
@@ -441,7 +441,7 @@ function HomePage({
               {enterpriseSignals.map((signal) => {
                 const Icon = signal.icon;
                 return (
-                  <div key={signal.label} className="rounded-lg border border-white/80 bg-white/[0.62] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.86),0_10px_24px_rgba(31,38,50,0.08)]">
+                  <div key={signal.label} className="rounded-lg border border-white/70 bg-white/[0.48] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.72),0_10px_24px_rgba(31,38,50,0.06)]">
                     <div className="flex items-center justify-between gap-2 text-steel">
                       <span className="text-xs font-semibold uppercase tracking-wide">{signal.label}</span>
                       <Icon size={15} aria-hidden="true" />
@@ -455,7 +455,7 @@ function HomePage({
             <div className="mt-5 flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wide text-steel">
               <span className="mr-1 text-brandDark">Trusted workflow pattern</span>
               {trustMarks.map((mark) => (
-                <span key={mark} className="rounded-md border border-line/80 bg-white/[0.58] px-2.5 py-1 shadow-sm">
+                  <span key={mark} className="rounded-md border border-line/75 bg-white/[0.46] px-2.5 py-1 shadow-sm">
                   {mark}
                 </span>
               ))}
@@ -643,18 +643,18 @@ function AdminCenter({
 
 function LiveDecisionCanvas({ activeStep }: { activeStep: number }) {
   return (
-    <div className="min-w-0 rounded-lg border border-[#c9ced7] bg-[#151a22] p-3 text-white shadow-[0_24px_60px_rgba(22,26,34,0.30)]">
-      <div className="flex min-w-0 items-center justify-between gap-2 border-b border-white/10 pb-3">
+    <div className="min-w-0 rounded-lg border border-[#c8ced7] bg-[linear-gradient(180deg,#edf0f4,#d9dee6)] p-3 text-ink shadow-[0_18px_44px_rgba(31,38,50,0.12)]">
+      <div className="flex min-w-0 items-center justify-between gap-2 border-b border-[#c2c8d2] pb-3">
         <div className="flex min-w-0 items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-white/10">
+          <div className="flex h-8 w-8 items-center justify-center rounded-md border border-white/70 bg-white/58 text-brandDark shadow-sm">
             <Workflow size={17} aria-hidden="true" />
           </div>
           <div className="min-w-0">
             <div className="text-sm font-semibold">Live decision canvas</div>
-            <div className="text-xs text-white/[0.58]">Intake, policy, calendar, response</div>
+            <div className="text-xs text-steel">Intake, policy, calendar, response</div>
           </div>
         </div>
-        <span className="hidden shrink-0 rounded-md border border-white/10 bg-white/[0.08] px-2 py-1 text-xs font-semibold text-white/[0.76] sm:inline-flex">
+        <span className="hidden shrink-0 rounded-md border border-line bg-white/58 px-2 py-1 text-xs font-semibold text-brandDark shadow-sm sm:inline-flex">
           Review mode
         </span>
       </div>
@@ -667,33 +667,33 @@ function LiveDecisionCanvas({ activeStep }: { activeStep: number }) {
             <div
               key={step.label}
               className={`flex min-w-0 items-center gap-3 rounded-md border px-3 py-2 ${
-                isComplete || isCurrent ? 'border-white/[0.18] bg-white/[0.12]' : 'border-white/[0.08] bg-white/[0.04]'
+                isComplete || isCurrent ? 'border-[#aeb6c2] bg-white/70' : 'border-[#c6ccd5] bg-white/40'
               }`}
             >
-              <div className={`flex h-8 w-8 items-center justify-center rounded-md ${isComplete ? 'bg-white text-brandDark' : 'bg-white/10 text-white/[0.82]'}`}>
+              <div className={`flex h-8 w-8 items-center justify-center rounded-md ${isComplete ? 'bg-brandDark text-white' : 'border border-line bg-white/60 text-brandDark'}`}>
                 <Icon size={15} aria-hidden="true" />
               </div>
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-semibold">{step.label}</div>
-                <div className="truncate text-xs text-white/[0.56]">{step.detail}</div>
+                <div className="truncate text-xs text-steel">{step.detail}</div>
               </div>
-              <div className={`h-2 w-2 rounded-full ${isComplete || isCurrent ? 'bg-white' : 'bg-white/[0.22]'}`} />
+              <div className={`h-2 w-2 rounded-full ${isComplete || isCurrent ? 'bg-brandDark' : 'bg-[#9aa3af]'}`} />
             </div>
           );
         })}
       </div>
       <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
-        <div className="rounded-md border border-white/[0.08] bg-white/[0.05] p-2">
-          <div className="font-semibold text-white">SSO</div>
-          <div className="mt-1 text-white/50">ready</div>
+        <div className="rounded-md border border-[#c6ccd5] bg-white/42 p-2">
+          <div className="font-semibold text-ink">SSO</div>
+          <div className="mt-1 text-steel">ready</div>
         </div>
-        <div className="rounded-md border border-white/[0.08] bg-white/[0.05] p-2">
-          <div className="font-semibold text-white">SOC 2</div>
-          <div className="mt-1 text-white/50">aligned</div>
+        <div className="rounded-md border border-[#c6ccd5] bg-white/42 p-2">
+          <div className="font-semibold text-ink">SOC 2</div>
+          <div className="mt-1 text-steel">aligned</div>
         </div>
-        <div className="rounded-md border border-white/[0.08] bg-white/[0.05] p-2">
-          <div className="font-semibold text-white">Logs</div>
-          <div className="mt-1 text-white/50">complete</div>
+        <div className="rounded-md border border-[#c6ccd5] bg-white/42 p-2">
+          <div className="font-semibold text-ink">Logs</div>
+          <div className="mt-1 text-steel">complete</div>
         </div>
       </div>
     </div>
