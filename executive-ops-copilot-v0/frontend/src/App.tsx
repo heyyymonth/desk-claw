@@ -1,4 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { ShieldCheck } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { CalendarContextPanel } from './components/CalendarContextPanel';
 import { DecisionFeedbackControls } from './components/DecisionFeedbackControls';
@@ -142,14 +143,24 @@ export function App() {
     parseMutation.error ?? recommendationMutation.error ?? draftMutation.error ?? logDecisionMutation.error;
 
   return (
-    <main className="min-h-screen bg-[#eef2f6]">
+    <main className="min-h-screen">
       <div className="mx-auto flex max-w-7xl flex-col gap-5 px-4 py-5 lg:px-6">
-        <header className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
-          <div>
-            <h1 className="text-2xl font-bold text-ink">Scheduling Decision Workbench</h1>
-            <p className="mt-1 max-w-3xl text-sm text-steel">
-              Parse one request, review assumptions, generate a recommendation, draft a response, and log the human decision.
-            </p>
+        <header className="flex flex-col justify-between gap-4 border-b border-[#cddbed] pb-5 md:flex-row md:items-center">
+          <div className="flex min-w-0 items-center gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-brand text-white shadow-[0_10px_24px_rgba(20,85,217,0.22)]">
+              <ShieldCheck size={26} aria-hidden="true" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <h1 className="text-2xl font-bold text-ink">desk.ai</h1>
+                <span className="rounded-md border border-[#b8cbea] bg-brandSoft px-2 py-1 text-xs font-semibold uppercase tracking-wide text-brandDark">
+                  Executive Ops Workbench
+                </span>
+              </div>
+              <p className="mt-1 max-w-3xl text-sm text-steel">
+                Enterprise scheduling triage with governed AI recommendations, draft review, and auditable decision history.
+              </p>
+            </div>
           </div>
           <StatusIndicator health={healthQuery.data} isLoading={healthQuery.isLoading} error={healthQuery.error} />
         </header>

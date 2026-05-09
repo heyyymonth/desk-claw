@@ -10,8 +10,8 @@ export function Panel({
   aside?: ReactNode;
 }) {
   return (
-    <section className="rounded-lg border border-line bg-white shadow-sm">
-      <div className="flex min-h-14 items-center justify-between gap-3 border-b border-line px-4 py-3">
+    <section className="rounded-lg border border-line bg-white shadow-[0_8px_24px_rgba(15,31,61,0.06)]">
+      <div className="flex min-h-14 items-center justify-between gap-3 border-b border-line bg-[#fbfdff] px-4 py-3">
         <h2 className="text-base font-semibold text-ink">{title}</h2>
         {aside}
       </div>
@@ -40,7 +40,7 @@ export function PrimaryButton(props: React.ButtonHTMLAttributes<HTMLButtonElemen
   return (
     <button
       {...props}
-      className={`inline-flex min-h-10 items-center justify-center rounded-md bg-ink px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-400 ${props.className ?? ''}`}
+      className={`inline-flex min-h-10 items-center justify-center rounded-md bg-brand px-4 text-sm font-semibold text-white shadow-sm hover:bg-brandDark disabled:cursor-not-allowed disabled:bg-slate-400 ${props.className ?? ''}`}
     />
   );
 }
@@ -49,7 +49,7 @@ export function SecondaryButton(props: React.ButtonHTMLAttributes<HTMLButtonElem
   return (
     <button
       {...props}
-      className={`inline-flex min-h-10 items-center justify-center rounded-md border border-line bg-white px-3 text-sm font-semibold text-ink hover:bg-panel disabled:cursor-not-allowed disabled:text-slate-400 ${props.className ?? ''}`}
+      className={`inline-flex min-h-10 items-center justify-center rounded-md border border-line bg-white px-3 text-sm font-semibold text-brandDark hover:bg-brandSoft disabled:cursor-not-allowed disabled:text-slate-400 ${props.className ?? ''}`}
     />
   );
 }
