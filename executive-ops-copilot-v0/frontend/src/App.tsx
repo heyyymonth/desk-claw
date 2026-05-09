@@ -236,11 +236,11 @@ export function App() {
             isNavPinned ? 'w-64' : 'w-20 hover:w-64'
           }`}
         >
-          <div className="flex h-full flex-col p-3">
+          <div className={`flex h-full flex-col ${isNavPinned ? 'p-3' : 'px-3 py-3 group-hover/sidebar:p-3'}`}>
             <div className="flex min-h-14 items-center gap-3 border-b border-white/10 pb-3">
               <BrandLogo variant="mark" className="h-10 w-10 shrink-0" />
               <div className={`min-w-0 ${navExpanded ? 'block' : 'hidden group-hover/sidebar:block'}`}>
-                <BrandLogo variant="wordmark" className="h-8" />
+                <div className="font-bold leading-tight text-white">desk.ai</div>
                 <div className="text-xs text-white/52">Ops command suite</div>
               </div>
             </div>
@@ -255,11 +255,11 @@ export function App() {
                     type="button"
                     aria-label={page.label}
                     onClick={() => setActivePage(page.id)}
-                    className={`flex h-12 w-full items-center gap-3 rounded-lg border px-3 text-left text-sm transition ${
+                    className={`flex h-12 w-full items-center rounded-lg border text-left text-sm transition ${
                       isActive
                         ? 'border-white/20 bg-white text-brandDark shadow-[0_14px_34px_rgba(0,0,0,0.24)]'
                         : 'border-white/[0.08] bg-white/[0.04] text-white/72 hover:bg-white/[0.10] hover:text-white'
-                    }`}
+                    } ${navExpanded ? 'gap-3 px-3 justify-start' : 'justify-center group-hover/sidebar:justify-start group-hover/sidebar:gap-3 group-hover/sidebar:px-3'}`}
                   >
                     <Icon size={18} aria-hidden="true" />
                     <span className={`min-w-0 ${navExpanded ? 'block' : 'hidden group-hover/sidebar:block'}`}>
@@ -274,7 +274,9 @@ export function App() {
             <button
               type="button"
               onClick={() => setIsNavPinned((current) => !current)}
-              className="mt-auto flex h-11 w-full items-center gap-3 rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 text-sm font-semibold text-white/72 hover:bg-white/[0.10] hover:text-white"
+              className={`mt-auto flex h-11 w-full items-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-sm font-semibold text-white/72 hover:bg-white/[0.10] hover:text-white ${
+                navExpanded ? 'gap-3 px-3 justify-start' : 'justify-center group-hover/sidebar:justify-start group-hover/sidebar:gap-3 group-hover/sidebar:px-3'
+              }`}
             >
               {isNavPinned ? <PanelLeftClose size={18} aria-hidden="true" /> : <PanelLeftOpen size={18} aria-hidden="true" />}
               <span className={`${navExpanded ? 'block' : 'hidden group-hover/sidebar:block'}`}>
