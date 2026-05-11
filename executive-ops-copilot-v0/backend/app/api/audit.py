@@ -13,3 +13,11 @@ def list_ai_audit_events(
     service: AuditService = Depends(get_audit_service),
 ):
     return {"events": service.list_ai_events(limit), "limit": limit}
+
+
+@router.get("/ai/metrics")
+def ai_audit_metrics(
+    limit: int = Query(default=250, ge=1, le=1000),
+    service: AuditService = Depends(get_audit_service),
+):
+    return service.ai_metrics(limit)

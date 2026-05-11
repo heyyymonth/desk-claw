@@ -4,7 +4,7 @@
 
 - Frontend: local React, TypeScript, Vite web app.
 - Backend: local FastAPI service with Pydantic models aligned to `/contracts`.
-- Model runtime: optional local Ollama model accessed only by the backend.
+- Model runtime: Google ADK agent runners owned by the backend, model-agnostic through `ADK_MODEL` and defaulting to local Ollama `ollama_chat/gemma4:latest`.
 - Storage: local SQLite for actor records, AI audit logs, decision feedback, and decision logs.
 - Contracts: OpenAPI and JSON Schema under `/contracts`.
 - Evals: local cases under `/evals/cases` and an API trigger for V0 eval runs.
@@ -13,12 +13,12 @@
 
 - The frontend calls FastAPI only.
 - The frontend does not call Ollama, SQLite, or filesystem resources directly.
-- FastAPI owns orchestration, validation, rule application, model calls, and persistence.
+- FastAPI owns orchestration, validation, rule application, ADK model calls, and persistence.
 - Route handlers stay thin and delegate business behavior to services.
 - Deterministic policy checks and model-generated text are separate service boundaries.
 - Raw LLM output is validated into contract-shaped models before it can cross the API boundary.
 - All persisted records use backend-generated IDs and timestamps.
-- AI workflow calls are audited with actor context, endpoint, operation, model, model status, request payload, response payload or error, status, and latency.
+- AI workflow calls are audited with actor context, endpoint, operation, ADK model, model status, runtime, agent name, tool calls, request payload, response payload or error, status, and latency.
 
 ## Backend Responsibilities
 
@@ -28,7 +28,7 @@
 - Generate `Recommendation` records from parsed request, rules, and calendar context.
 - Generate `DraftResponse` records from recommendation context.
 - Accept `DecisionFeedback` and write `DecisionLogEntry` records.
-- Persist AI request/response audit records for parse, recommendation, and draft operations.
+- Persist AI request/response audit records and technical performance metrics for parse, recommendation, and draft operations.
 - Run local eval cases and return summarized results.
 
 ## Frontend Responsibilities
@@ -53,7 +53,7 @@
 8. Frontend sends `POST /api/feedback` with `DecisionFeedback`.
 9. Backend writes and returns `DecisionLogEntry`.
 10. Frontend can retrieve logs with `GET /api/decisions`.
-11. Admin/development audit inspection can retrieve AI audit records with `GET /api/audit/ai`.
+11. Admin/development audit inspection can retrieve AI audit records with `GET /api/audit/ai` and aggregate dashboard metrics with `GET /api/audit/ai/metrics`.
 
 ## Data Ownership
 

@@ -8,19 +8,31 @@ from app.llm.schemas import MeetingIntent, ParsedMeetingRequest
 class RequestParser:
     def __init__(self, llm_client=None, agent_runner: AdkRequestParserAgentRunner | None = None) -> None:
         self.agent_runner = agent_runner
+        self.last_ai_run: dict = _fallback_trace()
 
     def parse(self, raw_text: str) -> ParsedMeetingRequest:
         if self.agent_runner is not None:
             try:
                 parsed = self.agent_runner.parse(raw_text)
+                self.last_ai_run = getattr(self.agent_runner, "last_run", None) or _adk_trace("meeting_request_parser_agent")
                 return parsed.model_copy(update={"intent": _normalize_intent(raw_text, parsed.intent)})
             except AgentRuntimeError as exc:
-                raise ServiceError("ollama_unavailable", "Local Gemma4 ADK parser is unavailable.", status_code=502) from exc
+                self.last_ai_run = _adk_trace("meeting_request_parser_agent", status="unavailable")
+                raise ServiceError("ollama_unavailable", "Configured ADK parser is unavailable.", status_code=502) from exc
+        self.last_ai_run = _fallback_trace()
         return fallback_parse(raw_text)
 
 
 def fallback_parse(raw_text: str) -> ParsedMeetingRequest:
     return ParsedMeetingRequest(raw_text=raw_text, intent=_fallback_intent(raw_text))
+
+
+def _adk_trace(agent_name: str, status: str = "used") -> dict:
+    return {"runtime": "google-adk", "agent_name": agent_name, "model_status": status, "tool_calls": []}
+
+
+def _fallback_trace() -> dict:
+    return {"runtime": "deterministic", "agent_name": None, "model_status": "not_configured", "tool_calls": []}
 
 
 def _normalize_intent(raw_text: str, intent: MeetingIntent) -> MeetingIntent:

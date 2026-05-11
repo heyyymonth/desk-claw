@@ -62,9 +62,19 @@ Both ADK and fallback plans supply:
 
 Guardrails continue to override unsafe model output for the final decision, risk level, safe action, and slots. This keeps model reasoning useful without letting it bypass the human-reviewed scheduling contract.
 
+## Technical Dashboard Metrics
+
+Every parse, recommendation, and draft workflow records ADK telemetry into `ai_audit_log`:
+
+- `runtime`: `google-adk` for configured model calls or `deterministic` for local fallback behavior.
+- `agent_name`: the ADK agent handling the workflow step.
+- `model_name`: the configured ADK model string.
+- `tool_calls`: the tool trace available for that workflow step.
+- `latency_ms`, `model_status`, `status`, and error fields for performance and quality tracking.
+
+`GET /api/audit/ai/metrics` aggregates those records for the admin technical dashboard. It reports success rate, ADK coverage, tool-call coverage, average and p95 latency, model-status counts, operation-level health, slowest events, and recent failures.
+
 ## Next Implementation Steps
 
-1. Add an `/api/agent-plan` endpoint if the frontend should display tool-call traces directly.
-2. Persist the agent plan in audit logs for compliance review.
-3. Add eval cases for rescheduling, split-priority conflicts, and protected-block preservation.
-4. Improve model-specific prompt/tool payloads if live tool-call latency remains high.
+1. Add eval cases for rescheduling, split-priority conflicts, and protected-block preservation.
+2. Improve model-specific prompt/tool payloads if live tool-call latency remains high.

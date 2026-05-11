@@ -154,5 +154,22 @@ def test_ai_audit_endpoint_records_ai_workflow_calls():
     assert body["limit"] == 5
     assert body["events"][0]["actor_id"] == "ea-1"
     assert body["events"][0]["operation"] == "parse_request"
+    assert body["events"][0]["model_name"].startswith("ollama_chat/")
+    assert body["events"][0]["runtime"] in {"google-adk", "deterministic"}
+    assert "tool_calls" in body["events"][0]
     assert body["events"][0]["request_payload"]["raw_text"].startswith("From Jordan")
     assert body["events"][0]["response_payload"]["intent"]["requester"]
+
+
+def test_ai_metrics_endpoint_exposes_backend_quality_dashboard_data():
+    client.post("/api/requests/parse", json={"raw_text": "Need 30 min with Legal"})
+
+    response = client.get("/api/audit/ai/metrics")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total_events"] >= 1
+    assert 0 <= body["success_rate"] <= 1
+    assert 0 <= body["adk_coverage"] <= 1
+    assert "operation_metrics" in body
+    assert "recent_failures" in body

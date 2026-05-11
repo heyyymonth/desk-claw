@@ -44,6 +44,18 @@ describe('api client', () => {
       expect.objectContaining({ method: 'POST' }),
     );
   });
+
+  it('loads AI performance metrics from the backend audit endpoint', async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(jsonResponse({ total_events: 3, success_rate: 1 })));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await api.aiMetrics();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:8000/api/audit/ai/metrics',
+      expect.objectContaining({ headers: expect.objectContaining({ 'Content-Type': 'application/json' }) }),
+    );
+  });
 });
 
 function jsonResponse(payload: unknown) {

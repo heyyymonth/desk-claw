@@ -56,11 +56,22 @@ class Database:
                 response_payload TEXT,
                 error_code TEXT,
                 error_message TEXT,
+                runtime TEXT NOT NULL DEFAULT 'unknown',
+                agent_name TEXT,
+                tool_calls TEXT NOT NULL DEFAULT '[]',
                 FOREIGN KEY(actor_id) REFERENCES app_users(actor_id)
             )
             """
         )
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info(ai_audit_log)").fetchall()}
+        if "runtime" not in columns:
+            connection.execute("ALTER TABLE ai_audit_log ADD COLUMN runtime TEXT NOT NULL DEFAULT 'unknown'")
+        if "agent_name" not in columns:
+            connection.execute("ALTER TABLE ai_audit_log ADD COLUMN agent_name TEXT")
+        if "tool_calls" not in columns:
+            connection.execute("ALTER TABLE ai_audit_log ADD COLUMN tool_calls TEXT NOT NULL DEFAULT '[]'")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_ai_audit_created_at ON ai_audit_log(created_at)")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_ai_audit_actor_id ON ai_audit_log(actor_id)")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_ai_audit_operation ON ai_audit_log(operation)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_ai_audit_runtime ON ai_audit_log(runtime)")
         connection.commit()

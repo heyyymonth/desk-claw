@@ -1,5 +1,6 @@
 import type {
   CalendarContext,
+  AiMetrics,
   DecisionLogEntry,
   DraftResponse,
   ExecutiveRules,
@@ -72,6 +73,7 @@ function normalizeDecisions(payload: DecisionLogEntry[] | BackendDecisionsRespon
 
 export const api = {
   health: () => request<HealthStatus>('/api/health'),
+  aiMetrics: () => request<AiMetrics>('/api/audit/ai/metrics'),
   defaultRules: () => request<ExecutiveRules>('/api/default-rules'),
   mockCalendar: async () =>
     normalizeCalendar(await request<CalendarContext | BackendCalendarEvent[] | BackendCalendarResponse>('/api/mock-calendar')),

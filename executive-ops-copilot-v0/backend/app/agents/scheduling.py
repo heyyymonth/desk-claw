@@ -289,6 +289,7 @@ class AdkSchedulingAgentRunner:
         self.ollama_base_url = ollama_base_url
         self.app_name = app_name
         self.timeout_seconds = timeout_seconds
+        self.last_run: dict | None = None
 
     def plan(
         self,
@@ -301,7 +302,14 @@ class AdkSchedulingAgentRunner:
         try:
             future = executor.submit(self._run_adk_plan, parsed_request, rules, calendar_blocks)
             output = future.result(timeout=self.timeout_seconds)
-            return self._merge_model_output(output, deterministic_plan)
+            plan = self._merge_model_output(output, deterministic_plan)
+            self.last_run = _agent_run_trace(
+                agent_name=scheduling_agent_definition.name,
+                app_name=self.app_name,
+                model=self.model,
+                tool_calls=[call.tool_name for call in plan.tool_calls],
+            )
+            return plan
         except concurrent.futures.TimeoutError as exc:
             raise AgentRuntimeError("ADK scheduling agent timed out.") from exc
         except Exception as exc:
@@ -379,13 +387,21 @@ class AdkRequestParserAgentRunner:
         self.ollama_base_url = ollama_base_url
         self.app_name = app_name
         self.timeout_seconds = timeout_seconds
+        self.last_run: dict | None = None
 
     def parse(self, raw_text: str) -> ParsedMeetingRequest:
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         try:
             future = executor.submit(self._run_parse, raw_text)
             output = future.result(timeout=self.timeout_seconds)
-            return ParsedMeetingRequest.model_validate(output)
+            parsed = ParsedMeetingRequest.model_validate(output)
+            self.last_run = _agent_run_trace(
+                agent_name=request_parser_agent_definition.name,
+                app_name=self.app_name,
+                model=self.model,
+                tool_calls=[],
+            )
+            return parsed
         except concurrent.futures.TimeoutError as exc:
             raise AgentRuntimeError("ADK request parser timed out.") from exc
         except Exception as exc:
@@ -416,13 +432,21 @@ class AdkDraftAgentRunner:
         self.ollama_base_url = ollama_base_url
         self.app_name = app_name
         self.timeout_seconds = timeout_seconds
+        self.last_run: dict | None = None
 
     def generate(self, recommendation: Recommendation) -> DraftResponse:
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         try:
             future = executor.submit(self._run_generate, recommendation)
             output = future.result(timeout=self.timeout_seconds)
-            return DraftResponse.model_validate(output)
+            draft = DraftResponse.model_validate(output)
+            self.last_run = _agent_run_trace(
+                agent_name=draft_agent_definition.name,
+                app_name=self.app_name,
+                model=self.model,
+                tool_calls=[],
+            )
+            return draft
         except concurrent.futures.TimeoutError as exc:
             raise AgentRuntimeError("ADK draft agent timed out.") from exc
         except Exception as exc:
@@ -704,6 +728,16 @@ def _adk_model(model: str, ollama_base_url: str | None = None):
             raise RuntimeError("Install google-adk with litellm support to use Ollama-hosted ADK models.") from exc
         return LiteLlm(model=model)
     return model
+
+
+def _agent_run_trace(agent_name: str, app_name: str, model: str, tool_calls: list[str]) -> dict:
+    return {
+        "runtime": "google-adk",
+        "agent_name": agent_name,
+        "app_name": app_name,
+        "model": model,
+        "tool_calls": tool_calls,
+    }
 
 
 def _run_adk_json(agent, app_name: str, session_prefix: str, payload: dict, max_llm_calls: int) -> dict:

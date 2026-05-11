@@ -10,3 +10,6 @@ class AuditService:
 
     def list_ai_events(self, limit: int = 50) -> list[dict]:
         return self.repository.list_ai_events(limit)
+
+    def ai_metrics(self, limit: int = 250) -> dict:
+        return self.repository.ai_metrics(limit)

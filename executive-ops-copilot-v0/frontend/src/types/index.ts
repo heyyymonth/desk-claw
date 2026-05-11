@@ -108,3 +108,40 @@ export interface HealthStatus {
   model_status?: ModelStatus;
   model?: string;
 }
+
+export interface AiOperationMetric {
+  operation: string;
+  total: number;
+  success_rate: number;
+  adk_coverage: number;
+  avg_latency_ms: number;
+  tool_calls_avg: number;
+  model_status_counts: Record<string, number>;
+}
+
+export interface AiEventSummary {
+  id: string;
+  created_at: string;
+  operation: string;
+  model_name: string;
+  model_status: ModelStatus;
+  runtime: string;
+  agent_name?: string | null;
+  latency_ms: number;
+  status: string;
+  error_code?: string | null;
+  tool_calls: string[];
+}
+
+export interface AiMetrics {
+  total_events: number;
+  success_rate: number;
+  adk_coverage: number;
+  tool_call_coverage: number;
+  avg_latency_ms: number;
+  p95_latency_ms: number;
+  model_status_counts: Record<string, number>;
+  operation_metrics: AiOperationMetric[];
+  slowest_events: AiEventSummary[];
+  recent_failures: AiEventSummary[];
+}

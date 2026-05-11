@@ -41,13 +41,16 @@ def _generate_recommendation_with_audit(
                 actor=actor,
                 operation="generate_recommendation",
                 endpoint=endpoint,
-                model_name=settings.ollama_model,
-                model_status="unavailable" if exc.code == "ollama_unavailable" else "invalid_output",
+                model_name=settings.adk_model,
+                model_status=service.last_ai_run.get("model_status") or ("unavailable" if exc.code == "ollama_unavailable" else "invalid_output"),
                 status="error",
                 latency_ms=_latency_ms(started),
                 request_payload=payload,
                 error_code=exc.code,
                 error_message=exc.message,
+                runtime=service.last_ai_run.get("runtime", "unknown"),
+                agent_name=service.last_ai_run.get("agent_name"),
+                tool_calls=service.last_ai_run.get("tool_calls", []),
             )
         )
         raise
@@ -57,12 +60,15 @@ def _generate_recommendation_with_audit(
             actor=actor,
             operation="generate_recommendation",
             endpoint=endpoint,
-            model_name=settings.ollama_model,
+            model_name=settings.adk_model,
             model_status=response.model_status,
             status="success",
             latency_ms=_latency_ms(started),
             request_payload=payload,
             response_payload=response,
+            runtime=service.last_ai_run.get("runtime", "unknown"),
+            agent_name=service.last_ai_run.get("agent_name"),
+            tool_calls=service.last_ai_run.get("tool_calls", []),
         )
     )
     return response
