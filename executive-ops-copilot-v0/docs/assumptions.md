@@ -12,8 +12,8 @@
 - Calendar blocks represent busy, tentative, hold, travel, or focus time.
 - Proposed slots must not overlap hard busy blocks unless the recommendation explicitly reports a high risk.
 - Ollama is expected at `http://localhost:11434` unless configured otherwise.
-- The default local model name is configurable; contracts do not require a specific model.
-- Recommendation and draft generation may use deterministic fallback behavior when the model is unavailable.
+- The only supported V0 model is local Ollama `gemma4:latest`; ADK model routing is pinned to `ollama_chat/gemma4:latest`.
+- Request parsing, recommendation reasoning, and draft generation use Google ADK agent runners when enabled, with deterministic local fallback behavior when the local model is unavailable.
 - Decision logs are local development data and are not encrypted in V0.
 - Draft responses are editable by the user and are not sent automatically.
 - `GET /api/decisions` returns newest entries first unless query parameters specify otherwise.
@@ -34,6 +34,7 @@
 ## Eval Assumptions
 
 - V0 scheduling evals use a deterministic fixture week starting `2026-05-11` in `America/Los_Angeles` unless a case overrides calendar context.
+- The eval endpoint includes Google ADK trajectory evaluation for scheduling tool calls and does not require an external hosted model.
 - Eval expectations rely on first-class response fields for meeting type, draft type, sensitivity, async candidacy, escalation requirement, aggregate risk level, and safe action.
 - Missing-context detection should prefer clarification or blocking behavior over speculative scheduling when requester identity, purpose, duration, authorization, attendee list, or sensitivity context is unclear.
 - Sensitive legal, HR, board, disclosure, and press-related requests require human review before any outward-facing reply is treated as final.

@@ -14,11 +14,17 @@ Google ADK models an agent as a worker with instructions and tools. This repo no
 - `classify_priority_and_risk`: makes missing-context, sensitivity, escalation, and conflict risk explicit.
 - `select_resolution_strategy`: chooses `schedule`, `clarify`, `defer`, or `decline`.
 
-`create_adk_root_agent()` returns a real ADK `Agent` with Python function tools. ADK auto-wraps those functions as tool definitions, and `AdkSchedulingAgentRunner` runs the agent through ADK `Runner` and an in-memory session. The default backend configuration uses `AGENT_RUNTIME=adk` and `ADK_MODEL=ollama_chat/<OLLAMA_MODEL>` so local Ollama models can reason through the ADK tool loop.
+`create_adk_root_agent()` returns a real ADK `Agent` with Python function tools. ADK auto-wraps those functions as tool definitions, and `AdkSchedulingAgentRunner` runs the agent through ADK `Runner` and an in-memory session. The backend is pinned to local Ollama `gemma4:latest` through `ADK_MODEL=ollama_chat/gemma4:latest`; other model names are rejected by the agent factory.
+
+The same ADK pattern now covers all AI-facing app workflows:
+
+- `meeting_request_parser_agent` calls `extract_meeting_intent`.
+- `meeting_resolution_agent` calls calendar, rules, risk, and strategy tools.
+- `meeting_draft_agent` calls `compose_guarded_draft`.
 
 The deterministic `SchedulingAgentPlanner` remains as a fallback. It preserves local tests, protects the API when ADK/model dependencies are unavailable, and supplies guardrails that the ADK result must respect.
 
-ADK runs are bounded to avoid request hangs from local models that loop on tool calls or take too long to respond. If the ADK runner errors or times out, the API returns the fallback plan with `model_status="unavailable"`.
+ADK runs are bounded to avoid request hangs from local models that loop on tool calls or take too long to respond. If the ADK runner errors or times out, the API returns deterministic local fallback behavior with `model_status="unavailable"` where the API contract has that field.
 
 ## Agent Responsibilities
 
@@ -34,7 +40,7 @@ Planning priorities:
 
 ## Repo Integration
 
-`RecommendationService` now attempts the ADK agent runner first when configured. The ADK agent receives:
+`RequestParser`, `RecommendationService`, and `DraftService` now attempt their ADK agent runners first when configured. The scheduling ADK agent receives:
 
 - parsed meeting request
 - executive rules
@@ -61,4 +67,4 @@ Guardrails continue to override unsafe model output for the final decision, risk
 1. Add an `/api/agent-plan` endpoint if the frontend should display tool-call traces directly.
 2. Persist the agent plan in audit logs for compliance review.
 3. Add eval cases for rescheduling, split-priority conflicts, and protected-block preservation.
-4. Add production model credentials for Gemini or set `ADK_MODEL` to a tool-capable local Ollama model.
+4. Improve the local Gemma4 prompt/tool payloads if live tool-call latency remains high.

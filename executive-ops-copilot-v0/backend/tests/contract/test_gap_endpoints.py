@@ -44,6 +44,9 @@ def test_eval_endpoint_runs_deterministic_basic_cases():
     assert body["status"] == "passed"
     assert body["passed"] >= 1
     assert body["failed"] == 0
+    assert body["adk_eval"]["framework"] == "google-adk"
+    assert body["adk_eval"]["metric"] == "tool_trajectory_avg_score"
+    assert body["adk_eval"]["passed"] is True
 
 
 def test_full_workflow_decision_log_post_contract():

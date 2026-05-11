@@ -1,16 +1,8 @@
 import re
-from app.llm.ollama_client import OllamaClient
 from app.models import MeetingIntent, MeetingRequest, Priority
 
 
-def parse_meeting_request(raw_text: str, llm: OllamaClient | None = None) -> MeetingRequest:
-    if llm:
-        try:
-            payload = llm.generate_structured(_parse_prompt(raw_text), MeetingIntent)
-            return MeetingRequest(raw_text=raw_text, intent=MeetingIntent.model_validate(payload))
-        except Exception:
-            pass
-
+def parse_meeting_request(raw_text: str) -> MeetingRequest:
     return MeetingRequest(raw_text=raw_text, intent=_deterministic_intent(raw_text))
 
 
@@ -87,10 +79,3 @@ def _constraints(text: str) -> list[str]:
         constraints.append("Prefers afternoon")
     return constraints
 
-
-def _parse_prompt(raw_text: str) -> str:
-    return (
-        "Extract a meeting intent as JSON with keys title, requester, duration_minutes, "
-        "priority, attendees, preferred_windows, constraints, missing_fields. "
-        f"Request: {raw_text}"
-    )

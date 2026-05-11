@@ -1,11 +1,18 @@
 import json
 
 from app.agents.scheduling import (
+    AdkModelConfigurationError,
+    AdkRequestParserAgentRunner,
     AdkSchedulingAgentRunner,
+    LOCAL_ADK_MODEL,
     SchedulingAgentPlanner,
     classify_priority_and_risk,
+    create_adk_draft_agent,
+    create_adk_request_parser_agent,
     create_adk_root_agent,
+    extract_meeting_intent,
     inspect_calendar_conflicts,
+    local_adk_model_name,
     scheduling_agent_definition,
     select_resolution_strategy,
     validate_scheduling_rules,
@@ -91,12 +98,23 @@ def test_planner_defers_when_requested_window_is_blocked():
 
 
 def test_create_adk_root_agent_is_adk_compatible_or_reports_missing_dependency():
+    agent = create_adk_root_agent()
+
+    assert agent.name == "meeting_resolution_agent"
+    assert len(agent.tools) == 4
+
+
+def test_all_adk_agents_are_for_local_gemma4_only():
+    assert local_adk_model_name() == "ollama_chat/gemma4:latest"
+    assert LOCAL_ADK_MODEL == "ollama_chat/gemma4:latest"
+    assert create_adk_request_parser_agent().name == "meeting_request_parser_agent"
+    assert create_adk_draft_agent().name == "meeting_draft_agent"
     try:
-        agent = create_adk_root_agent("gemini-2.0-flash")
-    except RuntimeError as exc:
-        assert "Install google-adk" in str(exc) or "litellm" in str(exc)
+        create_adk_root_agent("gemini-2.0-flash")
+    except AdkModelConfigurationError as exc:
+        assert "ollama_chat/gemma4:latest" in str(exc)
     else:
-        assert agent.name == "meeting_resolution_agent"
+        raise AssertionError("non-local ADK model should be rejected")
 
 
 def test_adk_tool_functions_use_structured_inputs():
@@ -136,9 +154,27 @@ def test_adk_runner_merges_model_reasoning_with_guardrails():
         "proposed_slots": [],
     }
 
-    merged = AdkSchedulingAgentRunner("gemini-2.0-flash")._merge_model_output(output, plan)
+    merged = AdkSchedulingAgentRunner(LOCAL_ADK_MODEL)._merge_model_output(output, plan)
 
     assert merged.confidence == 0.93
     assert merged.rationale == ["ADK reasoned through calendar, rules, risk, and strategy tools."]
     assert merged.safe_action == "propose_slot_for_human_review_before_final_send"
     assert merged.proposed_slots
+
+
+def test_request_parser_tool_returns_schema_payload():
+    payload = extract_meeting_intent("From Alex at Acme: urgent customer escalation for 30 minutes today")
+
+    parsed = ParsedMeetingRequest.model_validate(payload)
+    assert parsed.intent.meeting_type == "customer"
+    assert parsed.intent.priority == "urgent"
+
+
+def test_request_parser_runner_validates_adk_output():
+    runner = AdkRequestParserAgentRunner(LOCAL_ADK_MODEL)
+    output = extract_meeting_intent("Need 45 min with Finance next week")
+
+    parsed = ParsedMeetingRequest.model_validate(output)
+
+    assert parsed.intent.duration_minutes == 45
+    assert parsed.intent.priority == "normal"

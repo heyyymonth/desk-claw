@@ -1,24 +1,26 @@
 import re
 
+from app.agents.scheduling import AdkRequestParserAgentRunner, AgentRuntimeError
 from app.core.errors import ServiceError
-from app.llm.output_parser import InvalidLLMOutput, parse_llm_output
-from app.llm.prompts import parse_request_prompt
 from app.llm.schemas import MeetingIntent, ParsedMeetingRequest
 
 
 class RequestParser:
-    def __init__(self, llm_client=None) -> None:
-        self.llm_client = llm_client
+    def __init__(self, llm_client=None, agent_runner: AdkRequestParserAgentRunner | None = None) -> None:
+        self.agent_runner = agent_runner
 
     def parse(self, raw_text: str) -> ParsedMeetingRequest:
-        if self.llm_client is not None:
+        if self.agent_runner is not None:
             try:
-                output = self.llm_client.generate_structured(parse_request_prompt(raw_text), ParsedMeetingRequest)
-                parsed = parse_llm_output(output, ParsedMeetingRequest)
+                parsed = self.agent_runner.parse(raw_text)
                 return parsed.model_copy(update={"intent": _normalize_intent(raw_text, parsed.intent)})
-            except InvalidLLMOutput as exc:
-                raise ServiceError("ollama_invalid_output", "Gemma returned invalid parse output.", status_code=502) from exc
-        return ParsedMeetingRequest(raw_text=raw_text, intent=_fallback_intent(raw_text))
+            except AgentRuntimeError as exc:
+                raise ServiceError("ollama_unavailable", "Local Gemma4 ADK parser is unavailable.", status_code=502) from exc
+        return fallback_parse(raw_text)
+
+
+def fallback_parse(raw_text: str) -> ParsedMeetingRequest:
+    return ParsedMeetingRequest(raw_text=raw_text, intent=_fallback_intent(raw_text))
 
 
 def _normalize_intent(raw_text: str, intent: MeetingIntent) -> MeetingIntent:

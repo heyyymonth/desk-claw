@@ -3,14 +3,6 @@ from app.llm.schemas import CalendarBlock, ExecutiveRules, ParsedMeetingRequest
 from app.services.recommendation_service import RecommendationService
 
 
-class StubLLM:
-    def __init__(self, output):
-        self.output = output
-
-    def generate_structured(self, prompt, schema):
-        return self.output
-
-
 class StubAgentRunner:
     def __init__(self, plan=None, error: Exception | None = None):
         self._plan = plan
@@ -57,25 +49,6 @@ def rules():
     )
 
 
-def test_recommendation_uses_valid_llm_rationale_but_deterministic_slots():
-    llm = StubLLM(
-        {
-            "decision": "schedule",
-            "confidence": 0.9,
-            "rationale": ["The meeting fits policy."],
-            "risks": [],
-            "proposed_slots": [],
-            "model_status": "used",
-        }
-    )
-
-    recommendation = RecommendationService(llm).generate(parsed_request(), rules(), [])
-
-    assert recommendation.decision == "schedule"
-    assert recommendation.model_status == "used"
-    assert recommendation.proposed_slots[0].start.isoformat() == "2026-05-11T09:00:00-07:00"
-
-
 def test_recommendation_falls_back_when_calendar_has_no_slot():
     blocks = [
         CalendarBlock(
@@ -105,26 +78,7 @@ def test_recommendation_guardrails_rationale_for_escalation():
             )
         }
     )
-    llm = StubLLM(
-        {
-            "decision": "schedule",
-            "confidence": 0.9,
-            "rationale": ["A suitable open slot is available on May 10th morning."],
-            "risks": [],
-            "risk_level": "low",
-            "safe_action": "propose_slot_for_human_review_before_final_send",
-            "proposed_slots": [
-                {
-                    "start": "2026-05-11T09:00:00-07:00",
-                    "end": "2026-05-11T09:30:00-07:00",
-                    "reason": "Open slot",
-                }
-            ],
-            "model_status": "used",
-        }
-    )
-
-    recommendation = RecommendationService(llm).generate(request, rules(), [])
+    recommendation = RecommendationService(None).generate(request, rules(), [])
 
     assert recommendation.decision == "defer"
     assert recommendation.proposed_slots == []
@@ -135,18 +89,8 @@ def test_recommendation_guardrails_rationale_for_escalation():
 def test_recommendation_prefers_adk_agent_runner_when_configured():
     plan = SchedulingAgentPlanner().plan(parsed_request(), rules(), [])
     runner = StubAgentRunner(plan=plan)
-    llm = StubLLM(
-        {
-            "decision": "defer",
-            "confidence": 0.1,
-            "rationale": ["This should not be used when ADK runner is active."],
-            "risks": [],
-            "proposed_slots": [],
-            "model_status": "used",
-        }
-    )
 
-    recommendation = RecommendationService(llm, agent_runner=runner).generate(parsed_request(), rules(), [])
+    recommendation = RecommendationService(agent_runner=runner).generate(parsed_request(), rules(), [])
 
     assert recommendation.decision == "schedule"
     assert recommendation.model_status == "used"

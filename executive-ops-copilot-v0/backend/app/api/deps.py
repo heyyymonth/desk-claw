@@ -1,11 +1,10 @@
 from fastapi import Header
 
-from app.agents.scheduling import AdkSchedulingAgentRunner
+from app.agents.scheduling import AdkDraftAgentRunner, AdkRequestParserAgentRunner, AdkSchedulingAgentRunner
 from app.core.settings import get_settings
 from app.db.audit import ActorContext, AuditRepository
 from app.db.session import Database
 from app.db.decision_log import DecisionLogRepository
-from app.llm.ollama_client import OllamaClient
 from app.services.audit_service import AuditService
 from app.services.decision_log import DecisionLogService
 from app.services.draft_service import DraftService
@@ -14,11 +13,11 @@ from app.services.request_parser import RequestParser
 from app.services.workflow_decision_log import WorkflowDecisionLogService
 
 
-def get_llm_client():
+def get_adk_agent_runner(runner_class):
     settings = get_settings()
-    if settings.llm_mode == "mock":
+    if settings.agent_runtime != "adk" or settings.llm_mode == "mock":
         return None
-    return OllamaClient(settings.ollama_base_url, settings.ollama_model)
+    return runner_class(settings.adk_model, settings.ollama_base_url)
 
 
 def get_database() -> Database:
@@ -42,19 +41,15 @@ def get_audit_service() -> AuditService:
 
 
 def get_request_parser() -> RequestParser:
-    return RequestParser(get_llm_client())
+    return RequestParser(agent_runner=get_adk_agent_runner(AdkRequestParserAgentRunner))
 
 
 def get_recommendation_service() -> RecommendationService:
-    settings = get_settings()
-    agent_runner = None
-    if settings.agent_runtime == "adk" and settings.llm_mode != "mock":
-        agent_runner = AdkSchedulingAgentRunner(settings.adk_model, settings.ollama_base_url)
-    return RecommendationService(get_llm_client(), agent_runner=agent_runner)
+    return RecommendationService(agent_runner=get_adk_agent_runner(AdkSchedulingAgentRunner))
 
 
 def get_draft_service() -> DraftService:
-    return DraftService(get_llm_client())
+    return DraftService(agent_runner=get_adk_agent_runner(AdkDraftAgentRunner))
 
 
 def get_decision_log_service() -> DecisionLogService:

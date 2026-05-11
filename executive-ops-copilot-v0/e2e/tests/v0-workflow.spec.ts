@@ -298,6 +298,8 @@ async function installApiMocks(page: Page, options?: { backendUnavailable?: bool
 
 async function completeWorkflow(page: Page, scenario: Scenario) {
   await page.goto('/');
+  await page.getByRole('button', { name: 'Admin Center', exact: true }).click();
+  await page.mouse.move(900, 120);
 
   await page.getByLabel('Meeting request').fill(scenario.rawText);
   await page.getByRole('button', { name: 'Parse Request' }).click();
@@ -327,9 +329,10 @@ async function completeWorkflow(page: Page, scenario: Scenario) {
   await page.getByRole('button', { name: scenario.feedback }).click();
   const logEntry = page
     .locator('article')
-    .filter({ hasText: `${scenario.recommendation.decision} recommendation for ${scenario.intent.requester}` })
+    .filter({ hasText: `Requester: ${scenario.intent.requester}` })
     .first();
   await expect(logEntry).toBeVisible();
+  await expect(logEntry.getByText(scenario.recommendation.decision, { exact: true })).toBeVisible();
   await expect(logEntry.getByText(scenario.expectedLogDecision, { exact: true })).toBeVisible();
 }
 
@@ -346,6 +349,8 @@ test.describe('V0 scheduling workflow', () => {
     await page.goto('/');
 
     await expect(page.getByText('Backend unavailable').first()).toBeVisible();
+    await page.getByRole('button', { name: 'Admin Center', exact: true }).click();
+    await page.mouse.move(900, 120);
     await page.getByLabel('Meeting request').fill(scenarios[1].rawText);
     await page.getByRole('button', { name: 'Parse Request' }).click();
     await expect(page.getByRole('alert').filter({ hasText: 'Backend unavailable' }).last()).toBeVisible();

@@ -1,13 +1,17 @@
+from app.agents.scheduling import AgentRuntimeError
 from app.llm.schemas import DraftResponse, Recommendation
 from app.services.draft_service import DraftService
 
 
-class StubLLM:
-    def __init__(self, output):
+class StubDraftAgent:
+    def __init__(self, output=None, error=None):
         self.output = output
+        self.error = error
 
-    def generate_structured(self, prompt, schema):
-        return self.output
+    def generate(self, recommendation):
+        if self.error:
+            raise self.error
+        return DraftResponse.model_validate(self.output)
 
 
 def recommendation(decision="schedule"):
@@ -31,14 +35,14 @@ def recommendation(decision="schedule"):
 
 def test_draft_service_validates_llm_output():
     service = DraftService(
-        StubLLM(
+        agent_runner=StubDraftAgent(
             {
-                "subject": "Meeting with Acme",
-                "body": "We can meet Monday at 9:00 AM.",
-                "tone": "warm",
-                "model_status": "used",
-            }
-        )
+            "subject": "Meeting with Acme",
+            "body": "We can meet Monday at 9:00 AM.",
+            "tone": "warm",
+            "draft_type": "accept",
+            "model_status": "used",
+        })
     )
 
     draft = service.generate(recommendation())
@@ -57,15 +61,14 @@ def test_draft_service_falls_back_without_llm():
 
 def test_draft_service_guardrails_defer_draft_from_llm():
     service = DraftService(
-        StubLLM(
+        agent_runner=StubDraftAgent(
             {
-                "subject": "Meeting time available",
-                "body": "We can meet Monday at 9:00 AM. Please confirm.",
-                "tone": "warm",
-                "draft_type": "accept",
-                "model_status": "used",
-            }
-        )
+            "subject": "Meeting time available",
+            "body": "We can meet Monday at 9:00 AM. Please confirm.",
+            "tone": "warm",
+            "draft_type": "accept",
+            "model_status": "used",
+        })
     )
 
     draft = service.generate(recommendation("defer"))
@@ -74,3 +77,14 @@ def test_draft_service_guardrails_defer_draft_from_llm():
     assert draft.model_status == "used"
     assert "before proposing a time" in draft.body
     assert "9:00 AM" not in draft.body
+
+
+def test_draft_service_reports_unavailable_adk_runner():
+    service = DraftService(agent_runner=StubDraftAgent(error=AgentRuntimeError("timeout")))
+
+    try:
+        service.generate(recommendation())
+    except Exception as exc:
+        assert getattr(exc, "code", None) == "ollama_unavailable"
+    else:
+        raise AssertionError("ADK runner failure should surface as service error")

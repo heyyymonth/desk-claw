@@ -11,7 +11,9 @@ from app.llm.schemas import (
     CalendarAnalysis,
     CalendarBlock,
     Decision,
+    DraftResponse,
     ExecutiveRules,
+    MeetingIntent,
     ParsedMeetingRequest,
     ProposedSlot,
     Recommendation,
@@ -23,6 +25,9 @@ from app.llm.schemas import (
 from app.services.calendar_analyzer import CalendarAnalyzer
 from app.services.risk_classifier import RiskClassifier
 from app.services.rules_engine import RulesEngine
+
+LOCAL_OLLAMA_MODEL = "gemma4:latest"
+LOCAL_ADK_MODEL = f"ollama_chat/{LOCAL_OLLAMA_MODEL}"
 
 
 class AgentToolDefinition(BaseModel):
@@ -64,6 +69,10 @@ class AgentRuntimeError(RuntimeError):
     pass
 
 
+class AdkModelConfigurationError(AgentRuntimeError):
+    pass
+
+
 scheduling_agent_definition = AgentDefinition(
     name="meeting_resolution_agent",
     framework="google-adk",
@@ -101,6 +110,48 @@ scheduling_agent_definition = AgentDefinition(
 )
 
 
+request_parser_agent_definition = AgentDefinition(
+    name="meeting_request_parser_agent",
+    framework="google-adk",
+    role="Extract structured meeting intent from raw scheduling requests using local Gemma4.",
+    objective=(
+        "Produce a strict ParsedMeetingRequest JSON object from raw intake text while preserving "
+        "requester, priority, meeting type, sensitivity, missing fields, and scheduling constraints."
+    ),
+    planning_goal=(
+        "Use the extraction tool for grounded V0 labels, then reason only within the schema and return valid JSON."
+    ),
+    tools=[
+        AgentToolDefinition(
+            name="extract_meeting_intent",
+            goal="Ground parse labels and missing fields from raw request text.",
+            description="Returns ParsedMeetingRequest-shaped JSON using local V0 parsing guardrails.",
+        )
+    ],
+)
+
+
+draft_agent_definition = AgentDefinition(
+    name="meeting_draft_agent",
+    framework="google-adk",
+    role="Draft human-reviewable meeting replies from scheduling recommendations using local Gemma4.",
+    objective=(
+        "Generate a concise DraftResponse JSON object that reflects the recommendation decision, "
+        "safe action, risk posture, and available slots without leaking sensitive context."
+    ),
+    planning_goal=(
+        "Use the guarded draft tool first, then only improve wording while preserving draft_type and safety constraints."
+    ),
+    tools=[
+        AgentToolDefinition(
+            name="compose_guarded_draft",
+            goal="Create a safe baseline draft that matches the recommendation decision.",
+            description="Returns DraftResponse-shaped JSON for schedule, clarify, defer, and decline decisions.",
+        )
+    ],
+)
+
+
 ADK_AGENT_INSTRUCTION = (
     f"{scheduling_agent_definition.objective}\n"
     f"{scheduling_agent_definition.planning_goal}\n\n"
@@ -114,6 +165,26 @@ ADK_AGENT_INSTRUCTION = (
     "\"message\": string}], \"risk_level\": \"low|medium|high\", \"safe_action\": string, "
     "\"proposed_slots\": [{\"start\": iso_datetime, \"end\": iso_datetime, \"reason\": string}]}."
 )
+
+
+REQUEST_PARSER_AGENT_INSTRUCTION = (
+    f"{request_parser_agent_definition.objective}\n"
+    f"{request_parser_agent_definition.planning_goal}\n\n"
+    "You must call extract_meeting_intent with the raw request text. Return only a JSON object matching "
+    "ParsedMeetingRequest. Do not invent attendees, times, or authorization. Use local context only."
+)
+
+
+DRAFT_AGENT_INSTRUCTION = (
+    f"{draft_agent_definition.objective}\n"
+    f"{draft_agent_definition.planning_goal}\n\n"
+    "You must call compose_guarded_draft with the recommendation JSON before returning. Return only a JSON object "
+    "matching DraftResponse. Do not expose hidden sensitive details and do not propose slots unless present."
+)
+
+
+def local_adk_model_name() -> str:
+    return LOCAL_ADK_MODEL
 
 
 class SchedulingAgentPlanner:
@@ -254,50 +325,18 @@ class AdkSchedulingAgentRunner:
         rules: ExecutiveRules,
         calendar_blocks: list[CalendarBlock],
     ) -> dict:
-        try:
-            from google.adk.runners import RunConfig, Runner
-            from google.adk.sessions import InMemorySessionService
-            from google.genai import types
-        except ImportError as exc:
-            raise AgentRuntimeError("Install google-adk to run the scheduling agent.") from exc
-
-        session_service = InMemorySessionService()
-        user_id = "desk-ai-local-user"
-        session_id = f"scheduling-{uuid4()}"
-        session_service.create_session(app_name=self.app_name, user_id=user_id, session_id=session_id)
-        runner = Runner(app_name=self.app_name, agent=agent, session_service=session_service)
-        message = types.Content(
-            role="user",
-            parts=[
-                types.Part.from_text(
-                    text=json.dumps(
-                        {
-                            "task": "Resolve this meeting request with tool-backed reasoning.",
-                            "parsed_request": parsed_request.model_dump(mode="json"),
-                            "rules": rules.model_dump(mode="json"),
-                            "calendar_blocks": [block.model_dump(mode="json") for block in calendar_blocks],
-                        }
-                    )
-                )
-            ],
+        return _run_adk_json(
+            agent=agent,
+            app_name=self.app_name,
+            session_prefix="scheduling",
+            payload={
+                "task": "Resolve this meeting request with tool-backed reasoning.",
+                "parsed_request": parsed_request.model_dump(mode="json"),
+                "rules": rules.model_dump(mode="json"),
+                "calendar_blocks": [block.model_dump(mode="json") for block in calendar_blocks],
+            },
+            max_llm_calls=8,
         )
-
-        final_text = ""
-        for event in runner.run(
-            user_id=user_id,
-            session_id=session_id,
-            new_message=message,
-            run_config=RunConfig(max_llm_calls=8),
-        ):
-            if event.content is None:
-                continue
-            for part in event.content.parts or []:
-                if part.text:
-                    final_text = part.text
-
-        if not final_text:
-            raise AgentRuntimeError("ADK scheduling agent returned no final text.")
-        return _loads_json_object(final_text)
 
     def _merge_model_output(self, output: dict, deterministic_plan: AgentPlanningResult) -> AgentPlanningResult:
         model_decision = output.get("decision", deterministic_plan.decision)
@@ -326,6 +365,83 @@ class AdkSchedulingAgentRunner:
             )
         except ValidationError:
             return deterministic_plan
+
+
+class AdkRequestParserAgentRunner:
+    def __init__(
+        self,
+        model: str = LOCAL_ADK_MODEL,
+        ollama_base_url: str | None = None,
+        app_name: str = "desk_ai_request_parser",
+        timeout_seconds: float = 45.0,
+    ) -> None:
+        self.model = model
+        self.ollama_base_url = ollama_base_url
+        self.app_name = app_name
+        self.timeout_seconds = timeout_seconds
+
+    def parse(self, raw_text: str) -> ParsedMeetingRequest:
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        try:
+            future = executor.submit(self._run_parse, raw_text)
+            output = future.result(timeout=self.timeout_seconds)
+            return ParsedMeetingRequest.model_validate(output)
+        except concurrent.futures.TimeoutError as exc:
+            raise AgentRuntimeError("ADK request parser timed out.") from exc
+        except Exception as exc:
+            raise AgentRuntimeError("ADK request parser could not complete.") from exc
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
+
+    def _run_parse(self, raw_text: str) -> dict:
+        agent = create_adk_request_parser_agent(self.model, self.ollama_base_url)
+        return _run_adk_json(
+            agent=agent,
+            app_name=self.app_name,
+            session_prefix="parse",
+            payload={"task": "Parse this raw scheduling request.", "raw_text": raw_text},
+            max_llm_calls=4,
+        )
+
+
+class AdkDraftAgentRunner:
+    def __init__(
+        self,
+        model: str = LOCAL_ADK_MODEL,
+        ollama_base_url: str | None = None,
+        app_name: str = "desk_ai_draft",
+        timeout_seconds: float = 45.0,
+    ) -> None:
+        self.model = model
+        self.ollama_base_url = ollama_base_url
+        self.app_name = app_name
+        self.timeout_seconds = timeout_seconds
+
+    def generate(self, recommendation: Recommendation) -> DraftResponse:
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        try:
+            future = executor.submit(self._run_generate, recommendation)
+            output = future.result(timeout=self.timeout_seconds)
+            return DraftResponse.model_validate(output)
+        except concurrent.futures.TimeoutError as exc:
+            raise AgentRuntimeError("ADK draft agent timed out.") from exc
+        except Exception as exc:
+            raise AgentRuntimeError("ADK draft agent could not complete.") from exc
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
+
+    def _run_generate(self, recommendation: Recommendation) -> dict:
+        agent = create_adk_draft_agent(self.model, self.ollama_base_url)
+        return _run_adk_json(
+            agent=agent,
+            app_name=self.app_name,
+            session_prefix="draft",
+            payload={
+                "task": "Generate a safe human-reviewable draft response.",
+                "recommendation": recommendation.model_dump(mode="json"),
+            },
+            max_llm_calls=4,
+        )
 
 
 def create_recommendation_from_plan(plan: AgentPlanningResult, model_status: str = "not_configured") -> Recommendation:
@@ -471,7 +587,63 @@ def select_resolution_strategy(parsed_request_json: str, analysis_json: str, ris
     }
 
 
-def create_adk_root_agent(model: str = "gemini-2.0-flash", ollama_base_url: str | None = None):
+def extract_meeting_intent(raw_text: str) -> dict:
+    """Extract a strict ParsedMeetingRequest from raw scheduling text.
+
+    Args:
+        raw_text: Raw inbound meeting request text.
+    """
+    from app.services.request_parser import fallback_parse
+
+    return fallback_parse(raw_text).model_dump(mode="json")
+
+
+def compose_guarded_draft(recommendation_json: str) -> dict:
+    """Compose a safe draft response from a scheduling recommendation.
+
+    Args:
+        recommendation_json: JSON object matching the Recommendation schema.
+    """
+    recommendation = Recommendation.model_validate(_loads_json_object(recommendation_json))
+    return deterministic_draft_response(recommendation, "used").model_dump(mode="json")
+
+
+def deterministic_draft_response(recommendation: Recommendation, model_status: str) -> DraftResponse:
+    if recommendation.decision == "schedule" and recommendation.proposed_slots:
+        slot = recommendation.proposed_slots[0]
+        return DraftResponse(
+            subject="Meeting time available",
+            body=f"We can meet at {slot.start.strftime('%A at %I:%M %p')}. Please confirm whether that works.",
+            tone="warm",
+            draft_type="accept",
+            model_status=model_status,
+        )
+    if recommendation.decision == "decline":
+        return DraftResponse(
+            subject="Meeting request",
+            body="Thanks for reaching out. We are not able to prioritize this meeting right now.",
+            tone="firm",
+            draft_type="decline",
+            model_status=model_status,
+        )
+    if recommendation.decision == "defer":
+        return DraftResponse(
+            subject="Meeting request",
+            body="Thanks for reaching out. We need to review the request, priority, and availability before proposing a time.",
+            tone="concise",
+            draft_type="defer",
+            model_status=model_status,
+        )
+    return DraftResponse(
+        subject="Meeting request",
+        body="Thanks for reaching out. We need a bit more information before proposing a time.",
+        tone="concise",
+        draft_type="clarify",
+        model_status=model_status,
+    )
+
+
+def create_adk_root_agent(model: str = LOCAL_ADK_MODEL, ollama_base_url: str | None = None):
     try:
         from google.adk.agents import Agent
     except ImportError as exc:
@@ -492,16 +664,79 @@ def create_adk_root_agent(model: str = "gemini-2.0-flash", ollama_base_url: str 
     )
 
 
+def create_adk_request_parser_agent(model: str = LOCAL_ADK_MODEL, ollama_base_url: str | None = None):
+    try:
+        from google.adk.agents import Agent
+    except ImportError as exc:
+        raise RuntimeError("Install google-adk to instantiate the ADK request parser agent.") from exc
+
+    return Agent(
+        model=_adk_model(model, ollama_base_url),
+        name=request_parser_agent_definition.name,
+        description=request_parser_agent_definition.role,
+        instruction=REQUEST_PARSER_AGENT_INSTRUCTION,
+        tools=[extract_meeting_intent],
+    )
+
+
+def create_adk_draft_agent(model: str = LOCAL_ADK_MODEL, ollama_base_url: str | None = None):
+    try:
+        from google.adk.agents import Agent
+    except ImportError as exc:
+        raise RuntimeError("Install google-adk to instantiate the ADK draft agent.") from exc
+
+    return Agent(
+        model=_adk_model(model, ollama_base_url),
+        name=draft_agent_definition.name,
+        description=draft_agent_definition.role,
+        instruction=DRAFT_AGENT_INSTRUCTION,
+        tools=[compose_guarded_draft],
+    )
+
+
 def _adk_model(model: str, ollama_base_url: str | None = None):
-    if model.startswith("ollama_chat/"):
-        if ollama_base_url:
-            os.environ.setdefault("OLLAMA_API_BASE", ollama_base_url)
-        try:
-            from google.adk.models.lite_llm import LiteLlm
-        except ImportError as exc:
-            raise RuntimeError("Install google-adk with litellm support to use Ollama-hosted ADK models.") from exc
-        return LiteLlm(model=model)
-    return model
+    if model != LOCAL_ADK_MODEL:
+        raise AdkModelConfigurationError(f"Only local {LOCAL_ADK_MODEL} is allowed for Desk AI agents.")
+    if ollama_base_url:
+        os.environ["OLLAMA_API_BASE"] = ollama_base_url
+    try:
+        from google.adk.models.lite_llm import LiteLlm
+    except ImportError as exc:
+        raise RuntimeError("Install google-adk with litellm support to use Ollama-hosted ADK models.") from exc
+    return LiteLlm(model=model)
+
+
+def _run_adk_json(agent, app_name: str, session_prefix: str, payload: dict, max_llm_calls: int) -> dict:
+    try:
+        from google.adk.runners import RunConfig, Runner
+        from google.adk.sessions import InMemorySessionService
+        from google.genai import types
+    except ImportError as exc:
+        raise AgentRuntimeError("Install google-adk to run the local agent.") from exc
+
+    session_service = InMemorySessionService()
+    user_id = "desk-ai-local-user"
+    session_id = f"{session_prefix}-{uuid4()}"
+    session_service.create_session(app_name=app_name, user_id=user_id, session_id=session_id)
+    runner = Runner(app_name=app_name, agent=agent, session_service=session_service)
+    message = types.Content(role="user", parts=[types.Part.from_text(text=json.dumps(payload))])
+
+    final_text = ""
+    for event in runner.run(
+        user_id=user_id,
+        session_id=session_id,
+        new_message=message,
+        run_config=RunConfig(max_llm_calls=max_llm_calls),
+    ):
+        if event.content is None:
+            continue
+        for part in event.content.parts or []:
+            if part.text:
+                final_text = part.text
+
+    if not final_text:
+        raise AgentRuntimeError("ADK agent returned no final text.")
+    return _loads_json_object(final_text)
 
 
 def _loads_json_object(text: str) -> dict:

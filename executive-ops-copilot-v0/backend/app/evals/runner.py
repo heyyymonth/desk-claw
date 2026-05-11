@@ -8,6 +8,7 @@ from app.services.draft_service import DraftService
 from app.services.recommendation_service import RecommendationService
 from app.services.request_parser import RequestParser
 from app.services.rules_engine import RulesEngine
+from app.evals.adk_runner import run_adk_tool_evals
 
 
 def run() -> dict[str, Any]:
@@ -19,6 +20,7 @@ def run() -> dict[str, Any]:
     parser = RequestParser(None)
     recommender = RecommendationService(None)
     drafter = DraftService(None)
+    adk_eval = run_adk_tool_evals(cases, rules)
 
     results = []
     for case in cases:
@@ -50,6 +52,7 @@ def run() -> dict[str, Any]:
         "total": len(results),
         "passed": len(results) - failed,
         "failed": failed,
+        "adk_eval": adk_eval,
         "results": results,
     }
 

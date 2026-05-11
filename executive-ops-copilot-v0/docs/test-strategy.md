@@ -2,7 +2,7 @@
 
 ## Unit
 
-Backend unit tests cover deterministic service behavior: request parsing fallback, rules, calendar slot analysis, recommendations, draft responses, and decision-log persistence.
+Backend unit tests cover ADK agent wiring, deterministic fallback behavior, request parsing fallback, rules, calendar slot analysis, recommendations, draft responses, and decision-log persistence.
 
 Frontend unit and component tests should cover API-client error handling, local workflow state transitions, editable rule/draft controls, and rendering of risk, rationale, calendar impact, and decision-log entries.
 
@@ -59,6 +59,13 @@ The browser tests intercept `/api/**` and return seeded responses. This keeps th
 ## Evals
 
 The backend eval endpoint `POST /api/evals/run` executes `evals/cases/v0_scheduling_cases.yaml` against the local parser, recommender, and draft services, then compares results with `evals/expected/v0_expected_outputs.yaml`.
+
+The same endpoint also runs Google ADK trajectory evaluation for the scheduling agent. The ADK eval checks that the expected tool path is followed:
+
+1. `inspect_calendar_conflicts`
+2. `validate_scheduling_rules`
+3. `classify_priority_and_risk`
+4. `select_resolution_strategy`
 
 Eval labels including `meeting_type`, `draft_type`, sensitivity, and aggregate `risk_level` are first-class V0 contract fields. Async candidacy and escalation requirement remain qualitative eval assertions. The JSON Schema contract test must pass before qualitative eval assertions are trusted.
 
