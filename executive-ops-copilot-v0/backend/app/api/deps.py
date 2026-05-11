@@ -10,6 +10,7 @@ from app.services.decision_log import DecisionLogService
 from app.services.draft_service import DraftService
 from app.services.recommendation_service import RecommendationService
 from app.services.request_parser import RequestParser
+from app.services.telemetry_service import TelemetryService
 from app.services.workflow_decision_log import WorkflowDecisionLogService
 
 
@@ -38,6 +39,10 @@ def get_actor_context(
 
 def get_audit_service() -> AuditService:
     return AuditService(AuditRepository(get_database()))
+
+
+def get_telemetry_service() -> TelemetryService:
+    return TelemetryService(AuditRepository(get_database()))
 
 
 def get_request_parser() -> RequestParser:

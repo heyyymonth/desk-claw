@@ -1,5 +1,6 @@
 from app.db.audit import ActorContext, AuditEvent, AuditRepository
 from app.db.session import Database
+from app.services.telemetry_service import TelemetryService
 
 
 def test_ai_audit_logging_round_trip(tmp_path):
@@ -68,11 +69,11 @@ def test_ai_metrics_summarize_adk_quality_and_tool_coverage(tmp_path):
             runtime="google-adk",
             agent_name="meeting_draft_agent",
             tool_calls=[],
-            error_code="ollama_unavailable",
+            error_code="adk_model_unavailable",
         )
     )
 
-    metrics = repository.ai_metrics()
+    metrics = TelemetryService(repository).ai_dashboard()
 
     assert metrics["total_events"] == 2
     assert metrics["success_rate"] == 0.5

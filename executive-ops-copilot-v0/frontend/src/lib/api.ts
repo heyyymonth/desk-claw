@@ -73,7 +73,7 @@ function normalizeDecisions(payload: DecisionLogEntry[] | BackendDecisionsRespon
 
 export const api = {
   health: () => request<HealthStatus>('/api/health'),
-  aiMetrics: () => request<AiMetrics>('/api/audit/ai/metrics'),
+  aiMetrics: () => request<AiMetrics>('/api/telemetry/ai/dashboard'),
   defaultRules: () => request<ExecutiveRules>('/api/default-rules'),
   mockCalendar: async () =>
     normalizeCalendar(await request<CalendarContext | BackendCalendarEvent[] | BackendCalendarResponse>('/api/mock-calendar')),

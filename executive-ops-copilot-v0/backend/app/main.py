@@ -1,11 +1,10 @@
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import audit, calendar, deps, drafts, evals, feedback, recommendations, requests, rules
+from app.api import audit, calendar, deps, drafts, evals, feedback, recommendations, requests, rules, telemetry
 from app.core.errors import ServiceError, service_error_handler
 from app.core.settings import get_settings
 from app.db.audit import ActorContext
-from app.llm.ollama_client import OllamaClient
 from app.llm.schemas import DraftPayload, RecommendationPayload, ParsedMeetingRequest, Recommendation, ExecutiveRules, CalendarBlock
 from app.models import DraftResponse as ApiDraftResponse
 from app.models import MeetingRequest as ApiMeetingRequest
@@ -33,15 +32,20 @@ def create_app() -> FastAPI:
     app.include_router(feedback.router)
     app.include_router(evals.router)
     app.include_router(audit.router)
+    app.include_router(telemetry.router)
     _add_compat_routes(app)
 
     @app.get("/api/health")
     def health():
         settings = get_settings()
-        if settings.llm_mode != "ollama":
-            return {"status": "ok", "ollama": "not_configured", "model": settings.ollama_model}
-        has_model = OllamaClient(settings.ollama_base_url, settings.ollama_model).has_model()
-        return {"status": "ok", "ollama": "used" if has_model else "unavailable", "model": settings.ollama_model}
+        return {
+            "status": "ok",
+            "ollama": "configured" if settings.llm_mode == "ollama" else "not_configured",
+            "model": settings.adk_model,
+            "adk_model": settings.adk_model,
+            "ollama_model": settings.ollama_model,
+            "model_runtime": "google-adk" if settings.agent_runtime == "adk" else settings.agent_runtime,
+        }
 
     return app
 

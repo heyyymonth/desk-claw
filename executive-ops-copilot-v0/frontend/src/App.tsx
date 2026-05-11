@@ -27,6 +27,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { AiTechnicalDashboardPage } from './components/AiTechnicalDashboard';
 import { CalendarContextPanel } from './components/CalendarContextPanel';
 import { DecisionFeedbackControls } from './components/DecisionFeedbackControls';
 import { DecisionLogView } from './components/DecisionLogView';
@@ -39,7 +40,6 @@ import { WorkWeekCalendar } from './components/WorkWeekCalendar';
 import { ErrorState } from './components/ui';
 import { api } from './lib/api';
 import type {
-  AiMetrics,
   CalendarContext,
   DecisionLogEntry,
   DraftResponse,
@@ -92,7 +92,7 @@ const enterpriseSignals = [
 
 const trustMarks = ['Northstar Ops', 'Atlas Finance', 'Forge AI', 'Helio Systems', 'Summit Cloud'];
 
-type PageId = 'home' | 'admin' | 'account' | 'settings';
+type PageId = 'home' | 'admin' | 'telemetry' | 'account' | 'settings';
 type PersonaId = 'executive_assistant' | 'admin';
 
 type Persona = {
@@ -112,6 +112,7 @@ type Persona = {
 const pages = [
   { id: 'home' as const, label: 'Home', detail: 'Chat and calendar', icon: Home },
   { id: 'admin' as const, label: 'Admin Center', detail: 'Intake, drafts, logs', icon: Workflow },
+  { id: 'telemetry' as const, label: 'AI Dashboard', detail: 'DB telemetry', icon: Gauge },
   { id: 'account' as const, label: 'Account', detail: 'Plan and seats', icon: UserCircle },
   { id: 'settings' as const, label: 'Settings', detail: 'Security and AI controls', icon: Settings },
 ];
@@ -170,7 +171,6 @@ export function App() {
   const rulesQuery = useQuery({ queryKey: ['default-rules'], queryFn: api.defaultRules });
   const calendarQuery = useQuery<CalendarContext>({ queryKey: ['mock-calendar'], queryFn: api.mockCalendar });
   const decisionsQuery = useQuery({ queryKey: ['decisions'], queryFn: api.decisions, retry: false });
-  const aiMetricsQuery = useQuery({ queryKey: ['ai-metrics'], queryFn: api.aiMetrics, refetchInterval: 20000 });
 
   useEffect(() => {
     if (rulesQuery.data) {
@@ -418,10 +418,10 @@ export function App() {
                 onCalendarChange={setCalendarContext}
                 calendarError={calendarQuery.error ? 'FastAPI mock calendar is unavailable. Calendar impact may be incomplete.' : undefined}
                 decisionEntries={decisionEntries}
-                aiMetrics={aiMetricsQuery.data}
-                aiMetricsError={aiMetricsQuery.error ? 'AI telemetry metrics are unavailable.' : undefined}
               />
             ) : null}
+
+            {activePage === 'telemetry' ? <AiTechnicalDashboardPage /> : null}
 
             {activePage === 'account' ? (
               <AccountPage activePersona={activePersona} onPersonaChange={setActivePersona} />
@@ -602,8 +602,6 @@ function AdminCenter({
   onCalendarChange,
   calendarError,
   decisionEntries,
-  aiMetrics,
-  aiMetricsError,
 }: {
   activeStep: number;
   rawText: string;
@@ -629,8 +627,6 @@ function AdminCenter({
   onCalendarChange: (calendar: CalendarContext) => void;
   calendarError?: string;
   decisionEntries: DecisionLogEntry[];
-  aiMetrics?: AiMetrics;
-  aiMetricsError?: string;
 }) {
   return (
     <>
@@ -657,7 +653,6 @@ function AdminCenter({
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
         <div className="min-w-0 space-y-5">
-          <AiTechnicalDashboard metrics={aiMetrics} error={aiMetricsError} />
           <RequestIntakePanel
             rawText={rawText}
             onRawTextChange={onRawTextChange}
@@ -760,100 +755,6 @@ function LiveDecisionCanvas({ activeStep }: { activeStep: number }) {
       </div>
     </div>
   );
-}
-
-function AiTechnicalDashboard({ metrics, error }: { metrics?: AiMetrics; error?: string }) {
-  const empty = !metrics || metrics.total_events === 0;
-  const operationRows = metrics?.operation_metrics ?? [];
-  const failureRows = metrics?.recent_failures ?? [];
-
-  return (
-    <section className="overflow-hidden rounded-lg border border-white/75 bg-glass shadow-[0_20px_48px_rgba(31,38,50,0.11)] backdrop-blur-md">
-      <div className="flex flex-col gap-3 border-b border-line/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.76),rgba(255,255,255,0.48))] px-4 py-4 md:flex-row md:items-center md:justify-between">
-        <div className="flex items-center gap-2">
-          <Gauge size={18} className="text-brandDark" aria-hidden="true" />
-          <div>
-            <h2 className="text-base font-semibold text-ink">AI performance dashboard</h2>
-            <p className="mt-1 text-sm text-steel">ADK runtime coverage, tool-call quality, latency, and failure signals from backend audit events.</p>
-          </div>
-        </div>
-        <span className="rounded-md border border-line bg-white/70 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-brandDark shadow-sm">
-          Backend telemetry
-        </span>
-      </div>
-
-      {error ? <div className="border-b border-line bg-white/55 px-4 py-3 text-sm text-danger">{error}</div> : null}
-
-      <div className="grid gap-3 p-4 md:grid-cols-5">
-        <MetricCard label="AI events" value={String(metrics?.total_events ?? 0)} detail="tracked calls" />
-        <MetricCard label="Success rate" value={formatRate(metrics?.success_rate)} detail="completed events" />
-        <MetricCard label="ADK coverage" value={formatRate(metrics?.adk_coverage)} detail="model calls via ADK" />
-        <MetricCard label="Tool coverage" value={formatRate(metrics?.tool_call_coverage)} detail="ADK tool traces" />
-        <MetricCard label="P95 latency" value={`${metrics?.p95_latency_ms ?? 0}ms`} detail={`avg ${metrics?.avg_latency_ms ?? 0}ms`} />
-      </div>
-
-      <div className="grid gap-4 border-t border-line/80 p-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.7fr)]">
-        <div className="min-w-0">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-steel">Operation health</div>
-          <div className="overflow-hidden rounded-md border border-line bg-white/58">
-            {empty ? (
-              <div className="px-3 py-4 text-sm text-steel">Run an intake, recommendation, or draft workflow to populate ADK telemetry.</div>
-            ) : (
-              operationRows.map((row) => (
-                <div key={row.operation} className="grid gap-2 border-b border-line/70 px-3 py-3 text-sm last:border-b-0 md:grid-cols-[1.2fr_0.8fr_0.8fr_0.8fr]">
-                  <div className="min-w-0">
-                    <div className="truncate font-semibold text-ink">{formatOperation(row.operation)}</div>
-                    <div className="text-xs text-steel">{row.total} events</div>
-                  </div>
-                  <div>
-                    <div className="text-xs font-semibold uppercase tracking-wide text-steel">Success</div>
-                    <div className="font-semibold text-ink">{formatRate(row.success_rate)}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs font-semibold uppercase tracking-wide text-steel">ADK</div>
-                    <div className="font-semibold text-ink">{formatRate(row.adk_coverage)}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs font-semibold uppercase tracking-wide text-steel">Tools</div>
-                    <div className="font-semibold text-ink">{row.tool_calls_avg.toFixed(1)} avg</div>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        <div className="min-w-0">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-steel">Needs attention</div>
-          <div className="space-y-2">
-            {failureRows.length ? (
-              failureRows.map((event) => (
-                <div key={event.id} className="rounded-md border border-line bg-white/58 px-3 py-2 text-sm shadow-sm">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="truncate font-semibold text-ink">{formatOperation(event.operation)}</span>
-                    <span className="rounded-md border border-line bg-white/70 px-2 py-1 text-xs font-semibold text-brandDark">{event.model_status}</span>
-                  </div>
-                  <div className="mt-1 text-xs text-steel">{event.runtime} / {event.latency_ms}ms / {event.error_code ?? 'review telemetry'}</div>
-                </div>
-              ))
-            ) : (
-              <div className="rounded-md border border-line bg-white/58 px-3 py-4 text-sm text-steel">
-                No unavailable or invalid model events in the current audit window.
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function formatRate(value?: number) {
-  return `${Math.round((value ?? 0) * 100)}%`;
-}
-
-function formatOperation(value: string) {
-  return value.replace(/_/g, ' ');
 }
 
 function WorkflowStepper({ activeStep }: { activeStep: number }) {

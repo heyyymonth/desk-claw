@@ -17,8 +17,8 @@ class StubParserAgent:
         return ParsedMeetingRequest.model_validate(self.output)
 
 
-def test_parse_request_uses_valid_mock_llm_output():
-    llm_output = {
+def test_parse_request_uses_valid_adk_output():
+    adk_output = {
         "raw_text": "Please meet with Acme for 30 minutes tomorrow.",
         "intent": {
             "title": "Acme meeting",
@@ -32,15 +32,15 @@ def test_parse_request_uses_valid_mock_llm_output():
         },
     }
 
-    parsed = RequestParser(agent_runner=StubParserAgent(llm_output)).parse(llm_output["raw_text"])
+    parsed = RequestParser(agent_runner=StubParserAgent(adk_output)).parse(adk_output["raw_text"])
 
     assert isinstance(parsed, ParsedMeetingRequest)
     assert parsed.intent.title == "Acme meeting"
     assert parsed.intent.duration_minutes == 30
 
 
-def test_parse_request_falls_back_when_llm_unavailable():
-    parsed = RequestParser(None).parse("Need 45 min with Finance next week")
+def test_parse_request_falls_back_without_adk_runner():
+    parsed = RequestParser().parse("Need 45 min with Finance next week")
 
     assert parsed.raw_text == "Need 45 min with Finance next week"
     assert parsed.intent.duration_minutes == 45
@@ -52,7 +52,7 @@ def test_parse_request_reports_unavailable_adk_runner():
     with pytest.raises(Exception) as exc:
         RequestParser(agent_runner=StubParserAgent(error=AgentRuntimeError("timeout"))).parse("Need time")
 
-    assert getattr(exc.value, "code", None) == "ollama_unavailable"
+    assert getattr(exc.value, "code", None) == "adk_model_unavailable"
 
 
 def test_parsed_request_rejects_invalid_priority():

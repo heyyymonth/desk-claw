@@ -59,7 +59,7 @@ def test_recommendation_falls_back_when_calendar_has_no_slot():
         )
     ]
 
-    recommendation = RecommendationService(None).generate(parsed_request(), rules(), blocks)
+    recommendation = RecommendationService().generate(parsed_request(), rules(), blocks)
 
     assert recommendation.decision == "defer"
     assert recommendation.proposed_slots == []
@@ -78,7 +78,7 @@ def test_recommendation_guardrails_rationale_for_escalation():
             )
         }
     )
-    recommendation = RecommendationService(None).generate(request, rules(), [])
+    recommendation = RecommendationService().generate(request, rules(), [])
 
     assert recommendation.decision == "defer"
     assert recommendation.proposed_slots == []
@@ -100,7 +100,7 @@ def test_recommendation_prefers_adk_agent_runner_when_configured():
 def test_recommendation_falls_back_when_adk_agent_runner_is_unavailable():
     runner = StubAgentRunner(error=AgentRuntimeError("ADK unavailable"))
 
-    recommendation = RecommendationService(None, agent_runner=runner).generate(parsed_request(), rules(), [])
+    recommendation = RecommendationService(agent_runner=runner).generate(parsed_request(), rules(), [])
 
     assert recommendation.decision == "schedule"
     assert recommendation.model_status == "unavailable"

@@ -22,11 +22,12 @@ V0 supports this workflow only:
 - Single local user and one executive rules profile.
 - Structured extraction into the contract models in `/contracts/schemas`.
 - Local mock calendar blocks managed through the API.
-- Recommendation generation with deterministic rule checks and optional local LLM assistance.
+- Recommendation generation with deterministic rule checks and ADK-routed model assistance when configured.
 - Draft response generation for accept, decline, clarify, or defer responses.
 - Decision feedback capture and local decision log retrieval.
 - Contract examples that can be reused as backend, frontend, and eval fixtures.
 - Basic eval trigger endpoint for local contract/eval cases.
+- Decoupled technical AI telemetry dashboard for ADK coverage, tool-call reliability, latency, and failure insight, rendered from persisted DB events only.
 
 ## Out of Scope
 
@@ -39,7 +40,7 @@ V0 supports this workflow only:
 - Desktop packaging or mobile app packaging.
 - Autonomous scheduling without human confirmation.
 - Generic chatbot behavior outside the scheduling workflow.
-- Long-term analytics, reporting dashboards, or model fine-tuning.
+- Long-term business analytics, reporting dashboards, or model fine-tuning.
 
 ## Primary User
 
@@ -50,6 +51,6 @@ An executive assistant who needs to quickly evaluate inbound scheduling requests
 - Frontend can implement every screen from OpenAPI and JSON Schema without verbal clarification.
 - Backend can implement every route and typed model from OpenAPI and JSON Schema without verbal clarification.
 - Every API response is frontend-consumable JSON with stable IDs, enums, timestamps, and display-ready rationale.
-- LLM output is never returned raw; it is validated against typed backend models before use.
-- Invalid LLM output and unavailable model runtime return explicit status values and structured errors or fallbacks.
+- Model output is never returned raw; all generation-style model calls go through ADK and are validated against typed backend models before use.
+- Invalid model output and unavailable ADK model runtime return explicit status values and structured errors or fallbacks.
 - The local app remains usable without external SaaS services.

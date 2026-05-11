@@ -52,7 +52,7 @@ describe('api client', () => {
     await api.aiMetrics();
 
     expect(fetchMock).toHaveBeenCalledWith(
-      'http://localhost:8000/api/audit/ai/metrics',
+      'http://localhost:8000/api/telemetry/ai/dashboard',
       expect.objectContaining({ headers: expect.objectContaining({ 'Content-Type': 'application/json' }) }),
     );
   });

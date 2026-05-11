@@ -4,7 +4,7 @@ from app.llm.schemas import DraftResponse, Recommendation
 
 
 class DraftService:
-    def __init__(self, llm=None, agent_runner: AdkDraftAgentRunner | None = None) -> None:
+    def __init__(self, agent_runner: AdkDraftAgentRunner | None = None) -> None:
         self.agent_runner = agent_runner
         self.last_ai_run: dict = _fallback_trace()
 
@@ -14,7 +14,7 @@ class DraftService:
                 draft = self.agent_runner.generate(recommendation)
             except AgentRuntimeError as exc:
                 self.last_ai_run = _adk_trace("meeting_draft_agent", status="unavailable")
-                raise ServiceError("ollama_unavailable", "Configured ADK draft agent is unavailable.", status_code=502) from exc
+                raise ServiceError("adk_model_unavailable", "Configured ADK draft agent is unavailable.", status_code=502) from exc
             self.last_ai_run = getattr(self.agent_runner, "last_run", None) or _adk_trace("meeting_draft_agent")
             return self._guard_draft(recommendation, draft)
 

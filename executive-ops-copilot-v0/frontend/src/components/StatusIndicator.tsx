@@ -10,7 +10,7 @@ export function StatusIndicator({
   isLoading: boolean;
   error: unknown;
 }) {
-  const modelState = health?.model_status ?? health?.ollama ?? 'unknown';
+  const modelState = health?.model_runtime ?? health?.model_status ?? health?.ollama ?? 'unknown';
   const modelLabel = health?.model ? `${String(modelState)} (${health.model})` : String(modelState);
   const isHealthy = !error && !isLoading;
 
@@ -20,7 +20,7 @@ export function StatusIndicator({
       <span className={isHealthy ? 'font-semibold text-greenRisk' : 'font-semibold text-amberRisk'}>
         Backend {isLoading ? 'checking' : error ? 'unavailable' : 'online'}
       </span>
-      <span className="text-steel">Ollama: {modelLabel}</span>
+      <span className="text-steel">Model: {modelLabel}</span>
     </div>
   );
 }

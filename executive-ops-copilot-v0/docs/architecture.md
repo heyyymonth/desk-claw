@@ -14,6 +14,7 @@
 - The frontend calls FastAPI only.
 - The frontend does not call Ollama, SQLite, or filesystem resources directly.
 - FastAPI owns orchestration, validation, rule application, ADK model calls, and persistence.
+- No parse, recommendation, or draft model call is made outside Google ADK. Health checks report configuration only; model availability is observed through ADK telemetry.
 - Route handlers stay thin and delegate business behavior to services.
 - Deterministic policy checks and model-generated text are separate service boundaries.
 - Raw LLM output is validated into contract-shaped models before it can cross the API boundary.
@@ -28,7 +29,8 @@
 - Generate `Recommendation` records from parsed request, rules, and calendar context.
 - Generate `DraftResponse` records from recommendation context.
 - Accept `DecisionFeedback` and write `DecisionLogEntry` records.
-- Persist AI request/response audit records and technical performance metrics for parse, recommendation, and draft operations.
+- Persist AI request/response audit records for parse, recommendation, and draft operations.
+- Expose decoupled AI technical telemetry derived only from stored audit events without coupling dashboard logic to the scheduling workflow.
 - Run local eval cases and return summarized results.
 
 ## Frontend Responsibilities
@@ -39,6 +41,7 @@
 - Render editable draft response text.
 - Capture final user feedback and notes.
 - Display decision log entries returned by the backend.
+- Render the AI Technical Dashboard as a separate page backed by `GET /api/telemetry/ai/dashboard`; it must not compute metrics from in-memory workflow state.
 - Treat enum values as closed sets for V0.
 
 ## V0 Request Flow
@@ -53,7 +56,8 @@
 8. Frontend sends `POST /api/feedback` with `DecisionFeedback`.
 9. Backend writes and returns `DecisionLogEntry`.
 10. Frontend can retrieve logs with `GET /api/decisions`.
-11. Admin/development audit inspection can retrieve AI audit records with `GET /api/audit/ai` and aggregate dashboard metrics with `GET /api/audit/ai/metrics`.
+11. Admin/development audit inspection can retrieve AI audit records with `GET /api/audit/ai`.
+12. The decoupled technical telemetry dashboard can retrieve aggregate quality, latency, tool, and insight metrics with `GET /api/telemetry/ai/dashboard`.
 
 ## Data Ownership
 
@@ -64,6 +68,16 @@
 - The backend is the source of truth for generated IDs and `created_at` timestamps.
 - `actor_id` defaults to `local-user` and can be supplied with `X-Actor-Id`; `X-Actor-Email` and `X-Actor-Name` are persisted when present.
 - AI audit entries are append-only records in `ai_audit_log`.
+- AI telemetry metrics are derived read models. The telemetry service reads persisted `ai_audit_log` rows and does not receive workflow objects directly.
+
+## Telemetry Extension Pattern
+
+- Workflow services emit AI telemetry only by writing audit events during parse, recommendation, and draft operations.
+- `AuditRepository` owns persistence and raw event retrieval.
+- `TelemetryService` is read-only and builds dashboard views from stored events.
+- `app.telemetry.ai_quality` owns quality aggregation, tool reliability, failure reasoning, and eval-like insight generation.
+- Frontend dashboard code lives separately from scheduling workflow panels and fetches only the telemetry API.
+- Future providers, model families, tools, or eval dimensions should add event fields or derived telemetry adapters without coupling the dashboard to live workflow state.
 
 ## Failure States
 
@@ -71,7 +85,7 @@
 - Unknown ID reference: `404` with `ErrorResponse.code=not_found`.
 - Invalid state transition: `409` with `ErrorResponse.code=conflict`.
 - Invalid model output: response uses `model_status=invalid_output` and either a deterministic fallback or `502`.
-- Ollama unavailable: response uses `model_status=unavailable` and deterministic fallback where possible.
+- Configured ADK model unavailable: response uses `model_status=unavailable` and deterministic fallback where possible.
 - Persistence failure: `500` with `ErrorResponse.code=persistence_error`.
 
 ## Future Auth Room

@@ -17,9 +17,9 @@ def run() -> dict[str, Any]:
     expected = _load_yaml(root / "evals" / "expected" / "v0_expected_outputs.yaml")["expected"]
 
     rules = RulesEngine().default_rules()
-    parser = RequestParser(None)
-    recommender = RecommendationService(None)
-    drafter = DraftService(None)
+    parser = RequestParser()
+    recommender = RecommendationService()
+    drafter = DraftService()
     adk_eval = run_adk_tool_evals(cases, rules)
 
     results = []

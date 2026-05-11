@@ -8,7 +8,6 @@ from app.services.rules_engine import RulesEngine
 class RecommendationService:
     def __init__(
         self,
-        llm_client=None,
         calendar_analyzer: CalendarAnalyzer | None = None,
         risk_classifier: RiskClassifier | None = None,
         rules_engine: RulesEngine | None = None,

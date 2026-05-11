@@ -42,7 +42,7 @@ def _generate_recommendation_with_audit(
                 operation="generate_recommendation",
                 endpoint=endpoint,
                 model_name=settings.adk_model,
-                model_status=service.last_ai_run.get("model_status") or ("unavailable" if exc.code == "ollama_unavailable" else "invalid_output"),
+                model_status=service.last_ai_run.get("model_status") or ("unavailable" if exc.code == "adk_model_unavailable" else "invalid_output"),
                 status="error",
                 latency_ms=_latency_ms(started),
                 request_payload=payload,

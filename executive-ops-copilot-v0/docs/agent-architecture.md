@@ -16,6 +16,8 @@ Google ADK models an agent as a worker with instructions and tools. This repo no
 
 `create_adk_root_agent()` returns a real ADK `Agent` with Python function tools. ADK auto-wraps those functions as tool definitions, and `AdkSchedulingAgentRunner` runs the agent through ADK `Runner` and an in-memory session. The backend is model-agnostic through `ADK_MODEL`; it defaults to local Ollama `ollama_chat/gemma4:latest`, but the same agent factory can use any ADK-supported model string.
 
+All generation-style model calls for parse, recommendation, and draft workflows go through these ADK runners. Ollama-hosted local or remote models use LiteLLM-compatible ADK model strings such as `ollama_chat/gemma4:latest` plus `OLLAMA_BASE_URL`; non-Ollama ADK-supported model strings can be supplied through `ADK_MODEL` without changing workflow services.
+
 The same ADK pattern now covers all AI-facing app workflows:
 
 - `meeting_request_parser_agent` calls `extract_meeting_intent`.
@@ -72,7 +74,9 @@ Every parse, recommendation, and draft workflow records ADK telemetry into `ai_a
 - `tool_calls`: the tool trace available for that workflow step.
 - `latency_ms`, `model_status`, `status`, and error fields for performance and quality tracking.
 
-`GET /api/audit/ai/metrics` aggregates those records for the admin technical dashboard. It reports success rate, ADK coverage, tool-call coverage, average and p95 latency, model-status counts, operation-level health, slowest events, and recent failures.
+The dashboard is intentionally decoupled from the scheduling workflow. Raw events are written to SQLite during AI interactions and stay in the audit repository. `TelemetryService` reads those persisted rows, then `app.telemetry.ai_quality` computes eval-like quality views for `GET /api/telemetry/ai/dashboard`. The frontend AI Technical Dashboard is its own page and renders only the API result; it does not compute metrics from live workflow component state.
+
+The dashboard reports success rate, ADK coverage, tool-call coverage, average and p95 latency, model-status counts, operation-level health, per-tool reliability, slowest events, recent failures, and explicit insights for likely causes such as model connection failure, invalid structured output, missing tool traces, or high latency.
 
 ## Next Implementation Steps
 

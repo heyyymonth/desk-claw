@@ -164,7 +164,7 @@ def test_ai_audit_endpoint_records_ai_workflow_calls():
 def test_ai_metrics_endpoint_exposes_backend_quality_dashboard_data():
     client.post("/api/requests/parse", json={"raw_text": "Need 30 min with Legal"})
 
-    response = client.get("/api/audit/ai/metrics")
+    response = client.get("/api/telemetry/ai/dashboard")
 
     assert response.status_code == 200
     body = response.json()
@@ -172,4 +172,6 @@ def test_ai_metrics_endpoint_exposes_backend_quality_dashboard_data():
     assert 0 <= body["success_rate"] <= 1
     assert 0 <= body["adk_coverage"] <= 1
     assert "operation_metrics" in body
+    assert "tool_metrics" in body
+    assert "insights" in body
     assert "recent_failures" in body

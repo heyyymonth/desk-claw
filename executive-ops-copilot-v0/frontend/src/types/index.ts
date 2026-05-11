@@ -104,9 +104,11 @@ export interface DecisionLogEntry {
 export interface HealthStatus {
   status?: string;
   backend?: string;
-  ollama?: ModelStatus | 'available' | 'unknown';
+  ollama?: ModelStatus | 'available' | 'unknown' | 'configured';
   model_status?: ModelStatus;
   model?: string;
+  adk_model?: string;
+  model_runtime?: string;
 }
 
 export interface AiOperationMetric {
@@ -133,6 +135,24 @@ export interface AiEventSummary {
   tool_calls: string[];
 }
 
+export interface AiToolMetric {
+  tool_name: string;
+  calls: number;
+  failure_count: number;
+  success_rate: number;
+  avg_latency_ms: number;
+  failure_reasons: Record<string, number>;
+}
+
+export interface AiInsight {
+  severity: 'info' | 'warning' | 'critical';
+  title: string;
+  detail: string;
+  operation?: string;
+  agent_name?: string | null;
+  reason: string;
+}
+
 export interface AiMetrics {
   total_events: number;
   success_rate: number;
@@ -142,6 +162,8 @@ export interface AiMetrics {
   p95_latency_ms: number;
   model_status_counts: Record<string, number>;
   operation_metrics: AiOperationMetric[];
+  tool_metrics: AiToolMetric[];
+  insights: AiInsight[];
   slowest_events: AiEventSummary[];
   recent_failures: AiEventSummary[];
 }

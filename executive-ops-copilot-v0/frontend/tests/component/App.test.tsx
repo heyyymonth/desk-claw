@@ -42,6 +42,47 @@ const draft = {
   model_status: "not_configured"
 };
 
+const aiMetrics = {
+  total_events: 2,
+  success_rate: 1,
+  adk_coverage: 1,
+  tool_call_coverage: 1,
+  avg_latency_ms: 25,
+  p95_latency_ms: 30,
+  model_status_counts: { used: 2 },
+  operation_metrics: [
+    {
+      operation: "generate_recommendation",
+      total: 2,
+      success_rate: 1,
+      adk_coverage: 1,
+      avg_latency_ms: 25,
+      tool_calls_avg: 4,
+      model_status_counts: { used: 2 },
+    },
+  ],
+  tool_metrics: [
+    {
+      tool_name: "inspect_calendar_conflicts",
+      calls: 2,
+      failure_count: 0,
+      success_rate: 1,
+      avg_latency_ms: 25,
+      failure_reasons: {},
+    },
+  ],
+  insights: [
+    {
+      severity: "info",
+      title: "AI telemetry window is healthy",
+      detail: "No unavailable models were detected.",
+      reason: "healthy_window",
+    },
+  ],
+  slowest_events: [],
+  recent_failures: [],
+};
+
 describe("App", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
@@ -51,6 +92,7 @@ describe("App", () => {
       if (url.endsWith("/api/parse-request")) return Promise.resolve(jsonResponse(meetingRequest));
       if (url.endsWith("/api/recommendation")) return Promise.resolve(jsonResponse(recommendation));
       if (url.endsWith("/api/draft-response")) return Promise.resolve(jsonResponse(draft));
+      if (url.endsWith("/api/telemetry/ai/dashboard")) return Promise.resolve(jsonResponse(aiMetrics));
       if (url.endsWith("/api/decisions") && init?.method === "POST") {
         return Promise.resolve(jsonResponse({ id: "1", created_at: "2026-05-09T00:00:00Z", meeting_request: meetingRequest, recommendation, final_decision: "accepted", notes: "" }));
       }
@@ -85,6 +127,25 @@ describe("App", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Accept" }));
     await waitFor(() => expect(screen.getAllByText("Customer meeting").length).toBeGreaterThan(1));
+  });
+
+  it("renders the separate DB-backed AI telemetry dashboard page", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>,
+    );
+
+    await userEvent.click(screen.getAllByRole("button", { name: "AI Dashboard" })[0]);
+
+    await screen.findByText("AI Technical Dashboard");
+    expect(screen.getByText("DB telemetry")).toBeInTheDocument();
+    expect(screen.getByText("inspect calendar conflicts")).toBeInTheDocument();
+    expect(screen.getByText("AI telemetry window is healthy")).toBeInTheDocument();
   });
 });
 

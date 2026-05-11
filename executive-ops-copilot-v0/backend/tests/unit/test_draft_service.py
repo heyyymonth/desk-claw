@@ -51,8 +51,8 @@ def test_draft_service_validates_llm_output():
     assert draft.model_status == "used"
 
 
-def test_draft_service_falls_back_without_llm():
-    draft = DraftService(None).generate(recommendation("decline"))
+def test_draft_service_falls_back_without_adk_runner():
+    draft = DraftService().generate(recommendation("decline"))
 
     assert draft.tone == "firm"
     assert draft.model_status == "not_configured"
@@ -85,6 +85,6 @@ def test_draft_service_reports_unavailable_adk_runner():
     try:
         service.generate(recommendation())
     except Exception as exc:
-        assert getattr(exc, "code", None) == "ollama_unavailable"
+        assert getattr(exc, "code", None) == "adk_model_unavailable"
     else:
         raise AssertionError("ADK runner failure should surface as service error")

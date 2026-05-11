@@ -6,7 +6,7 @@ from app.llm.schemas import MeetingIntent, ParsedMeetingRequest
 
 
 class RequestParser:
-    def __init__(self, llm_client=None, agent_runner: AdkRequestParserAgentRunner | None = None) -> None:
+    def __init__(self, agent_runner: AdkRequestParserAgentRunner | None = None) -> None:
         self.agent_runner = agent_runner
         self.last_ai_run: dict = _fallback_trace()
 
@@ -18,7 +18,7 @@ class RequestParser:
                 return parsed.model_copy(update={"intent": _normalize_intent(raw_text, parsed.intent)})
             except AgentRuntimeError as exc:
                 self.last_ai_run = _adk_trace("meeting_request_parser_agent", status="unavailable")
-                raise ServiceError("ollama_unavailable", "Configured ADK parser is unavailable.", status_code=502) from exc
+                raise ServiceError("adk_model_unavailable", "Configured ADK parser is unavailable.", status_code=502) from exc
         self.last_ai_run = _fallback_trace()
         return fallback_parse(raw_text)
 

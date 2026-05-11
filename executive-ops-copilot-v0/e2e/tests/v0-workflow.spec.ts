@@ -211,7 +211,7 @@ function recommendationFor(scenario: Scenario) {
   };
 }
 
-async function installApiMocks(page: Page, options?: { backendUnavailable?: boolean; ollamaUnavailable?: boolean }) {
+async function installApiMocks(page: Page, options?: { backendUnavailable?: boolean; adkModelUnavailable?: boolean }) {
   const decisions: unknown[] = [];
 
   await page.route('**/api/**', async (route) => {
@@ -226,7 +226,12 @@ async function installApiMocks(page: Page, options?: { backendUnavailable?: bool
     if (url.pathname === '/api/health') {
       await route.fulfill({
         contentType: 'application/json',
-        body: JSON.stringify({ status: 'ok', ollama: options?.ollamaUnavailable ? 'unavailable' : 'mocked' }),
+        body: JSON.stringify({
+          status: 'ok',
+          model_status: options?.adkModelUnavailable ? 'unavailable' : undefined,
+          model_runtime: options?.adkModelUnavailable ? undefined : 'google-adk',
+          model: 'ollama_chat/gemma4:latest',
+        }),
       });
       return;
     }
@@ -356,11 +361,11 @@ test.describe('V0 scheduling workflow', () => {
     await expect(page.getByRole('alert').filter({ hasText: 'Backend unavailable' }).last()).toBeVisible();
   });
 
-  test('Ollama unavailable mocked fallback state', async ({ page }) => {
-    await installApiMocks(page, { ollamaUnavailable: true });
+  test('ADK model unavailable mocked fallback state', async ({ page }) => {
+    await installApiMocks(page, { adkModelUnavailable: true });
     await page.goto('/');
 
-    await expect(page.getByText('Ollama: unavailable')).toBeVisible();
+    await expect(page.getByText('Model: unavailable (ollama_chat/gemma4:latest)')).toBeVisible();
     await completeWorkflow(page, scenarios[0]);
   });
 });
