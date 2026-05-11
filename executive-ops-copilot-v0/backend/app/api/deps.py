@@ -1,5 +1,6 @@
 from fastapi import Header
 
+from app.agents.scheduling import AdkSchedulingAgentRunner
 from app.core.settings import get_settings
 from app.db.audit import ActorContext, AuditRepository
 from app.db.session import Database
@@ -45,7 +46,11 @@ def get_request_parser() -> RequestParser:
 
 
 def get_recommendation_service() -> RecommendationService:
-    return RecommendationService(get_llm_client())
+    settings = get_settings()
+    agent_runner = None
+    if settings.agent_runtime == "adk" and settings.llm_mode != "mock":
+        agent_runner = AdkSchedulingAgentRunner(settings.adk_model, settings.ollama_base_url)
+    return RecommendationService(get_llm_client(), agent_runner=agent_runner)
 
 
 def get_draft_service() -> DraftService:

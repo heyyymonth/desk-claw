@@ -1,4 +1,4 @@
-from app.agents.scheduling import SchedulingAgentPlanner, create_recommendation_from_plan
+from app.agents.scheduling import AdkSchedulingAgentRunner, AgentRuntimeError, SchedulingAgentPlanner, create_recommendation_from_plan
 from app.core.errors import ServiceError
 from app.llm.output_parser import InvalidLLMOutput, parse_llm_output
 from app.llm.prompts import recommendation_prompt
@@ -16,8 +16,10 @@ class RecommendationService:
         risk_classifier: RiskClassifier | None = None,
         rules_engine: RulesEngine | None = None,
         agent_planner: SchedulingAgentPlanner | None = None,
+        agent_runner: AdkSchedulingAgentRunner | None = None,
     ) -> None:
         self.llm_client = llm_client
+        self.agent_runner = agent_runner
         self.calendar_analyzer = calendar_analyzer or CalendarAnalyzer()
         self.risk_classifier = risk_classifier or RiskClassifier()
         self.rules_engine = rules_engine or RulesEngine()
@@ -34,9 +36,17 @@ class RecommendationService:
         calendar_blocks: list[CalendarBlock],
     ) -> Recommendation:
         plan = self.agent_planner.plan(parsed_request, rules, calendar_blocks)
-        deterministic = create_recommendation_from_plan(plan)
+        model_status = "not_configured"
+        if self.agent_runner is not None:
+            try:
+                plan = self.agent_runner.plan(parsed_request, rules, calendar_blocks)
+                model_status = "used"
+            except AgentRuntimeError:
+                model_status = "unavailable"
 
-        if self.llm_client is None:
+        deterministic = create_recommendation_from_plan(plan, model_status=model_status)
+
+        if self.llm_client is None or self.agent_runner is not None:
             return deterministic
 
         output = self.llm_client.generate_structured(

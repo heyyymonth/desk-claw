@@ -1,9 +1,11 @@
-from __future__ import annotations
-
+import concurrent.futures
+import json
+import os
 from datetime import datetime, timedelta
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from app.llm.schemas import (
     CalendarAnalysis,
@@ -58,10 +60,14 @@ class AgentPlanningResult(BaseModel):
     analysis: CalendarAnalysis
 
 
+class AgentRuntimeError(RuntimeError):
+    pass
+
+
 scheduling_agent_definition = AgentDefinition(
     name="meeting_resolution_agent",
-    framework="google-adk-compatible",
-    role="Resolve meeting clashes and scheduling tradeoffs for executive assistants.",
+    framework="google-adk",
+    role="Resolve meeting clashes and scheduling tradeoffs for executive assistants by reasoning through tool calls.",
     objective=(
         "Plan a safe human-reviewed scheduling action by inspecting request intent, calendar conflicts, "
         "executive rules, urgency, sensitivity, and available alternatives."
@@ -92,6 +98,21 @@ scheduling_agent_definition = AgentDefinition(
             description="Applies deterministic V0 decision policy to the tool outputs.",
         ),
     ],
+)
+
+
+ADK_AGENT_INSTRUCTION = (
+    f"{scheduling_agent_definition.objective}\n"
+    f"{scheduling_agent_definition.planning_goal}\n\n"
+    "You are the primary meeting resolution agent for an executive assistant. Use the available tools as the source "
+    "of truth for calendar conflicts, scheduling rules, risk, and final strategy. Call the tools in this order unless "
+    "the input is impossible to validate: inspect_calendar_conflicts, validate_scheduling_rules, "
+    "classify_priority_and_risk, then select_resolution_strategy. Do not write to external calendars or send email. "
+    "Tool arguments ending in _json must be JSON strings copied from the request context or previous tool output. "
+    "Return only a JSON object matching this shape: {\"decision\": \"schedule|clarify|defer|decline\", "
+    "\"confidence\": number, \"rationale\": [string], \"risks\": [{\"level\": \"low|medium|high\", "
+    "\"message\": string}], \"risk_level\": \"low|medium|high\", \"safe_action\": string, "
+    "\"proposed_slots\": [{\"start\": iso_datetime, \"end\": iso_datetime, \"reason\": string}]}."
 )
 
 
@@ -185,6 +206,128 @@ class SchedulingAgentPlanner:
         return risks
 
 
+class AdkSchedulingAgentRunner:
+    def __init__(
+        self,
+        model: str,
+        ollama_base_url: str | None = None,
+        app_name: str = "desk_ai_scheduling",
+        timeout_seconds: float = 45.0,
+    ) -> None:
+        self.model = model
+        self.ollama_base_url = ollama_base_url
+        self.app_name = app_name
+        self.timeout_seconds = timeout_seconds
+
+    def plan(
+        self,
+        parsed_request: ParsedMeetingRequest,
+        rules: ExecutiveRules,
+        calendar_blocks: list[CalendarBlock],
+    ) -> AgentPlanningResult:
+        deterministic_plan = SchedulingAgentPlanner().plan(parsed_request, rules, calendar_blocks)
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        try:
+            future = executor.submit(self._run_adk_plan, parsed_request, rules, calendar_blocks)
+            output = future.result(timeout=self.timeout_seconds)
+            return self._merge_model_output(output, deterministic_plan)
+        except concurrent.futures.TimeoutError as exc:
+            raise AgentRuntimeError("ADK scheduling agent timed out.") from exc
+        except Exception as exc:
+            raise AgentRuntimeError("ADK scheduling agent could not complete a planning run.") from exc
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
+
+    def _run_adk_plan(
+        self,
+        parsed_request: ParsedMeetingRequest,
+        rules: ExecutiveRules,
+        calendar_blocks: list[CalendarBlock],
+    ) -> dict:
+        agent = create_adk_root_agent(model=self.model, ollama_base_url=self.ollama_base_url)
+        return self._run_agent(agent, parsed_request, rules, calendar_blocks)
+
+    def _run_agent(
+        self,
+        agent,
+        parsed_request: ParsedMeetingRequest,
+        rules: ExecutiveRules,
+        calendar_blocks: list[CalendarBlock],
+    ) -> dict:
+        try:
+            from google.adk.runners import RunConfig, Runner
+            from google.adk.sessions import InMemorySessionService
+            from google.genai import types
+        except ImportError as exc:
+            raise AgentRuntimeError("Install google-adk to run the scheduling agent.") from exc
+
+        session_service = InMemorySessionService()
+        user_id = "desk-ai-local-user"
+        session_id = f"scheduling-{uuid4()}"
+        session_service.create_session(app_name=self.app_name, user_id=user_id, session_id=session_id)
+        runner = Runner(app_name=self.app_name, agent=agent, session_service=session_service)
+        message = types.Content(
+            role="user",
+            parts=[
+                types.Part.from_text(
+                    text=json.dumps(
+                        {
+                            "task": "Resolve this meeting request with tool-backed reasoning.",
+                            "parsed_request": parsed_request.model_dump(mode="json"),
+                            "rules": rules.model_dump(mode="json"),
+                            "calendar_blocks": [block.model_dump(mode="json") for block in calendar_blocks],
+                        }
+                    )
+                )
+            ],
+        )
+
+        final_text = ""
+        for event in runner.run(
+            user_id=user_id,
+            session_id=session_id,
+            new_message=message,
+            run_config=RunConfig(max_llm_calls=8),
+        ):
+            if event.content is None:
+                continue
+            for part in event.content.parts or []:
+                if part.text:
+                    final_text = part.text
+
+        if not final_text:
+            raise AgentRuntimeError("ADK scheduling agent returned no final text.")
+        return _loads_json_object(final_text)
+
+    def _merge_model_output(self, output: dict, deterministic_plan: AgentPlanningResult) -> AgentPlanningResult:
+        model_decision = output.get("decision", deterministic_plan.decision)
+        decision = model_decision if model_decision == deterministic_plan.decision else deterministic_plan.decision
+        proposed_slots = output.get("proposed_slots", deterministic_plan.proposed_slots)
+        if decision != "schedule":
+            proposed_slots = []
+        elif not proposed_slots:
+            proposed_slots = deterministic_plan.proposed_slots
+
+        try:
+            return AgentPlanningResult.model_validate(
+                {
+                    "agent_name": scheduling_agent_definition.name,
+                    "objective": scheduling_agent_definition.objective,
+                    "tool_calls": deterministic_plan.tool_calls,
+                    "decision": decision,
+                    "confidence": output.get("confidence", deterministic_plan.confidence),
+                    "rationale": output.get("rationale") or deterministic_plan.rationale,
+                    "risks": output.get("risks", deterministic_plan.risks),
+                    "risk_level": deterministic_plan.risk_level,
+                    "safe_action": deterministic_plan.safe_action,
+                    "proposed_slots": proposed_slots,
+                    "analysis": deterministic_plan.analysis,
+                }
+            )
+        except ValidationError:
+            return deterministic_plan
+
+
 def create_recommendation_from_plan(plan: AgentPlanningResult, model_status: str = "not_configured") -> Recommendation:
     return Recommendation(
         decision=plan.decision,
@@ -208,16 +351,83 @@ def inspect_calendar_conflicts_tool(
     return analysis.model_dump(mode="json")
 
 
+def inspect_calendar_conflicts(
+    request_windows_json: str,
+    calendar_blocks_json: str,
+    duration_minutes: int,
+) -> dict:
+    """Inspect requested meeting windows against busy calendar blocks and return conflicts plus open slots.
+
+    Args:
+        request_windows_json: JSON array of requested time windows with start and end datetimes.
+        calendar_blocks_json: JSON array of calendar blocks with title, start, end, and busy fields.
+        duration_minutes: Requested meeting duration in minutes.
+    """
+    request_windows = _loads_json_array(request_windows_json)
+    calendar_blocks = _loads_json_array(calendar_blocks_json)
+    windows = [TimeWindow.model_validate(window) for window in request_windows]
+    blocks = [CalendarBlock.model_validate(block) for block in calendar_blocks]
+    return inspect_calendar_conflicts_tool(windows, blocks, duration_minutes)
+
+
 def validate_scheduling_rules_tool(rules: ExecutiveRules) -> dict:
     """Validate executive scheduling rules before proposing a calendar action."""
     violations = RulesEngine().validate(rules)
     return {"violations": [violation.model_dump(mode="json") for violation in violations]}
 
 
+def validate_scheduling_rules(rules_json: str) -> dict:
+    """Validate executive working hours, protected blocks, and scheduling preferences before action.
+
+    Args:
+        rules_json: JSON object containing executive scheduling rules.
+    """
+    rules = _loads_json_object(rules_json)
+    return validate_scheduling_rules_tool(ExecutiveRules.model_validate(rules))
+
+
 def classify_priority_and_risk_tool(parsed_request: ParsedMeetingRequest, analysis: CalendarAnalysis) -> dict:
     """Classify missing-context, calendar-conflict, and priority risks."""
     risks = RiskClassifier().classify(parsed_request, analysis)
     return {"risks": [risk.model_dump(mode="json") for risk in risks]}
+
+
+def classify_priority_and_risk(
+    parsed_request_json: str,
+    analysis_json: str,
+    rule_violations_json: str,
+) -> dict:
+    """Classify meeting risk using request intent, calendar analysis, and rule violations.
+
+    Args:
+        parsed_request_json: JSON object containing the parsed meeting request.
+        analysis_json: JSON object returned by inspect_calendar_conflicts.
+        rule_violations_json: JSON array from validate_scheduling_rules violations.
+    """
+    parsed_request = _loads_json_object(parsed_request_json)
+    analysis = _loads_json_object(analysis_json)
+    rule_violations = _loads_json_array(rule_violations_json)
+    request = ParsedMeetingRequest.model_validate(parsed_request)
+    calendar_analysis = CalendarAnalysis.model_validate(analysis)
+    risks = RiskClassifier().classify(request, calendar_analysis)
+    for violation in rule_violations or []:
+        message = violation.get("message")
+        if message:
+            risks.append(Risk(level="medium", message=message))
+    if request.intent.async_candidate:
+        risks = []
+    if request.intent.escalation_required:
+        risks.append(Risk(level="high", message="Request requires human escalation before any external action."))
+    if request.intent.sensitivity == "high":
+        risks.append(Risk(level="high", message="Sensitive request should be reviewed without exposing private details."))
+    elif request.intent.sensitivity == "medium":
+        risks.append(Risk(level="medium", message="Request has moderate sensitivity and should be reviewed."))
+    if "travel" in request.intent.constraints:
+        risks.append(Risk(level="medium", message="Travel context can affect availability and timezone assumptions."))
+    return {
+        "risks": [risk.model_dump(mode="json") for risk in risks],
+        "risk_level": _risk_level(risks, request),
+    }
 
 
 def select_resolution_strategy_tool(parsed_request: ParsedMeetingRequest, analysis: CalendarAnalysis) -> dict:
@@ -231,30 +441,91 @@ def select_resolution_strategy_tool(parsed_request: ParsedMeetingRequest, analys
     }
 
 
-def create_adk_root_agent(model: str = "gemini-2.0-flash"):
+def select_resolution_strategy(parsed_request_json: str, analysis_json: str, risks_json: str) -> dict:
+    """Choose schedule, clarify, defer, or decline with human-review guardrails.
+
+    Args:
+        parsed_request_json: JSON object containing the parsed meeting request.
+        analysis_json: JSON object returned by inspect_calendar_conflicts.
+        risks_json: JSON array returned by classify_priority_and_risk.
+    """
+    parsed_request = _loads_json_object(parsed_request_json)
+    analysis = _loads_json_object(analysis_json)
+    risks = _loads_json_array(risks_json)
+    request = ParsedMeetingRequest.model_validate(parsed_request)
+    calendar_analysis = CalendarAnalysis.model_validate(analysis)
+    risk_models = [Risk.model_validate(risk) for risk in risks]
+    decision = _decision(request, calendar_analysis)
+    return {
+        "decision": decision,
+        "confidence": _confidence(decision, calendar_analysis),
+        "rationale": _rationale(request, calendar_analysis),
+        "risks": [risk.model_dump(mode="json") for risk in risk_models],
+        "risk_level": _risk_level(risk_models, request),
+        "safe_action": _safe_action(request, decision),
+        "proposed_slots": [
+            slot.model_dump(mode="json") for slot in calendar_analysis.open_slots[:3]
+        ]
+        if decision == "schedule"
+        else [],
+    }
+
+
+def create_adk_root_agent(model: str = "gemini-2.0-flash", ollama_base_url: str | None = None):
     try:
         from google.adk.agents import Agent
     except ImportError as exc:
         raise RuntimeError("Install google-adk to instantiate the ADK root agent.") from exc
 
+    agent_model = _adk_model(model, ollama_base_url)
     return Agent(
-        model=model,
+        model=agent_model,
         name=scheduling_agent_definition.name,
         description=scheduling_agent_definition.role,
-        instruction=(
-            f"{scheduling_agent_definition.objective}\n"
-            f"{scheduling_agent_definition.planning_goal}\n"
-            "Use the tools in order when resolving scheduling clashes: inspect calendar conflicts, "
-            "validate rules, classify risk, then select a resolution strategy. Never perform external "
-            "calendar writes; return a human-reviewable recommendation."
-        ),
+        instruction=ADK_AGENT_INSTRUCTION,
         tools=[
-            inspect_calendar_conflicts_tool,
-            validate_scheduling_rules_tool,
-            classify_priority_and_risk_tool,
-            select_resolution_strategy_tool,
+            inspect_calendar_conflicts,
+            validate_scheduling_rules,
+            classify_priority_and_risk,
+            select_resolution_strategy,
         ],
     )
+
+
+def _adk_model(model: str, ollama_base_url: str | None = None):
+    if model.startswith("ollama_chat/"):
+        if ollama_base_url:
+            os.environ.setdefault("OLLAMA_API_BASE", ollama_base_url)
+        try:
+            from google.adk.models.lite_llm import LiteLlm
+        except ImportError as exc:
+            raise RuntimeError("Install google-adk with litellm support to use Ollama-hosted ADK models.") from exc
+        return LiteLlm(model=model)
+    return model
+
+
+def _loads_json_object(text: str) -> dict:
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        stripped = stripped.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+    try:
+        value = json.loads(stripped)
+    except json.JSONDecodeError as exc:
+        start = stripped.find("{")
+        end = stripped.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            raise AgentRuntimeError("ADK scheduling agent returned non-JSON output.") from exc
+        value = json.loads(stripped[start : end + 1])
+    if not isinstance(value, dict):
+        raise AgentRuntimeError("ADK scheduling agent returned a non-object JSON payload.")
+    return value
+
+
+def _loads_json_array(text: str) -> list:
+    value = json.loads(text)
+    if not isinstance(value, list):
+        raise AgentRuntimeError("ADK tool expected a JSON array payload.")
+    return value
 
 
 def _decision(parsed_request: ParsedMeetingRequest, analysis: CalendarAnalysis) -> Decision:

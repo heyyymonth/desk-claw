@@ -1,4 +1,15 @@
-from app.agents.scheduling import SchedulingAgentPlanner, create_adk_root_agent, scheduling_agent_definition
+import json
+
+from app.agents.scheduling import (
+    AdkSchedulingAgentRunner,
+    SchedulingAgentPlanner,
+    classify_priority_and_risk,
+    create_adk_root_agent,
+    inspect_calendar_conflicts,
+    scheduling_agent_definition,
+    select_resolution_strategy,
+    validate_scheduling_rules,
+)
 from app.llm.schemas import CalendarBlock, ExecutiveRules, ParsedMeetingRequest
 
 
@@ -36,7 +47,7 @@ def rules():
 
 
 def test_agent_definition_names_goals_and_tools():
-    assert scheduling_agent_definition.framework == "google-adk-compatible"
+    assert scheduling_agent_definition.framework == "google-adk"
     assert scheduling_agent_definition.name == "meeting_resolution_agent"
     assert [tool.name for tool in scheduling_agent_definition.tools] == [
         "inspect_calendar_conflicts",
@@ -81,8 +92,53 @@ def test_planner_defers_when_requested_window_is_blocked():
 
 def test_create_adk_root_agent_is_adk_compatible_or_reports_missing_dependency():
     try:
-        agent = create_adk_root_agent()
+        agent = create_adk_root_agent("gemini-2.0-flash")
     except RuntimeError as exc:
-        assert "Install google-adk" in str(exc)
+        assert "Install google-adk" in str(exc) or "litellm" in str(exc)
     else:
         assert agent.name == "meeting_resolution_agent"
+
+
+def test_adk_tool_functions_use_structured_inputs():
+    request = parsed_request()
+    analysis = inspect_calendar_conflicts(
+        json.dumps([window.model_dump(mode="json") for window in request.intent.preferred_windows]),
+        "[]",
+        request.intent.duration_minutes,
+    )
+    rule_output = validate_scheduling_rules(json.dumps(rules().model_dump(mode="json")))
+    risk_output = classify_priority_and_risk(
+        json.dumps(request.model_dump(mode="json")),
+        json.dumps(analysis),
+        json.dumps(rule_output["violations"]),
+    )
+    strategy = select_resolution_strategy(
+        json.dumps(request.model_dump(mode="json")),
+        json.dumps(analysis),
+        json.dumps(risk_output["risks"]),
+    )
+
+    assert analysis["open_slots"]
+    assert rule_output == {"violations": []}
+    assert risk_output["risk_level"] == "low"
+    assert strategy["decision"] == "schedule"
+
+
+def test_adk_runner_merges_model_reasoning_with_guardrails():
+    plan = SchedulingAgentPlanner().plan(parsed_request(), rules(), [])
+    output = {
+        "decision": "schedule",
+        "confidence": 0.93,
+        "rationale": ["ADK reasoned through calendar, rules, risk, and strategy tools."],
+        "risks": [],
+        "risk_level": "low",
+        "safe_action": "unsafe_external_write",
+        "proposed_slots": [],
+    }
+
+    merged = AdkSchedulingAgentRunner("gemini-2.0-flash")._merge_model_output(output, plan)
+
+    assert merged.confidence == 0.93
+    assert merged.rationale == ["ADK reasoned through calendar, rules, risk, and strategy tools."]
+    assert merged.safe_action == "propose_slot_for_human_review_before_final_send"
+    assert merged.proposed_slots

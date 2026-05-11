@@ -11,6 +11,8 @@ class Settings:
         self.ollama_base_url = getenv("OLLAMA_BASE_URL", "http://localhost:11434")
         self.ollama_url = self.ollama_base_url
         self.ollama_model = getenv("OLLAMA_MODEL", "gemma4:latest")
+        self.agent_runtime = getenv("AGENT_RUNTIME", "adk")
+        self.adk_model = getenv("ADK_MODEL", f"ollama_chat/{self.ollama_model}")
         self.timezone = getenv("APP_TIMEZONE", "America/Los_Angeles")
 
 

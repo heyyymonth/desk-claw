@@ -1,3 +1,4 @@
+from app.agents.scheduling import AgentRuntimeError, SchedulingAgentPlanner
 from app.llm.schemas import CalendarBlock, ExecutiveRules, ParsedMeetingRequest
 from app.services.recommendation_service import RecommendationService
 
@@ -8,6 +9,17 @@ class StubLLM:
 
     def generate_structured(self, prompt, schema):
         return self.output
+
+
+class StubAgentRunner:
+    def __init__(self, plan=None, error: Exception | None = None):
+        self._plan = plan
+        self.error = error
+
+    def plan(self, parsed_request, rules, calendar_blocks):
+        if self.error:
+            raise self.error
+        return self._plan
 
 
 def parsed_request():
@@ -118,3 +130,33 @@ def test_recommendation_guardrails_rationale_for_escalation():
     assert recommendation.proposed_slots == []
     assert recommendation.rationale == ["Human escalation is required before replying or scheduling."]
     assert recommendation.risk_level == "high"
+
+
+def test_recommendation_prefers_adk_agent_runner_when_configured():
+    plan = SchedulingAgentPlanner().plan(parsed_request(), rules(), [])
+    runner = StubAgentRunner(plan=plan)
+    llm = StubLLM(
+        {
+            "decision": "defer",
+            "confidence": 0.1,
+            "rationale": ["This should not be used when ADK runner is active."],
+            "risks": [],
+            "proposed_slots": [],
+            "model_status": "used",
+        }
+    )
+
+    recommendation = RecommendationService(llm, agent_runner=runner).generate(parsed_request(), rules(), [])
+
+    assert recommendation.decision == "schedule"
+    assert recommendation.model_status == "used"
+    assert recommendation.rationale == plan.rationale
+
+
+def test_recommendation_falls_back_when_adk_agent_runner_is_unavailable():
+    runner = StubAgentRunner(error=AgentRuntimeError("ADK unavailable"))
+
+    recommendation = RecommendationService(None, agent_runner=runner).generate(parsed_request(), rules(), [])
+
+    assert recommendation.decision == "schedule"
+    assert recommendation.model_status == "unavailable"
