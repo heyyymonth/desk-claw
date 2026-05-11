@@ -11,6 +11,7 @@ import {
   Home,
   KeyRound,
   LockKeyhole,
+  LogOut,
   MessageSquare,
   PanelLeftClose,
   PanelLeftOpen,
@@ -20,6 +21,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   UserCircle,
+  UserPen,
   Users,
   Workflow,
   type LucideIcon,
@@ -90,6 +92,21 @@ const enterpriseSignals = [
 const trustMarks = ['Northstar Ops', 'Atlas Finance', 'Forge AI', 'Helio Systems', 'Summit Cloud'];
 
 type PageId = 'home' | 'admin' | 'account' | 'settings';
+type PersonaId = 'executive_assistant' | 'admin';
+
+type Persona = {
+  id: PersonaId;
+  label: string;
+  eyebrow: string;
+  name: string;
+  title: string;
+  email: string;
+  phone: string;
+  timezone: string;
+  role: string;
+  accessLevel: string;
+  lastActive: string;
+};
 
 const pages = [
   { id: 'home' as const, label: 'Home', detail: 'Chat and calendar', icon: Home },
@@ -106,8 +123,38 @@ const commandPrompts = [
 
 const brandLogoSrc = '/brand/desk-ai-logo.jpeg';
 
+const personas: Record<PersonaId, Persona> = {
+  executive_assistant: {
+    id: 'executive_assistant',
+    label: 'Executive Assistant',
+    eyebrow: 'Executive assistant view',
+    name: 'Maya Srinivasan',
+    title: 'Executive Assistant to Dana Lee',
+    email: 'maya.srinivasan@northstar-ops.example',
+    phone: '+1 (415) 555-0142',
+    timezone: 'America/Los_Angeles',
+    role: 'Executive assistant',
+    accessLevel: 'Meeting intake, calendar coordination, scheduling approvals',
+    lastActive: 'Today at 2:41 PM Pacific',
+  },
+  admin: {
+    id: 'admin',
+    label: 'Workspace Admin',
+    eyebrow: 'Admin view',
+    name: 'Priya Shah',
+    title: 'Workspace Admin, Executive Operations',
+    email: 'priya.shah@northstar-ops.example',
+    phone: '+1 (415) 555-0198',
+    timezone: 'America/Los_Angeles',
+    role: 'Workspace admin',
+    accessLevel: 'Billing, rules, calendar assumptions, audit logs',
+    lastActive: 'Today at 2:36 PM Pacific',
+  },
+};
+
 export function App() {
   const [activePage, setActivePage] = useState<PageId>('home');
+  const [activePersona, setActivePersona] = useState<PersonaId>('executive_assistant');
   const [isNavPinned, setIsNavPinned] = useState(false);
   const [rawText, setRawText] = useState('');
   const [validationError, setValidationError] = useState('');
@@ -227,6 +274,7 @@ export function App() {
           : 0;
 
   const navExpanded = isNavPinned;
+  const currentPersona = personas[activePersona];
 
   return (
     <main className="min-h-screen">
@@ -292,6 +340,9 @@ export function App() {
               <div className="flex min-w-0 items-center gap-2">
                 <BrandLogo variant="mark" className="h-7 w-7 shrink-0" />
                 <span className="hidden text-xs font-semibold uppercase tracking-wide text-white/62 sm:inline">Executive Ops Workbench</span>
+                <span className="hidden rounded-md border border-white/15 bg-white/10 px-2 py-1 text-xs font-semibold text-white/76 md:inline-flex">
+                  {currentPersona.label}
+                </span>
               </div>
               <div className="flex justify-center">
                 <BrandLogo variant="wordmark" className="h-7" />
@@ -368,7 +419,9 @@ export function App() {
               />
             ) : null}
 
-            {activePage === 'account' ? <AccountPage /> : null}
+            {activePage === 'account' ? (
+              <AccountPage activePersona={activePersona} onPersonaChange={setActivePersona} />
+            ) : null}
             {activePage === 'settings' ? <SettingsPage /> : null}
           </div>
         </div>
@@ -728,44 +781,150 @@ function WorkflowStepper({ activeStep }: { activeStep: number }) {
   );
 }
 
-function AccountPage() {
+function AccountPage({
+  activePersona,
+  onPersonaChange,
+}: {
+  activePersona: PersonaId;
+  onPersonaChange: (persona: PersonaId) => void;
+}) {
+  const persona = personas[activePersona];
+  const [profile, setProfile] = useState(persona);
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const signOutMutation = useMutation({
+    mutationFn: api.signOut,
+  });
+  const isAdmin = activePersona === 'admin';
+
+  useEffect(() => {
+    setProfile(personas[activePersona]);
+    setIsEditingProfile(false);
+  }, [activePersona]);
+
   return (
     <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
       <section className="overflow-hidden rounded-lg border border-white/75 bg-glass shadow-[0_20px_48px_rgba(31,38,50,0.11)] backdrop-blur-md">
-        <div className="border-b border-line/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.74),rgba(255,255,255,0.44))] px-4 py-4">
-          <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-steel">
-            <CreditCard size={17} aria-hidden="true" />
-            Account and subscription
+        <div className="flex flex-col justify-between gap-4 border-b border-line/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.74),rgba(255,255,255,0.44))] px-4 py-4 md:flex-row md:items-center">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-line bg-white/70 text-brandDark shadow-sm">
+              <UserCircle size={26} aria-hidden="true" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-xs font-semibold uppercase tracking-wide text-steel">{persona.eyebrow}</div>
+              <h2 className="mt-1 truncate text-2xl font-bold text-ink">{profile.name}</h2>
+              <p className="mt-1 text-sm text-steel">{profile.title}</p>
+            </div>
           </div>
-          <h2 className="mt-2 text-2xl font-bold text-ink">Enterprise plan for Northstar Customer Ops</h2>
+          <div className="flex flex-wrap gap-2">
+            <select
+              aria-label="Persona view"
+              value={activePersona}
+              onChange={(event) => onPersonaChange(event.target.value as PersonaId)}
+              className="min-h-10 rounded-md border border-line bg-white/75 px-3 text-sm font-semibold text-brandDark shadow-sm"
+            >
+              <option value="executive_assistant">Executive Assistant</option>
+              <option value="admin">Workspace Admin</option>
+            </select>
+            <button
+              type="button"
+              onClick={() => signOutMutation.mutate()}
+              className="inline-flex min-h-10 items-center justify-center rounded-md border border-line bg-white/75 px-3 text-sm font-semibold text-brandDark shadow-sm hover:bg-brandSoft"
+            >
+              <LogOut className="mr-2" size={16} aria-hidden="true" />
+              Sign out
+            </button>
+          </div>
         </div>
-        <div className="grid gap-3 p-4 md:grid-cols-3">
-          <MetricCard label="Seats" value="42 / 60" detail="18 available" />
-          <MetricCard label="Monthly usage" value="71%" detail="18.4k AI actions" />
-          <MetricCard label="Renewal" value="Nov 15" detail="annual agreement" />
+        <div className="grid gap-3 p-4 text-sm md:grid-cols-2">
+          <InfoRow label="Email" value={profile.email} />
+          <InfoRow label="Phone" value={profile.phone} />
+          <InfoRow label="Timezone" value={profile.timezone} />
+          <InfoRow label="Role" value={profile.role} />
+          <InfoRow label="Access level" value={profile.accessLevel} />
+          <InfoRow label="Last active" value={profile.lastActive} />
+        </div>
+        <div className="border-t border-line/80 px-4 py-3 text-sm text-steel">
+          {signOutMutation.isPending
+            ? 'Sign-out request sent to backend.'
+            : signOutMutation.isError
+              ? 'Backend sign-out endpoint is linked, but not implemented yet.'
+              : 'Sign out is wired to the backend endpoint. Session handling will be completed with login/onboarding.'}
         </div>
       </section>
 
       <section className="overflow-hidden rounded-lg border border-white/75 bg-glass shadow-[0_20px_48px_rgba(31,38,50,0.11)] backdrop-blur-md">
-        <div className="border-b border-line/80 bg-white/50 px-4 py-4">
-          <h2 className="text-base font-semibold text-ink">Billing contacts</h2>
+        <div className="flex items-center justify-between gap-3 border-b border-line/80 bg-white/50 px-4 py-4">
+          <div className="flex items-center gap-2">
+            <UserPen size={18} className="text-brandDark" aria-hidden="true" />
+            <h2 className="text-base font-semibold text-ink">Profile details</h2>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsEditingProfile((current) => !current)}
+            className="rounded-md border border-line bg-white/75 px-3 py-2 text-sm font-semibold text-brandDark shadow-sm hover:bg-brandSoft"
+          >
+            {isEditingProfile ? 'Done' : 'Change profile'}
+          </button>
         </div>
         <div className="space-y-3 p-4 text-sm">
-          <InfoRow label="Owner" value="Dana Lee, VP Executive Operations" />
-          <InfoRow label="Billing admin" value="Priya Shah, Finance Operations" />
-          <InfoRow label="Invoice email" value="ap@northstar-ops.example" />
-          <InfoRow label="Support tier" value="Enterprise, 24/7 priority" />
+          <ProfileField label="Display name" value={profile.name} disabled={!isEditingProfile} onChange={(name) => setProfile((current) => ({ ...current, name }))} />
+          <ProfileField label="Title" value={profile.title} disabled={!isEditingProfile} onChange={(title) => setProfile((current) => ({ ...current, title }))} />
+          <ProfileField label="Email" value={profile.email} disabled={!isEditingProfile} onChange={(email) => setProfile((current) => ({ ...current, email }))} />
+          <ProfileField label="Phone" value={profile.phone} disabled={!isEditingProfile} onChange={(phone) => setProfile((current) => ({ ...current, phone }))} />
         </div>
       </section>
 
+      {isAdmin ? (
+        <>
+          <section className="overflow-hidden rounded-lg border border-white/75 bg-glass shadow-[0_20px_48px_rgba(31,38,50,0.11)] backdrop-blur-md">
+            <div className="border-b border-line/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.74),rgba(255,255,255,0.44))] px-4 py-4">
+              <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-steel">
+                <CreditCard size={17} aria-hidden="true" />
+                Account and subscription
+              </div>
+              <h2 className="mt-2 text-2xl font-bold text-ink">Enterprise plan for Northstar Customer Ops</h2>
+            </div>
+            <div className="grid gap-3 p-4 md:grid-cols-3">
+              <MetricCard label="Seats" value="42 / 60" detail="18 available" />
+              <MetricCard label="Monthly usage" value="71%" detail="18.4k AI actions" />
+              <MetricCard label="Renewal" value="Nov 15" detail="annual agreement" />
+            </div>
+          </section>
+
+          <section className="xl:col-span-2 overflow-hidden rounded-lg border border-white/75 bg-glass shadow-[0_20px_48px_rgba(31,38,50,0.11)] backdrop-blur-md">
+            <div className="border-b border-line/80 bg-white/50 px-4 py-4">
+              <h2 className="text-base font-semibold text-ink">Billing contacts</h2>
+            </div>
+            <div className="space-y-3 p-4 text-sm">
+              <InfoRow label="Owner" value="Dana Lee, VP Executive Operations" />
+              <InfoRow label="Billing admin" value="Priya Shah, Finance Operations" />
+              <InfoRow label="Invoice email" value="ap@northstar-ops.example" />
+              <InfoRow label="Support tier" value="Enterprise, 24/7 priority" />
+            </div>
+          </section>
+        </>
+      ) : null}
+
       <section className="xl:col-span-2 overflow-hidden rounded-lg border border-white/75 bg-glass shadow-[0_20px_48px_rgba(31,38,50,0.11)] backdrop-blur-md">
         <div className="border-b border-line/80 bg-white/50 px-4 py-4">
-          <h2 className="text-base font-semibold text-ink">Usage by workspace</h2>
+          <h2 className="text-base font-semibold text-ink">
+            {isAdmin ? 'Usage by workspace' : 'Scheduling workspace'}
+          </h2>
         </div>
         <div className="grid gap-3 p-4 md:grid-cols-3">
-          <MetricCard label="Executive office" value="8.2k" detail="AI actions" />
-          <MetricCard label="Customer escalations" value="6.1k" detail="AI actions" />
-          <MetricCard label="Board operations" value="4.1k" detail="AI actions" />
+          {isAdmin ? (
+            <>
+              <MetricCard label="Executive office" value="8.2k" detail="AI actions" />
+              <MetricCard label="Customer escalations" value="6.1k" detail="AI actions" />
+              <MetricCard label="Board operations" value="4.1k" detail="AI actions" />
+            </>
+          ) : (
+            <>
+              <MetricCard label="Pending requests" value="14" detail="need scheduling review" />
+              <MetricCard label="Scheduled this week" value="27" detail="meetings coordinated" />
+              <MetricCard label="Protected blocks kept" value="96%" detail="focus time preserved" />
+            </>
+          )}
         </div>
       </section>
     </div>
@@ -831,6 +990,30 @@ function InfoRow({ label, value }: { label: string; value: string }) {
       <span className="font-semibold text-steel">{label}</span>
       <span className="text-right text-ink">{value}</span>
     </div>
+  );
+}
+
+function ProfileField({
+  label,
+  value,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  disabled: boolean;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="block space-y-1">
+      <span className="text-xs font-semibold uppercase tracking-wide text-steel">{label}</span>
+      <input
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full rounded-md border border-line bg-white/70 px-3 py-2 text-sm text-ink shadow-inner disabled:bg-white/40 disabled:text-steel"
+      />
+    </label>
   );
 }
 

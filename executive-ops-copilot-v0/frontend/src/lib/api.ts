@@ -96,6 +96,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(entry),
     }),
+  signOut: () =>
+    request<{ status: string }>('/api/auth/signout', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
 };
 
 export function getDefaultRules(): Promise<ExecutiveRules> {

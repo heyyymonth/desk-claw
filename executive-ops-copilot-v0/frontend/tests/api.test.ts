@@ -32,6 +32,18 @@ describe('api client', () => {
 
     await expect(api.parseRequest('Schedule this.')).rejects.toThrow('Gemma returned invalid parse output.');
   });
+
+  it('links sign out to the backend auth endpoint', async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(jsonResponse({ status: 'accepted' })));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await api.signOut();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:8000/api/auth/signout',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
 });
 
 function jsonResponse(payload: unknown) {
