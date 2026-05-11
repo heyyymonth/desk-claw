@@ -12,8 +12,8 @@
 - Calendar blocks represent busy, tentative, hold, travel, or focus time.
 - Proposed slots must not overlap hard busy blocks unless the recommendation explicitly reports a high risk.
 - Ollama is expected at `http://localhost:11434` unless configured otherwise.
-- The only supported V0 model is local Ollama `gemma4:latest`; ADK model routing is pinned to `ollama_chat/gemma4:latest`.
-- Request parsing, recommendation reasoning, and draft generation use Google ADK agent runners when enabled, with deterministic local fallback behavior when the local model is unavailable.
+- The default V0 model is local Ollama `gemma4:latest`, routed through ADK as `ollama_chat/gemma4:latest`.
+- ADK model routing is configurable through `ADK_MODEL`; request parsing, recommendation reasoning, and draft generation use Google ADK agent runners when enabled, with deterministic fallback behavior when the configured model is unavailable.
 - Decision logs are local development data and are not encrypted in V0.
 - Draft responses are editable by the user and are not sent automatically.
 - `GET /api/decisions` returns newest entries first unless query parameters specify otherwise.

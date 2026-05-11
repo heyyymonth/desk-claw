@@ -1,15 +1,15 @@
 import json
 
 from app.agents.scheduling import (
-    AdkModelConfigurationError,
     AdkRequestParserAgentRunner,
     AdkSchedulingAgentRunner,
-    LOCAL_ADK_MODEL,
+    DEFAULT_ADK_MODEL,
     SchedulingAgentPlanner,
     classify_priority_and_risk,
     create_adk_draft_agent,
     create_adk_request_parser_agent,
     create_adk_root_agent,
+    default_adk_model_name,
     extract_meeting_intent,
     inspect_calendar_conflicts,
     local_adk_model_name,
@@ -104,17 +104,13 @@ def test_create_adk_root_agent_is_adk_compatible_or_reports_missing_dependency()
     assert len(agent.tools) == 4
 
 
-def test_all_adk_agents_are_for_local_gemma4_only():
+def test_adk_agents_default_to_local_gemma4_but_accept_other_models():
     assert local_adk_model_name() == "ollama_chat/gemma4:latest"
-    assert LOCAL_ADK_MODEL == "ollama_chat/gemma4:latest"
+    assert default_adk_model_name() == "ollama_chat/gemma4:latest"
+    assert DEFAULT_ADK_MODEL == "ollama_chat/gemma4:latest"
     assert create_adk_request_parser_agent().name == "meeting_request_parser_agent"
     assert create_adk_draft_agent().name == "meeting_draft_agent"
-    try:
-        create_adk_root_agent("gemini-2.0-flash")
-    except AdkModelConfigurationError as exc:
-        assert "ollama_chat/gemma4:latest" in str(exc)
-    else:
-        raise AssertionError("non-local ADK model should be rejected")
+    assert create_adk_root_agent("gemini-2.0-flash").name == "meeting_resolution_agent"
 
 
 def test_adk_tool_functions_use_structured_inputs():
@@ -154,7 +150,7 @@ def test_adk_runner_merges_model_reasoning_with_guardrails():
         "proposed_slots": [],
     }
 
-    merged = AdkSchedulingAgentRunner(LOCAL_ADK_MODEL)._merge_model_output(output, plan)
+    merged = AdkSchedulingAgentRunner(DEFAULT_ADK_MODEL)._merge_model_output(output, plan)
 
     assert merged.confidence == 0.93
     assert merged.rationale == ["ADK reasoned through calendar, rules, risk, and strategy tools."]
@@ -171,7 +167,7 @@ def test_request_parser_tool_returns_schema_payload():
 
 
 def test_request_parser_runner_validates_adk_output():
-    runner = AdkRequestParserAgentRunner(LOCAL_ADK_MODEL)
+    runner = AdkRequestParserAgentRunner(DEFAULT_ADK_MODEL)
     output = extract_meeting_intent("Need 45 min with Finance next week")
 
     parsed = ParsedMeetingRequest.model_validate(output)

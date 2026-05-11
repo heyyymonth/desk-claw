@@ -1,7 +1,7 @@
 from functools import lru_cache
 from os import getenv
 
-from app.agents import LOCAL_ADK_MODEL, LOCAL_OLLAMA_MODEL
+from app.agents import DEFAULT_ADK_MODEL, DEFAULT_OLLAMA_MODEL
 
 
 class Settings:
@@ -12,9 +12,9 @@ class Settings:
         self.llm_mode = getenv("LLM_MODE", "ollama")
         self.ollama_base_url = getenv("OLLAMA_BASE_URL", "http://localhost:11434")
         self.ollama_url = self.ollama_base_url
-        self.ollama_model = LOCAL_OLLAMA_MODEL
+        self.ollama_model = getenv("OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL)
         self.agent_runtime = getenv("AGENT_RUNTIME", "adk")
-        self.adk_model = LOCAL_ADK_MODEL
+        self.adk_model = getenv("ADK_MODEL", f"ollama_chat/{self.ollama_model}" if self.llm_mode == "ollama" else DEFAULT_ADK_MODEL)
         self.timezone = getenv("APP_TIMEZONE", "America/Los_Angeles")
 
 

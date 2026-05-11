@@ -26,8 +26,8 @@ from app.services.calendar_analyzer import CalendarAnalyzer
 from app.services.risk_classifier import RiskClassifier
 from app.services.rules_engine import RulesEngine
 
-LOCAL_OLLAMA_MODEL = "gemma4:latest"
-LOCAL_ADK_MODEL = f"ollama_chat/{LOCAL_OLLAMA_MODEL}"
+DEFAULT_OLLAMA_MODEL = "gemma4:latest"
+DEFAULT_ADK_MODEL = f"ollama_chat/{DEFAULT_OLLAMA_MODEL}"
 
 
 class AgentToolDefinition(BaseModel):
@@ -66,10 +66,6 @@ class AgentPlanningResult(BaseModel):
 
 
 class AgentRuntimeError(RuntimeError):
-    pass
-
-
-class AdkModelConfigurationError(AgentRuntimeError):
     pass
 
 
@@ -113,7 +109,7 @@ scheduling_agent_definition = AgentDefinition(
 request_parser_agent_definition = AgentDefinition(
     name="meeting_request_parser_agent",
     framework="google-adk",
-    role="Extract structured meeting intent from raw scheduling requests using local Gemma4.",
+    role="Extract structured meeting intent from raw scheduling requests using the configured ADK model.",
     objective=(
         "Produce a strict ParsedMeetingRequest JSON object from raw intake text while preserving "
         "requester, priority, meeting type, sensitivity, missing fields, and scheduling constraints."
@@ -134,7 +130,7 @@ request_parser_agent_definition = AgentDefinition(
 draft_agent_definition = AgentDefinition(
     name="meeting_draft_agent",
     framework="google-adk",
-    role="Draft human-reviewable meeting replies from scheduling recommendations using local Gemma4.",
+    role="Draft human-reviewable meeting replies from scheduling recommendations using the configured ADK model.",
     objective=(
         "Generate a concise DraftResponse JSON object that reflects the recommendation decision, "
         "safe action, risk posture, and available slots without leaking sensitive context."
@@ -184,7 +180,11 @@ DRAFT_AGENT_INSTRUCTION = (
 
 
 def local_adk_model_name() -> str:
-    return LOCAL_ADK_MODEL
+    return DEFAULT_ADK_MODEL
+
+
+def default_adk_model_name() -> str:
+    return DEFAULT_ADK_MODEL
 
 
 class SchedulingAgentPlanner:
@@ -370,7 +370,7 @@ class AdkSchedulingAgentRunner:
 class AdkRequestParserAgentRunner:
     def __init__(
         self,
-        model: str = LOCAL_ADK_MODEL,
+        model: str = DEFAULT_ADK_MODEL,
         ollama_base_url: str | None = None,
         app_name: str = "desk_ai_request_parser",
         timeout_seconds: float = 45.0,
@@ -407,7 +407,7 @@ class AdkRequestParserAgentRunner:
 class AdkDraftAgentRunner:
     def __init__(
         self,
-        model: str = LOCAL_ADK_MODEL,
+        model: str = DEFAULT_ADK_MODEL,
         ollama_base_url: str | None = None,
         app_name: str = "desk_ai_draft",
         timeout_seconds: float = 45.0,
@@ -643,7 +643,7 @@ def deterministic_draft_response(recommendation: Recommendation, model_status: s
     )
 
 
-def create_adk_root_agent(model: str = LOCAL_ADK_MODEL, ollama_base_url: str | None = None):
+def create_adk_root_agent(model: str = DEFAULT_ADK_MODEL, ollama_base_url: str | None = None):
     try:
         from google.adk.agents import Agent
     except ImportError as exc:
@@ -664,7 +664,7 @@ def create_adk_root_agent(model: str = LOCAL_ADK_MODEL, ollama_base_url: str | N
     )
 
 
-def create_adk_request_parser_agent(model: str = LOCAL_ADK_MODEL, ollama_base_url: str | None = None):
+def create_adk_request_parser_agent(model: str = DEFAULT_ADK_MODEL, ollama_base_url: str | None = None):
     try:
         from google.adk.agents import Agent
     except ImportError as exc:
@@ -679,7 +679,7 @@ def create_adk_request_parser_agent(model: str = LOCAL_ADK_MODEL, ollama_base_ur
     )
 
 
-def create_adk_draft_agent(model: str = LOCAL_ADK_MODEL, ollama_base_url: str | None = None):
+def create_adk_draft_agent(model: str = DEFAULT_ADK_MODEL, ollama_base_url: str | None = None):
     try:
         from google.adk.agents import Agent
     except ImportError as exc:
@@ -695,15 +695,15 @@ def create_adk_draft_agent(model: str = LOCAL_ADK_MODEL, ollama_base_url: str | 
 
 
 def _adk_model(model: str, ollama_base_url: str | None = None):
-    if model != LOCAL_ADK_MODEL:
-        raise AdkModelConfigurationError(f"Only local {LOCAL_ADK_MODEL} is allowed for Desk AI agents.")
-    if ollama_base_url:
-        os.environ["OLLAMA_API_BASE"] = ollama_base_url
-    try:
-        from google.adk.models.lite_llm import LiteLlm
-    except ImportError as exc:
-        raise RuntimeError("Install google-adk with litellm support to use Ollama-hosted ADK models.") from exc
-    return LiteLlm(model=model)
+    if model.startswith("ollama_chat/"):
+        if ollama_base_url:
+            os.environ["OLLAMA_API_BASE"] = ollama_base_url
+        try:
+            from google.adk.models.lite_llm import LiteLlm
+        except ImportError as exc:
+            raise RuntimeError("Install google-adk with litellm support to use Ollama-hosted ADK models.") from exc
+        return LiteLlm(model=model)
+    return model
 
 
 def _run_adk_json(agent, app_name: str, session_prefix: str, payload: dict, max_llm_calls: int) -> dict:

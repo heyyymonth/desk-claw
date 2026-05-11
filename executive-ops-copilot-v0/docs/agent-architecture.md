@@ -14,7 +14,7 @@ Google ADK models an agent as a worker with instructions and tools. This repo no
 - `classify_priority_and_risk`: makes missing-context, sensitivity, escalation, and conflict risk explicit.
 - `select_resolution_strategy`: chooses `schedule`, `clarify`, `defer`, or `decline`.
 
-`create_adk_root_agent()` returns a real ADK `Agent` with Python function tools. ADK auto-wraps those functions as tool definitions, and `AdkSchedulingAgentRunner` runs the agent through ADK `Runner` and an in-memory session. The backend is pinned to local Ollama `gemma4:latest` through `ADK_MODEL=ollama_chat/gemma4:latest`; other model names are rejected by the agent factory.
+`create_adk_root_agent()` returns a real ADK `Agent` with Python function tools. ADK auto-wraps those functions as tool definitions, and `AdkSchedulingAgentRunner` runs the agent through ADK `Runner` and an in-memory session. The backend is model-agnostic through `ADK_MODEL`; it defaults to local Ollama `ollama_chat/gemma4:latest`, but the same agent factory can use any ADK-supported model string.
 
 The same ADK pattern now covers all AI-facing app workflows:
 
@@ -67,4 +67,4 @@ Guardrails continue to override unsafe model output for the final decision, risk
 1. Add an `/api/agent-plan` endpoint if the frontend should display tool-call traces directly.
 2. Persist the agent plan in audit logs for compliance review.
 3. Add eval cases for rescheduling, split-priority conflicts, and protected-block preservation.
-4. Improve the local Gemma4 prompt/tool payloads if live tool-call latency remains high.
+4. Improve model-specific prompt/tool payloads if live tool-call latency remains high.
