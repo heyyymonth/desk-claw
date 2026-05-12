@@ -1,5 +1,6 @@
-import concurrent.futures
 import json
+import multiprocessing
+import queue
 import os
 from datetime import datetime, timedelta
 from uuid import uuid4
@@ -306,33 +307,32 @@ class AdkSchedulingAgentRunner:
         calendar_blocks: list[CalendarBlock],
     ) -> tuple[AgentPlanningResult, dict]:
         deterministic_plan = SchedulingAgentPlanner().plan(parsed_request, rules, calendar_blocks)
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         try:
-            future = executor.submit(self._run_adk_plan, parsed_request, rules, calendar_blocks)
-            output = future.result(timeout=self.timeout_seconds)
+            result = _run_agent_process(
+                "schedule",
+                {
+                    "model": self.model,
+                    "ollama_base_url": self.ollama_base_url,
+                    "app_name": self.app_name,
+                    "parsed_request": parsed_request.model_dump(mode="json"),
+                    "rules": rules.model_dump(mode="json"),
+                    "calendar_blocks": [block.model_dump(mode="json") for block in calendar_blocks],
+                },
+                self.timeout_seconds,
+                "ADK scheduling agent timed out.",
+                "ADK scheduling agent could not complete a planning run.",
+            )
+            output = result["output"]
             plan = self._merge_model_output(output, deterministic_plan)
             trace = _agent_run_trace(
                 agent_name=scheduling_agent_definition.name,
                 app_name=self.app_name,
                 model=self.model,
-                tool_calls=[call.tool_name for call in plan.tool_calls],
+                tool_calls=result["tool_calls"],
             )
             return plan, trace
-        except concurrent.futures.TimeoutError as exc:
-            raise AgentRuntimeError("ADK scheduling agent timed out.") from exc
-        except Exception as exc:
-            raise AgentRuntimeError("ADK scheduling agent could not complete a planning run.") from exc
-        finally:
-            executor.shutdown(wait=False, cancel_futures=True)
-
-    def _run_adk_plan(
-        self,
-        parsed_request: ParsedMeetingRequest,
-        rules: ExecutiveRules,
-        calendar_blocks: list[CalendarBlock],
-    ) -> dict:
-        agent = create_adk_root_agent(model=self.model, ollama_base_url=self.ollama_base_url)
-        return self._run_agent(agent, parsed_request, rules, calendar_blocks)
+        except AgentRuntimeError:
+            raise
 
     def _run_agent(
         self,
@@ -401,24 +401,32 @@ class AdkRequestParserAgentRunner:
         return parsed
 
     def parse_with_trace(self, raw_text: str) -> tuple[ParsedMeetingRequest, dict]:
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         try:
-            future = executor.submit(self._run_parse, raw_text)
-            output = future.result(timeout=self.timeout_seconds)
+            result = _run_agent_process(
+                "parse",
+                {
+                    "model": self.model,
+                    "ollama_base_url": self.ollama_base_url,
+                    "app_name": self.app_name,
+                    "raw_text": raw_text,
+                },
+                self.timeout_seconds,
+                "ADK request parser timed out.",
+                "ADK request parser could not complete.",
+            )
+            output = result["output"]
             parsed = ParsedMeetingRequest.model_validate(output)
             trace = _agent_run_trace(
                 agent_name=request_parser_agent_definition.name,
                 app_name=self.app_name,
                 model=self.model,
-                tool_calls=[],
+                tool_calls=result["tool_calls"],
             )
             return parsed, trace
-        except concurrent.futures.TimeoutError as exc:
-            raise AgentRuntimeError("ADK request parser timed out.") from exc
+        except AgentRuntimeError:
+            raise
         except Exception as exc:
             raise AgentRuntimeError("ADK request parser could not complete.") from exc
-        finally:
-            executor.shutdown(wait=False, cancel_futures=True)
 
     def _run_parse(self, raw_text: str) -> dict:
         agent = create_adk_request_parser_agent(self.model, self.ollama_base_url)
@@ -449,24 +457,32 @@ class AdkDraftAgentRunner:
         return draft
 
     def generate_with_trace(self, recommendation: Recommendation) -> tuple[DraftResponse, dict]:
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         try:
-            future = executor.submit(self._run_generate, recommendation)
-            output = future.result(timeout=self.timeout_seconds)
+            result = _run_agent_process(
+                "draft",
+                {
+                    "model": self.model,
+                    "ollama_base_url": self.ollama_base_url,
+                    "app_name": self.app_name,
+                    "recommendation": recommendation.model_dump(mode="json"),
+                },
+                self.timeout_seconds,
+                "ADK draft agent timed out.",
+                "ADK draft agent could not complete.",
+            )
+            output = result["output"]
             draft = DraftResponse.model_validate(output)
             trace = _agent_run_trace(
                 agent_name=draft_agent_definition.name,
                 app_name=self.app_name,
                 model=self.model,
-                tool_calls=[],
+                tool_calls=result["tool_calls"],
             )
             return draft, trace
-        except concurrent.futures.TimeoutError as exc:
-            raise AgentRuntimeError("ADK draft agent timed out.") from exc
+        except AgentRuntimeError:
+            raise
         except Exception as exc:
             raise AgentRuntimeError("ADK draft agent could not complete.") from exc
-        finally:
-            executor.shutdown(wait=False, cancel_futures=True)
 
     def _run_generate(self, recommendation: Recommendation) -> dict:
         agent = create_adk_draft_agent(self.model, self.ollama_base_url)
@@ -754,7 +770,100 @@ def _agent_run_trace(agent_name: str, app_name: str, model: str, tool_calls: lis
     }
 
 
+def _run_agent_process(
+    operation: str,
+    payload: dict,
+    timeout_seconds: float,
+    timeout_message: str,
+    failure_message: str,
+) -> dict:
+    context = multiprocessing.get_context("spawn")
+    result_queue = context.Queue(maxsize=1)
+    process = context.Process(target=_agent_process_entrypoint, args=(operation, payload, result_queue))
+    process.start()
+    process.join(timeout_seconds)
+    if process.is_alive():
+        process.terminate()
+        process.join(5)
+        if process.is_alive():
+            process.kill()
+            process.join()
+        raise AgentRuntimeError(timeout_message)
+
+    try:
+        status, result = result_queue.get(timeout=1)
+    except queue.Empty as exc:
+        if process.exitcode == 0:
+            raise AgentRuntimeError(failure_message) from exc
+        raise AgentRuntimeError(f"{failure_message} Exit code: {process.exitcode}.") from exc
+
+    if status == "ok":
+        return result
+    raise AgentRuntimeError(f"{failure_message} {result}")
+
+
+def _agent_process_entrypoint(operation: str, payload: dict, result_queue) -> None:
+    try:
+        result_queue.put(("ok", _run_agent_operation(operation, payload)))
+    except Exception as exc:
+        result_queue.put(("error", str(exc)))
+
+
+def _run_agent_operation(operation: str, payload: dict) -> dict:
+    model = payload["model"]
+    ollama_base_url = payload.get("ollama_base_url")
+    app_name = payload["app_name"]
+    if operation == "schedule":
+        agent = create_adk_root_agent(model=model, ollama_base_url=ollama_base_url)
+        parsed_request = ParsedMeetingRequest.model_validate(payload["parsed_request"])
+        rules = ExecutiveRules.model_validate(payload["rules"])
+        calendar_blocks = [CalendarBlock.model_validate(block) for block in payload["calendar_blocks"]]
+        output, tool_calls = _run_adk_json_with_tool_calls(
+            agent=agent,
+            app_name=app_name,
+            session_prefix="scheduling",
+            payload={
+                "task": "Resolve this meeting request with tool-backed reasoning.",
+                "parsed_request": parsed_request.model_dump(mode="json"),
+                "rules": rules.model_dump(mode="json"),
+                "calendar_blocks": [block.model_dump(mode="json") for block in calendar_blocks],
+            },
+            max_llm_calls=8,
+        )
+        return {"output": output, "tool_calls": tool_calls}
+    if operation == "parse":
+        agent = create_adk_request_parser_agent(model, ollama_base_url)
+        output, tool_calls = _run_adk_json_with_tool_calls(
+            agent=agent,
+            app_name=app_name,
+            session_prefix="parse",
+            payload={"task": "Parse this raw scheduling request.", "raw_text": payload["raw_text"]},
+            max_llm_calls=4,
+        )
+        return {"output": output, "tool_calls": tool_calls}
+    if operation == "draft":
+        agent = create_adk_draft_agent(model, ollama_base_url)
+        recommendation = Recommendation.model_validate(payload["recommendation"])
+        output, tool_calls = _run_adk_json_with_tool_calls(
+            agent=agent,
+            app_name=app_name,
+            session_prefix="draft",
+            payload={
+                "task": "Generate a safe human-reviewable draft response.",
+                "recommendation": recommendation.model_dump(mode="json"),
+            },
+            max_llm_calls=4,
+        )
+        return {"output": output, "tool_calls": tool_calls}
+    raise AgentRuntimeError(f"Unsupported ADK operation: {operation}")
+
+
 def _run_adk_json(agent, app_name: str, session_prefix: str, payload: dict, max_llm_calls: int) -> dict:
+    output, _tool_calls = _run_adk_json_with_tool_calls(agent, app_name, session_prefix, payload, max_llm_calls)
+    return output
+
+
+def _run_adk_json_with_tool_calls(agent, app_name: str, session_prefix: str, payload: dict, max_llm_calls: int) -> tuple[dict, list[str]]:
     try:
         from google.adk.runners import RunConfig, Runner
         from google.adk.sessions import InMemorySessionService
@@ -770,12 +879,14 @@ def _run_adk_json(agent, app_name: str, session_prefix: str, payload: dict, max_
     message = types.Content(role="user", parts=[types.Part.from_text(text=json.dumps(payload))])
 
     final_text = ""
+    tool_calls: list[str] = []
     for event in runner.run(
         user_id=user_id,
         session_id=session_id,
         new_message=message,
         run_config=RunConfig(max_llm_calls=max_llm_calls),
     ):
+        tool_calls.extend(_tool_call_names_from_event(event))
         if event.content is None:
             continue
         for part in event.content.parts or []:
@@ -784,7 +895,24 @@ def _run_adk_json(agent, app_name: str, session_prefix: str, payload: dict, max_
 
     if not final_text:
         raise AgentRuntimeError("ADK agent returned no final text.")
-    return _loads_json_object(final_text)
+    return _loads_json_object(final_text), _dedupe(tool_calls)
+
+
+def _tool_call_names_from_event(event) -> list[str]:
+    names: list[str] = []
+    content = getattr(event, "content", None)
+    if content is None:
+        return names
+    for part in getattr(content, "parts", None) or []:
+        function_call = getattr(part, "function_call", None)
+        name = getattr(function_call, "name", None)
+        if name:
+            names.append(name)
+    return names
+
+
+def _dedupe(values: list[str]) -> list[str]:
+    return list(dict.fromkeys(values))
 
 
 def _loads_json_object(text: str) -> dict:

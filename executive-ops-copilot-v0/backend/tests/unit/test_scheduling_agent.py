@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 from app.agents.scheduling import (
     AdkRequestParserAgentRunner,
@@ -15,6 +16,7 @@ from app.agents.scheduling import (
     local_adk_model_name,
     scheduling_agent_definition,
     select_resolution_strategy,
+    _tool_call_names_from_event,
     validate_scheduling_rules,
 )
 from app.llm.schemas import CalendarBlock, ExecutiveRules, ParsedMeetingRequest
@@ -63,6 +65,35 @@ def test_agent_definition_names_goals_and_tools():
         "select_resolution_strategy",
     ]
     assert "protected executive focus time" in scheduling_agent_definition.planning_goal
+
+
+def test_adk_runner_timeout_boundary_uses_processes_not_threads():
+    source = Path("app/agents/scheduling.py").read_text()
+
+    assert "ThreadPoolExecutor" not in source
+    assert "multiprocessing.get_context" in source
+    assert "process.terminate()" in source
+
+
+def test_adk_tool_call_trace_reads_function_call_events():
+    event = type(
+        "Event",
+        (),
+        {
+            "content": type(
+                "Content",
+                (),
+                {
+                    "parts": [
+                        type("Part", (), {"function_call": type("FunctionCall", (), {"name": "inspect_calendar_conflicts"})()})(),
+                        type("Part", (), {"function_call": type("FunctionCall", (), {"name": "validate_scheduling_rules"})()})(),
+                    ]
+                },
+            )()
+        },
+    )()
+
+    assert _tool_call_names_from_event(event) == ["inspect_calendar_conflicts", "validate_scheduling_rules"]
 
 
 def test_planner_records_tool_calls_and_schedules_open_slot():

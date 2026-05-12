@@ -41,18 +41,18 @@ class RecommendationService:
     ) -> tuple[Recommendation, dict]:
         plan = self.agent_planner.plan(parsed_request, rules, calendar_blocks)
         model_status = "not_configured"
-        trace = _trace("deterministic", plan.agent_name, model_status, [call.tool_name for call in plan.tool_calls])
+        trace = _trace("deterministic", plan.agent_name, model_status, [])
         if self.agent_runner is not None:
             try:
                 if hasattr(self.agent_runner, "plan_with_trace"):
                     plan, trace = self.agent_runner.plan_with_trace(parsed_request, rules, calendar_blocks)
                 else:
                     plan = self.agent_runner.plan(parsed_request, rules, calendar_blocks)
-                    trace = _trace("google-adk", plan.agent_name, "used", [call.tool_name for call in plan.tool_calls])
+                    trace = _trace("google-adk", plan.agent_name, "used", [])
                 model_status = "used"
             except AgentRuntimeError:
                 model_status = "unavailable"
-                trace = _trace("google-adk", plan.agent_name, model_status, [call.tool_name for call in plan.tool_calls])
+                trace = _trace("google-adk", plan.agent_name, model_status, [])
 
         deterministic = create_recommendation_from_plan(plan, model_status=model_status)
 
