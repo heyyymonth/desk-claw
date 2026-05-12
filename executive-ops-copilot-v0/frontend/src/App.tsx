@@ -38,7 +38,7 @@ import { RequestIntakePanel } from './components/RequestIntakePanel';
 import { StatusIndicator } from './components/StatusIndicator';
 import { WorkWeekCalendar } from './components/WorkWeekCalendar';
 import { ErrorState } from './components/ui';
-import { api } from './lib/api';
+import { api, setActorIdentity } from './lib/api';
 import type {
   CalendarContext,
   DecisionLogEntry,
@@ -198,7 +198,7 @@ export function App() {
       if (!meetingRequest) {
         throw new Error('Parse a request before generating a recommendation.');
       }
-      return api.recommendation(meetingRequest, rules);
+      return api.recommendation(meetingRequest, rules, calendarContext);
     },
     onSuccess: (data) => {
       setRecommendation(data);
@@ -277,6 +277,14 @@ export function App() {
 
   const navExpanded = isNavPinned;
   const currentPersona = personas[activePersona];
+
+  useEffect(() => {
+    setActorIdentity({
+      actorId: currentPersona.id,
+      email: currentPersona.email,
+      name: currentPersona.name,
+    });
+  }, [currentPersona]);
 
   return (
     <main className="min-h-screen">

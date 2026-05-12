@@ -87,11 +87,11 @@ describe("App", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
       if (url.endsWith("/api/health")) return Promise.resolve(jsonResponse({ status: "ok", model_status: "not_configured" }));
-      if (url.endsWith("/api/default-rules")) return Promise.resolve(jsonResponse(rules));
-      if (url.endsWith("/api/mock-calendar")) return Promise.resolve(jsonResponse({ busy_blocks: [], missing_context: [] }));
-      if (url.endsWith("/api/parse-request")) return Promise.resolve(jsonResponse(meetingRequest));
-      if (url.endsWith("/api/recommendation")) return Promise.resolve(jsonResponse(recommendation));
-      if (url.endsWith("/api/draft-response")) return Promise.resolve(jsonResponse(draft));
+      if (url.endsWith("/api/rules/default")) return Promise.resolve(jsonResponse(rules));
+      if (url.endsWith("/api/calendar/mock")) return Promise.resolve(jsonResponse({ blocks: [] }));
+      if (url.endsWith("/api/requests/parse")) return Promise.resolve(jsonResponse(meetingRequest));
+      if (url.endsWith("/api/recommendations/generate")) return Promise.resolve(jsonResponse(recommendation));
+      if (url.endsWith("/api/drafts/generate")) return Promise.resolve(jsonResponse(draft));
       if (url.endsWith("/api/telemetry/ai/dashboard")) return Promise.resolve(jsonResponse(aiMetrics));
       if (url.endsWith("/api/decisions") && init?.method === "POST") {
         return Promise.resolve(jsonResponse({ id: "1", created_at: "2026-05-09T00:00:00Z", meeting_request: meetingRequest, recommendation, final_decision: "accepted", notes: "" }));

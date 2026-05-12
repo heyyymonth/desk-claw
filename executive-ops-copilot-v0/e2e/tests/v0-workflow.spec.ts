@@ -206,6 +206,8 @@ function recommendationFor(scenario: Scenario) {
         message: scenario.recommendation.riskMessage,
       },
     ],
+    risk_level: scenario.recommendation.risk,
+    safe_action: scenario.name,
     proposed_slots: scenario.recommendation.proposedSlot ? [scenario.recommendation.proposedSlot] : [],
     model_status: 'not_configured',
   };
@@ -236,13 +238,13 @@ async function installApiMocks(page: Page, options?: { backendUnavailable?: bool
       return;
     }
 
-    if (url.pathname === '/api/default-rules') {
+    if (url.pathname === '/api/rules/default') {
       await route.fulfill({ contentType: 'application/json', body: JSON.stringify(rules) });
       return;
     }
 
-    if (url.pathname === '/api/mock-calendar') {
-      await route.fulfill({ contentType: 'application/json', body: JSON.stringify(calendar) });
+    if (url.pathname === '/api/calendar/mock') {
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ blocks: calendar.busy_blocks }) });
       return;
     }
 
@@ -251,7 +253,7 @@ async function installApiMocks(page: Page, options?: { backendUnavailable?: bool
       return;
     }
 
-    if (url.pathname === '/api/parse-request') {
+    if (url.pathname === '/api/requests/parse') {
       const body = request.postDataJSON() as { raw_text: string };
       const scenario = scenarios.find((item) => item.rawText === body.raw_text) ?? scenarios[0];
       await route.fulfill({
@@ -264,16 +266,20 @@ async function installApiMocks(page: Page, options?: { backendUnavailable?: bool
       return;
     }
 
-    if (url.pathname === '/api/recommendation') {
-      const body = request.postDataJSON() as { meeting_request: { raw_text: string } };
-      const scenario = scenarios.find((item) => item.rawText === body.meeting_request.raw_text) ?? scenarios[0];
+    if (url.pathname === '/api/recommendations/generate') {
+      const body = request.postDataJSON() as { parsed_request: { raw_text: string } };
+      const scenario = scenarios.find((item) => item.rawText === body.parsed_request.raw_text) ?? scenarios[0];
       await route.fulfill({ contentType: 'application/json', body: JSON.stringify(recommendationFor(scenario)) });
       return;
     }
 
-    if (url.pathname === '/api/draft-response') {
-      const body = request.postDataJSON() as { meeting_request: { raw_text: string } };
-      const scenario = scenarios.find((item) => item.rawText === body.meeting_request.raw_text) ?? scenarios[0];
+    if (url.pathname === '/api/drafts/generate') {
+      const body = request.postDataJSON() as { recommendation: { safe_action?: string; rationale: string[]; proposed_slots?: Array<{ start: string }> } };
+      const scenario =
+        scenarios.find((item) => item.name === body.recommendation.safe_action) ??
+        scenarios.find((item) => item.recommendation.proposedSlot?.start === body.recommendation.proposed_slots?.[0]?.start) ??
+        scenarios.find((item) => item.recommendation.rationale.every((rationale) => body.recommendation.rationale.includes(rationale))) ??
+        scenarios[0];
       await route.fulfill({
         contentType: 'application/json',
         body: JSON.stringify({

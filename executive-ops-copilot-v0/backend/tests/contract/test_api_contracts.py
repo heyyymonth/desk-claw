@@ -140,7 +140,7 @@ def test_default_rules_and_calendar_endpoints():
     assert client.get("/api/calendar/mock").status_code == 200
 
 
-def test_ai_audit_endpoint_records_ai_workflow_calls():
+def test_ai_audit_endpoint_ignores_untrusted_actor_headers():
     parse = client.post(
         "/api/requests/parse",
         json={"raw_text": "From Jordan: need 30 minutes with Dana tomorrow."},
@@ -154,13 +154,51 @@ def test_ai_audit_endpoint_records_ai_workflow_calls():
     assert audit.status_code == 200
     body = audit.json()
     assert body["limit"] == 5
-    assert body["events"][0]["actor_id"] == "ea-1"
+    assert body["events"][0]["actor_id"] == "local-user"
     assert body["events"][0]["operation"] == "parse_request"
     assert body["events"][0]["model_name"].startswith("ollama_chat/")
     assert body["events"][0]["runtime"] in {"google-adk", "deterministic"}
     assert "tool_calls" in body["events"][0]
     assert body["events"][0]["request_payload"]["raw_text"].startswith("From Jordan")
     assert body["events"][0]["response_payload"]["intent"]["requester"]
+
+
+def test_ai_audit_endpoint_records_trusted_actor_context(monkeypatch):
+    monkeypatch.setenv("ACTOR_AUTH_TOKEN", "test-actor-token")
+    get_settings.cache_clear()
+
+    parse = client.post(
+        "/api/requests/parse",
+        json={"raw_text": "From Jordan: need 30 minutes with Dana tomorrow."},
+        headers={
+            "X-DeskAI-Actor-Token": "test-actor-token",
+            "X-Actor-Id": "ea-1",
+            "X-Actor-Email": "ea@example.com",
+            "X-Actor-Name": "EA User",
+        },
+    )
+
+    assert parse.status_code == 200
+
+    audit = client.get("/api/audit/ai?limit=5", headers=ADMIN_HEADERS)
+
+    assert audit.status_code == 200
+    body = audit.json()
+    assert body["events"][0]["actor_id"] == "ea-1"
+
+
+def test_ai_workflow_rejects_missing_actor_token_when_actor_auth_is_configured(monkeypatch):
+    monkeypatch.setenv("ACTOR_AUTH_TOKEN", "test-actor-token")
+    get_settings.cache_clear()
+
+    response = client.post(
+        "/api/requests/parse",
+        json={"raw_text": "From Jordan: need 30 minutes with Dana tomorrow."},
+        headers={"X-Actor-Id": "ea-1"},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Trusted actor authentication is required."
 
 
 def test_ai_metrics_endpoint_exposes_backend_quality_dashboard_data():

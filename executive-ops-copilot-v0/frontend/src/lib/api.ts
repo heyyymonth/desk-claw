@@ -14,10 +14,19 @@ const DEFAULT_API_BASE_URL =
   typeof window === 'undefined' ? 'http://localhost:8000' : `${window.location.protocol}//${window.location.hostname}:8000`;
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? DEFAULT_API_BASE_URL;
 const ADMIN_API_KEY = import.meta.env.VITE_ADMIN_API_KEY;
+const ACTOR_AUTH_TOKEN = import.meta.env.VITE_ACTOR_AUTH_TOKEN;
 
 type BackendCalendarEvent = TimeWindow & { title: string };
 type BackendCalendarResponse = { blocks: BackendCalendarEvent[] };
 type BackendDecisionsResponse = { decisions: DecisionLogEntry[] };
+type BackendCalendarBlock = TimeWindow & { title: string; busy: boolean };
+export type ActorIdentity = { actorId: string; email?: string; name?: string };
+
+let currentActorIdentity: ActorIdentity | undefined;
+
+export function setActorIdentity(actor: ActorIdentity) {
+  currentActorIdentity = actor;
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -37,6 +46,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 function adminHeaders(): HeadersInit {
   return ADMIN_API_KEY ? { 'X-DeskAI-Admin-Key': ADMIN_API_KEY } : {};
+}
+
+function actorHeaders(): HeadersInit {
+  if (!ACTOR_AUTH_TOKEN || !currentActorIdentity) {
+    return {};
+  }
+  return {
+    'X-DeskAI-Actor-Token': ACTOR_AUTH_TOKEN,
+    'X-Actor-Id': currentActorIdentity.actorId,
+    ...(currentActorIdentity.email ? { 'X-Actor-Email': currentActorIdentity.email } : {}),
+    ...(currentActorIdentity.name ? { 'X-Actor-Name': currentActorIdentity.name } : {}),
+  };
 }
 
 async function errorMessage(response: Response): Promise<string> {
@@ -76,26 +97,38 @@ function normalizeDecisions(payload: DecisionLogEntry[] | BackendDecisionsRespon
   return Array.isArray(payload) ? payload : payload.decisions;
 }
 
+function calendarBlocks(calendar?: CalendarContext): BackendCalendarBlock[] {
+  return (calendar?.busy_blocks ?? []).map((block, index) => ({
+    title: block.title ?? `Busy block ${index + 1}`,
+    start: block.start,
+    end: block.end,
+    busy: true,
+  }));
+}
+
 export const api = {
   health: () => request<HealthStatus>('/api/health'),
   aiMetrics: () => request<AiMetrics>('/api/telemetry/ai/dashboard', { headers: adminHeaders() }),
-  defaultRules: () => request<ExecutiveRules>('/api/default-rules'),
+  defaultRules: () => request<ExecutiveRules>('/api/rules/default'),
   mockCalendar: async () =>
-    normalizeCalendar(await request<CalendarContext | BackendCalendarEvent[] | BackendCalendarResponse>('/api/mock-calendar')),
+    normalizeCalendar(await request<CalendarContext | BackendCalendarEvent[] | BackendCalendarResponse>('/api/calendar/mock')),
   parseRequest: (rawText: string) =>
-    request<MeetingRequest>('/api/parse-request', {
+    request<MeetingRequest>('/api/requests/parse', {
       method: 'POST',
+      headers: actorHeaders(),
       body: JSON.stringify({ raw_text: rawText }),
     }),
-  recommendation: (meetingRequest: MeetingRequest, rules: ExecutiveRules) =>
-    request<Recommendation>('/api/recommendation', {
+  recommendation: (meetingRequest: MeetingRequest, rules: ExecutiveRules, calendar?: CalendarContext) =>
+    request<Recommendation>('/api/recommendations/generate', {
       method: 'POST',
-      body: JSON.stringify({ meeting_request: meetingRequest, rules }),
+      headers: actorHeaders(),
+      body: JSON.stringify({ parsed_request: meetingRequest, rules, calendar_blocks: calendarBlocks(calendar) }),
     }),
   draftResponse: (meetingRequest: MeetingRequest, recommendation: Recommendation) =>
-    request<DraftResponse>('/api/draft-response', {
+    request<DraftResponse>('/api/drafts/generate', {
       method: 'POST',
-      body: JSON.stringify({ meeting_request: meetingRequest, recommendation }),
+      headers: actorHeaders(),
+      body: JSON.stringify({ recommendation }),
     }),
   decisions: async () => normalizeDecisions(await request<DecisionLogEntry[] | BackendDecisionsResponse>('/api/decisions')),
   logDecision: (entry: Omit<DecisionLogEntry, 'id' | 'created_at'>) =>
@@ -118,8 +151,8 @@ export function parseRequest(rawText: string): Promise<MeetingRequest> {
   return api.parseRequest(rawText);
 }
 
-export function getRecommendation(meetingRequest: MeetingRequest, rules: ExecutiveRules): Promise<Recommendation> {
-  return api.recommendation(meetingRequest, rules);
+export function getRecommendation(meetingRequest: MeetingRequest, rules: ExecutiveRules, calendar?: CalendarContext): Promise<Recommendation> {
+  return api.recommendation(meetingRequest, rules, calendar);
 }
 
 export function getDraftResponse(meetingRequest: MeetingRequest, recommendation: Recommendation): Promise<DraftResponse> {

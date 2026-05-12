@@ -29,11 +29,25 @@ def get_actor_context(
     x_actor_id: str | None = Header(default=None),
     x_actor_email: str | None = Header(default=None),
     x_actor_name: str | None = Header(default=None),
+    x_deskai_actor_token: str | None = Header(default=None),
 ) -> ActorContext:
+    actor_auth_token = get_settings().actor_auth_token
+    if not actor_auth_token:
+        return ActorContext()
+    if x_deskai_actor_token != actor_auth_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Trusted actor authentication is required.",
+        )
+    if not x_actor_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Trusted actor requests must include X-Actor-Id.",
+        )
     return ActorContext(
-        actor_id=x_actor_id or "local-user",
+        actor_id=x_actor_id,
         email=x_actor_email,
-        display_name=x_actor_name or "Local User",
+        display_name=x_actor_name,
     )
 
 

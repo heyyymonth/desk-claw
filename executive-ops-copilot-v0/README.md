@@ -112,9 +112,10 @@ Persisted tables include:
 - `decisions`: simple feedback events from `POST /api/feedback`.
 - `decision_log`: full workflow decision records from `POST /api/decisions`.
 
-AI audit records include actor ID, endpoint, operation, configured model, model status, request payload, response payload or error, status, timestamp, and latency. Pass actor details with optional headers:
+AI audit records include actor ID, endpoint, operation, configured model, model status, request payload, response payload or error, status, timestamp, and latency. Actor details are trusted only when `ACTOR_AUTH_TOKEN` is configured on the backend and the request includes the matching `X-DeskAI-Actor-Token`. Without that token boundary, supplied actor headers are ignored and audit rows use `local-user`.
 
 ```text
+X-DeskAI-Actor-Token: $ACTOR_AUTH_TOKEN
 X-Actor-Id: ea-1
 X-Actor-Email: ea@example.com
 X-Actor-Name: EA User
@@ -171,15 +172,18 @@ Primary contract endpoints:
 - `POST /api/recommendations/generate`
 - `POST /api/drafts/generate`
 - `GET /api/rules`
+- `GET /api/rules/default`
 - `PUT /api/rules`
 - `GET /api/calendar/blocks`
+- `GET /api/calendar/mock`
 - `POST /api/calendar/blocks`
 - `POST /api/feedback`
 - `GET /api/decisions`
 - `GET /api/audit/ai`
+- `GET /api/telemetry/ai/dashboard`
 - `POST /api/evals/run`
 
-Compatibility endpoints used by the current frontend:
+Legacy compatibility endpoints retained for older local clients:
 
 - `GET /api/default-rules`
 - `GET /api/mock-calendar`
