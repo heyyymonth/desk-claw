@@ -23,7 +23,6 @@ class RecommendationService:
             risk_classifier=self.risk_classifier,
             rules_engine=self.rules_engine,
         )
-        self.last_ai_run: dict = _trace("deterministic", None, "not_configured", [])
 
     def generate(
         self,
@@ -31,26 +30,33 @@ class RecommendationService:
         rules: ExecutiveRules,
         calendar_blocks: list[CalendarBlock],
     ) -> Recommendation:
+        recommendation, _trace = self.generate_with_trace(parsed_request, rules, calendar_blocks)
+        return recommendation
+
+    def generate_with_trace(
+        self,
+        parsed_request: ParsedMeetingRequest,
+        rules: ExecutiveRules,
+        calendar_blocks: list[CalendarBlock],
+    ) -> tuple[Recommendation, dict]:
         plan = self.agent_planner.plan(parsed_request, rules, calendar_blocks)
         model_status = "not_configured"
-        self.last_ai_run = _trace("deterministic", plan.agent_name, model_status, [call.tool_name for call in plan.tool_calls])
+        trace = _trace("deterministic", plan.agent_name, model_status, [call.tool_name for call in plan.tool_calls])
         if self.agent_runner is not None:
             try:
-                plan = self.agent_runner.plan(parsed_request, rules, calendar_blocks)
+                if hasattr(self.agent_runner, "plan_with_trace"):
+                    plan, trace = self.agent_runner.plan_with_trace(parsed_request, rules, calendar_blocks)
+                else:
+                    plan = self.agent_runner.plan(parsed_request, rules, calendar_blocks)
+                    trace = _trace("google-adk", plan.agent_name, "used", [call.tool_name for call in plan.tool_calls])
                 model_status = "used"
-                self.last_ai_run = getattr(self.agent_runner, "last_run", None) or _trace(
-                    "google-adk",
-                    plan.agent_name,
-                    model_status,
-                    [call.tool_name for call in plan.tool_calls],
-                )
             except AgentRuntimeError:
                 model_status = "unavailable"
-                self.last_ai_run = _trace("google-adk", plan.agent_name, model_status, [call.tool_name for call in plan.tool_calls])
+                trace = _trace("google-adk", plan.agent_name, model_status, [call.tool_name for call in plan.tool_calls])
 
         deterministic = create_recommendation_from_plan(plan, model_status=model_status)
 
-        return deterministic
+        return deterministic, trace
 
 
 def _trace(runtime: str, agent_name: str | None, model_status: str, tool_calls: list[str]) -> dict:

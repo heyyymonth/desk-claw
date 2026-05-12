@@ -34,23 +34,24 @@ def _generate_recommendation_with_audit(
     settings = get_settings()
     started = perf_counter()
     try:
-        response = service.generate(payload.parsed_request, payload.rules, payload.calendar_blocks)
+        response, trace = service.generate_with_trace(payload.parsed_request, payload.rules, payload.calendar_blocks)
     except ServiceError as exc:
+        trace = exc.ai_trace
         audit.log_ai_event(
             AuditEvent(
                 actor=actor,
                 operation="generate_recommendation",
                 endpoint=endpoint,
                 model_name=settings.adk_model,
-                model_status=service.last_ai_run.get("model_status") or ("unavailable" if exc.code == "adk_model_unavailable" else "invalid_output"),
+                model_status=trace.get("model_status") or ("unavailable" if exc.code == "adk_model_unavailable" else "invalid_output"),
                 status="error",
                 latency_ms=_latency_ms(started),
                 request_payload=payload,
                 error_code=exc.code,
                 error_message=exc.message,
-                runtime=service.last_ai_run.get("runtime", "unknown"),
-                agent_name=service.last_ai_run.get("agent_name"),
-                tool_calls=service.last_ai_run.get("tool_calls", []),
+                runtime=trace.get("runtime", "unknown"),
+                agent_name=trace.get("agent_name"),
+                tool_calls=trace.get("tool_calls", []),
             )
         )
         raise
@@ -66,9 +67,9 @@ def _generate_recommendation_with_audit(
             latency_ms=_latency_ms(started),
             request_payload=payload,
             response_payload=response,
-            runtime=service.last_ai_run.get("runtime", "unknown"),
-            agent_name=service.last_ai_run.get("agent_name"),
-            tool_calls=service.last_ai_run.get("tool_calls", []),
+            runtime=trace.get("runtime", "unknown"),
+            agent_name=trace.get("agent_name"),
+            tool_calls=trace.get("tool_calls", []),
         )
     )
     return response

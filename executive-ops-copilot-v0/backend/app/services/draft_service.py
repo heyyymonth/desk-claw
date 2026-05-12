@@ -6,20 +6,30 @@ from app.llm.schemas import DraftResponse, Recommendation
 class DraftService:
     def __init__(self, agent_runner: AdkDraftAgentRunner | None = None) -> None:
         self.agent_runner = agent_runner
-        self.last_ai_run: dict = _fallback_trace()
 
     def generate(self, recommendation: Recommendation) -> DraftResponse:
+        draft, _trace = self.generate_with_trace(recommendation)
+        return draft
+
+    def generate_with_trace(self, recommendation: Recommendation) -> tuple[DraftResponse, dict]:
         if self.agent_runner:
             try:
-                draft = self.agent_runner.generate(recommendation)
+                if hasattr(self.agent_runner, "generate_with_trace"):
+                    draft, trace = self.agent_runner.generate_with_trace(recommendation)
+                else:
+                    draft = self.agent_runner.generate(recommendation)
+                    trace = _adk_trace("meeting_draft_agent")
             except AgentRuntimeError as exc:
-                self.last_ai_run = _adk_trace("meeting_draft_agent", status="unavailable")
-                raise ServiceError("adk_model_unavailable", "Configured ADK draft agent is unavailable.", status_code=502) from exc
-            self.last_ai_run = getattr(self.agent_runner, "last_run", None) or _adk_trace("meeting_draft_agent")
-            return self._guard_draft(recommendation, draft)
+                trace = _adk_trace("meeting_draft_agent", status="unavailable")
+                raise ServiceError(
+                    "adk_model_unavailable",
+                    "Configured ADK draft agent is unavailable.",
+                    status_code=502,
+                    ai_trace=trace,
+                ) from exc
+            return self._guard_draft(recommendation, draft), trace
 
-        self.last_ai_run = _fallback_trace()
-        return self._deterministic_draft(recommendation, "not_configured")
+        return self._deterministic_draft(recommendation, "not_configured"), _fallback_trace()
 
     def _guard_draft(self, recommendation: Recommendation, draft: DraftResponse) -> DraftResponse:
         if recommendation.decision != "schedule":

@@ -3,10 +3,11 @@ from fastapi.responses import JSONResponse
 
 
 class ServiceError(Exception):
-    def __init__(self, code: str, message: str, status_code: int = 503) -> None:
+    def __init__(self, code: str, message: str, status_code: int = 503, ai_trace: dict | None = None) -> None:
         self.code = code
         self.message = message
         self.status_code = status_code
+        self.ai_trace = ai_trace or {}
         super().__init__(message)
 
 

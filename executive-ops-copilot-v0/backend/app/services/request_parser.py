@@ -8,19 +8,29 @@ from app.llm.schemas import MeetingIntent, ParsedMeetingRequest
 class RequestParser:
     def __init__(self, agent_runner: AdkRequestParserAgentRunner | None = None) -> None:
         self.agent_runner = agent_runner
-        self.last_ai_run: dict = _fallback_trace()
 
     def parse(self, raw_text: str) -> ParsedMeetingRequest:
+        parsed, _trace = self.parse_with_trace(raw_text)
+        return parsed
+
+    def parse_with_trace(self, raw_text: str) -> tuple[ParsedMeetingRequest, dict]:
         if self.agent_runner is not None:
             try:
-                parsed = self.agent_runner.parse(raw_text)
-                self.last_ai_run = getattr(self.agent_runner, "last_run", None) or _adk_trace("meeting_request_parser_agent")
-                return parsed.model_copy(update={"intent": _normalize_intent(raw_text, parsed.intent)})
+                if hasattr(self.agent_runner, "parse_with_trace"):
+                    parsed, trace = self.agent_runner.parse_with_trace(raw_text)
+                else:
+                    parsed = self.agent_runner.parse(raw_text)
+                    trace = _adk_trace("meeting_request_parser_agent")
+                return parsed.model_copy(update={"intent": _normalize_intent(raw_text, parsed.intent)}), trace
             except AgentRuntimeError as exc:
-                self.last_ai_run = _adk_trace("meeting_request_parser_agent", status="unavailable")
-                raise ServiceError("adk_model_unavailable", "Configured ADK parser is unavailable.", status_code=502) from exc
-        self.last_ai_run = _fallback_trace()
-        return fallback_parse(raw_text)
+                trace = _adk_trace("meeting_request_parser_agent", status="unavailable")
+                raise ServiceError(
+                    "adk_model_unavailable",
+                    "Configured ADK parser is unavailable.",
+                    status_code=502,
+                    ai_trace=trace,
+                ) from exc
+        return fallback_parse(raw_text), _fallback_trace()
 
 
 def fallback_parse(raw_text: str) -> ParsedMeetingRequest:

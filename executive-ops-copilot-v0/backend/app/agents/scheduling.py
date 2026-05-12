@@ -289,7 +289,6 @@ class AdkSchedulingAgentRunner:
         self.ollama_base_url = ollama_base_url
         self.app_name = app_name
         self.timeout_seconds = timeout_seconds
-        self.last_run: dict | None = None
 
     def plan(
         self,
@@ -297,19 +296,28 @@ class AdkSchedulingAgentRunner:
         rules: ExecutiveRules,
         calendar_blocks: list[CalendarBlock],
     ) -> AgentPlanningResult:
+        plan, _trace = self.plan_with_trace(parsed_request, rules, calendar_blocks)
+        return plan
+
+    def plan_with_trace(
+        self,
+        parsed_request: ParsedMeetingRequest,
+        rules: ExecutiveRules,
+        calendar_blocks: list[CalendarBlock],
+    ) -> tuple[AgentPlanningResult, dict]:
         deterministic_plan = SchedulingAgentPlanner().plan(parsed_request, rules, calendar_blocks)
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         try:
             future = executor.submit(self._run_adk_plan, parsed_request, rules, calendar_blocks)
             output = future.result(timeout=self.timeout_seconds)
             plan = self._merge_model_output(output, deterministic_plan)
-            self.last_run = _agent_run_trace(
+            trace = _agent_run_trace(
                 agent_name=scheduling_agent_definition.name,
                 app_name=self.app_name,
                 model=self.model,
                 tool_calls=[call.tool_name for call in plan.tool_calls],
             )
-            return plan
+            return plan, trace
         except concurrent.futures.TimeoutError as exc:
             raise AgentRuntimeError("ADK scheduling agent timed out.") from exc
         except Exception as exc:
@@ -387,21 +395,24 @@ class AdkRequestParserAgentRunner:
         self.ollama_base_url = ollama_base_url
         self.app_name = app_name
         self.timeout_seconds = timeout_seconds
-        self.last_run: dict | None = None
 
     def parse(self, raw_text: str) -> ParsedMeetingRequest:
+        parsed, _trace = self.parse_with_trace(raw_text)
+        return parsed
+
+    def parse_with_trace(self, raw_text: str) -> tuple[ParsedMeetingRequest, dict]:
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         try:
             future = executor.submit(self._run_parse, raw_text)
             output = future.result(timeout=self.timeout_seconds)
             parsed = ParsedMeetingRequest.model_validate(output)
-            self.last_run = _agent_run_trace(
+            trace = _agent_run_trace(
                 agent_name=request_parser_agent_definition.name,
                 app_name=self.app_name,
                 model=self.model,
                 tool_calls=[],
             )
-            return parsed
+            return parsed, trace
         except concurrent.futures.TimeoutError as exc:
             raise AgentRuntimeError("ADK request parser timed out.") from exc
         except Exception as exc:
@@ -432,21 +443,24 @@ class AdkDraftAgentRunner:
         self.ollama_base_url = ollama_base_url
         self.app_name = app_name
         self.timeout_seconds = timeout_seconds
-        self.last_run: dict | None = None
 
     def generate(self, recommendation: Recommendation) -> DraftResponse:
+        draft, _trace = self.generate_with_trace(recommendation)
+        return draft
+
+    def generate_with_trace(self, recommendation: Recommendation) -> tuple[DraftResponse, dict]:
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         try:
             future = executor.submit(self._run_generate, recommendation)
             output = future.result(timeout=self.timeout_seconds)
             draft = DraftResponse.model_validate(output)
-            self.last_run = _agent_run_trace(
+            trace = _agent_run_trace(
                 agent_name=draft_agent_definition.name,
                 app_name=self.app_name,
                 model=self.model,
                 tool_calls=[],
             )
-            return draft
+            return draft, trace
         except concurrent.futures.TimeoutError as exc:
             raise AgentRuntimeError("ADK draft agent timed out.") from exc
         except Exception as exc:
