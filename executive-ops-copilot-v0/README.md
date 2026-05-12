@@ -4,6 +4,10 @@ Local web app for executive operations scheduling triage. V0 helps an executive 
 
 The app is local-first and contract-first. The frontend calls FastAPI only. FastAPI owns validation, orchestration, policy checks, persistence, and Ollama/Gemma model access.
 
+## System Design
+
+![desk.ai system design](docs/assets/architecture/deskai%20system%20design.png)
+
 ## Current Scope
 
 In scope:

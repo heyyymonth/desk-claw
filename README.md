@@ -9,6 +9,10 @@ The current implementation lives in `executive-ops-copilot-v0/` and is built as 
 - JSON Schema and OpenAPI contracts for backend/frontend data shapes.
 - Playwright, Vitest, pytest, and local eval cases for verification.
 
+## System Design
+
+![desk.ai system design](executive-ops-copilot-v0/docs/assets/architecture/deskai%20system%20design.png)
+
 ## Product Direction
 
 V0 is focused on human-reviewed executive scheduling triage. The product does not send emails, create calendar invites, write to external calendars, or act autonomously. It keeps the assistant in control while making request parsing, risk review, recommendation generation, and response drafting faster and more consistent.
