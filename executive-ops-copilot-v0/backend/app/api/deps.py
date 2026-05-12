@@ -1,4 +1,4 @@
-from fastapi import Header
+from fastapi import Header, HTTPException, status
 
 from app.agents.scheduling import AdkDraftAgentRunner, AdkRequestParserAgentRunner, AdkSchedulingAgentRunner
 from app.core.settings import get_settings
@@ -35,6 +35,22 @@ def get_actor_context(
         email=x_actor_email,
         display_name=x_actor_name or "Local User",
     )
+
+
+def require_admin_access(
+    x_deskai_admin_key: str | None = Header(default=None),
+) -> None:
+    admin_api_key = get_settings().admin_api_key
+    if not admin_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Admin API access is not configured.",
+        )
+    if x_deskai_admin_key != admin_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Admin API access is required.",
+        )
 
 
 def get_audit_service() -> AuditService:

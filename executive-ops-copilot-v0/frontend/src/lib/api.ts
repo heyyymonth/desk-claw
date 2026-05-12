@@ -13,6 +13,7 @@ import type {
 const DEFAULT_API_BASE_URL =
   typeof window === 'undefined' ? 'http://localhost:8000' : `${window.location.protocol}//${window.location.hostname}:8000`;
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? DEFAULT_API_BASE_URL;
+const ADMIN_API_KEY = import.meta.env.VITE_ADMIN_API_KEY;
 
 type BackendCalendarEvent = TimeWindow & { title: string };
 type BackendCalendarResponse = { blocks: BackendCalendarEvent[] };
@@ -20,11 +21,11 @@ type BackendDecisionsResponse = { decisions: DecisionLogEntry[] };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...init,
     headers: {
       'Content-Type': 'application/json',
       ...(init?.headers ?? {}),
     },
-    ...init,
   });
 
   if (!response.ok) {
@@ -32,6 +33,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   return response.json() as Promise<T>;
+}
+
+function adminHeaders(): HeadersInit {
+  return ADMIN_API_KEY ? { 'X-DeskAI-Admin-Key': ADMIN_API_KEY } : {};
 }
 
 async function errorMessage(response: Response): Promise<string> {
@@ -73,7 +78,7 @@ function normalizeDecisions(payload: DecisionLogEntry[] | BackendDecisionsRespon
 
 export const api = {
   health: () => request<HealthStatus>('/api/health'),
-  aiMetrics: () => request<AiMetrics>('/api/telemetry/ai/dashboard'),
+  aiMetrics: () => request<AiMetrics>('/api/telemetry/ai/dashboard', { headers: adminHeaders() }),
   defaultRules: () => request<ExecutiveRules>('/api/default-rules'),
   mockCalendar: async () =>
     normalizeCalendar(await request<CalendarContext | BackendCalendarEvent[] | BackendCalendarResponse>('/api/mock-calendar')),

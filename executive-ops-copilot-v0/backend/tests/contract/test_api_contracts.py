@@ -1,9 +1,11 @@
 from fastapi.testclient import TestClient
 
+from app.core.settings import get_settings
 from app.main import create_app
 
 
 client = TestClient(create_app())
+ADMIN_HEADERS = {"X-DeskAI-Admin-Key": "test-admin-key"}
 
 
 def test_parse_request_endpoint_contract():
@@ -147,7 +149,7 @@ def test_ai_audit_endpoint_records_ai_workflow_calls():
 
     assert parse.status_code == 200
 
-    audit = client.get("/api/audit/ai?limit=5")
+    audit = client.get("/api/audit/ai?limit=5", headers=ADMIN_HEADERS)
 
     assert audit.status_code == 200
     body = audit.json()
@@ -164,7 +166,7 @@ def test_ai_audit_endpoint_records_ai_workflow_calls():
 def test_ai_metrics_endpoint_exposes_backend_quality_dashboard_data():
     client.post("/api/requests/parse", json={"raw_text": "Need 30 min with Legal"})
 
-    response = client.get("/api/telemetry/ai/dashboard")
+    response = client.get("/api/telemetry/ai/dashboard", headers=ADMIN_HEADERS)
 
     assert response.status_code == 200
     body = response.json()
@@ -175,3 +177,25 @@ def test_ai_metrics_endpoint_exposes_backend_quality_dashboard_data():
     assert "tool_metrics" in body
     assert "insights" in body
     assert "recent_failures" in body
+
+
+def test_ai_audit_endpoint_requires_admin_access():
+    response = client.get("/api/audit/ai?limit=5")
+
+    assert response.status_code == 401
+
+
+def test_ai_metrics_endpoint_requires_admin_access():
+    response = client.get("/api/telemetry/ai/dashboard")
+
+    assert response.status_code == 401
+
+
+def test_admin_ai_endpoints_fail_closed_without_configured_key(monkeypatch):
+    monkeypatch.delenv("ADMIN_API_KEY", raising=False)
+    get_settings.cache_clear()
+
+    response = client.get("/api/audit/ai?limit=5", headers=ADMIN_HEADERS)
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Admin API access is not configured."

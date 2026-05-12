@@ -123,10 +123,10 @@ X-Actor-Name: EA User
 Retrieve audit events:
 
 ```bash
-curl http://127.0.0.1:8000/api/audit/ai?limit=50
+curl -H "X-DeskAI-Admin-Key: $ADMIN_API_KEY" http://127.0.0.1:8000/api/audit/ai?limit=50
 ```
 
-The audit endpoint is local and intended for development/admin inspection in V0. Future enterprise auth should protect it before multi-user deployment.
+AI audit and telemetry read endpoints expose sensitive workflow payloads and require `ADMIN_API_KEY` on the backend. If the key is not configured, those admin read endpoints fail closed.
 
 ## Run Frontend
 

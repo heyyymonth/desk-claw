@@ -16,6 +16,7 @@ class Settings:
         self.agent_runtime = getenv("AGENT_RUNTIME", "adk")
         self.adk_model = getenv("ADK_MODEL", f"ollama_chat/{self.ollama_model}" if self.llm_mode == "ollama" else DEFAULT_ADK_MODEL)
         self.timezone = getenv("APP_TIMEZONE", "America/Los_Angeles")
+        self.admin_api_key = getenv("ADMIN_API_KEY")
 
 
 @lru_cache
