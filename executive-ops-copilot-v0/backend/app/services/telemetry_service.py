@@ -7,4 +7,4 @@ class TelemetryService:
         self.audit_repository = audit_repository
 
     def ai_dashboard(self, limit: int = 250) -> dict:
-        return build_ai_quality_dashboard(self.audit_repository.list_ai_events(limit))
+        return build_ai_quality_dashboard(self.audit_repository.list_ai_event_summaries(limit))

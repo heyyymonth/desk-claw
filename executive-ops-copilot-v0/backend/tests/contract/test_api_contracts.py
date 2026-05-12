@@ -159,8 +159,8 @@ def test_ai_audit_endpoint_ignores_untrusted_actor_headers():
     assert body["events"][0]["model_name"].startswith("ollama_chat/")
     assert body["events"][0]["runtime"] in {"google-adk", "deterministic"}
     assert "tool_calls" in body["events"][0]
-    assert body["events"][0]["request_payload"]["raw_text"].startswith("From Jordan")
-    assert body["events"][0]["response_payload"]["intent"]["requester"]
+    assert body["events"][0]["request_payload"]["raw_text"]["redacted"] is True
+    assert body["events"][0]["response_payload"]["intent"]["requester"]["redacted"] is True
 
 
 def test_ai_audit_endpoint_records_trusted_actor_context(monkeypatch):

@@ -1,12 +1,31 @@
 import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from hashlib import sha256
 from typing import Any
 from uuid import uuid4
 
 from pydantic import BaseModel
 
 from app.db.session import Database
+
+
+SENSITIVE_FIELD_NAMES = {
+    "attendees",
+    "body",
+    "display_name",
+    "email",
+    "final_response_text",
+    "message",
+    "notes",
+    "raw_text",
+    "requester",
+    "requester_name",
+    "subject",
+    "user_notes",
+}
+
+AI_EVENT_READ_LIMIT = 1000
 
 
 @dataclass(frozen=True)
@@ -78,10 +97,10 @@ class AuditRepository:
                     event.model_status,
                     event.status,
                     event.latency_ms,
-                    _to_json(event.request_payload),
-                    _to_json(event.response_payload) if event.response_payload is not None else None,
+                    _to_json(_redact_payload(event.request_payload)),
+                    _to_json(_redact_payload(event.response_payload)) if event.response_payload is not None else None,
                     event.error_code,
-                    event.error_message,
+                    _to_json(_redact_text(event.error_message)) if event.error_message else None,
                     event.runtime,
                     event.agent_name,
                     _to_json(event.tool_calls or []),
@@ -91,7 +110,7 @@ class AuditRepository:
         return event_id
 
     def list_ai_events(self, limit: int = 50) -> list[dict[str, Any]]:
-        bounded_limit = max(1, min(limit, 250))
+        bounded_limit = _bounded_limit(limit)
         with self.database.connect() as connection:
             rows = connection.execute(
                 """
@@ -120,7 +139,42 @@ class AuditRepository:
                 "request_payload": json.loads(row["request_payload"]),
                 "response_payload": json.loads(row["response_payload"]) if row["response_payload"] else None,
                 "error_code": row["error_code"],
-                "error_message": row["error_message"],
+                "error_message": _from_json_or_text(row["error_message"]),
+                "runtime": row["runtime"],
+                "agent_name": row["agent_name"],
+                "tool_calls": json.loads(row["tool_calls"] or "[]"),
+            }
+            for row in rows
+        ]
+
+    def list_ai_event_summaries(self, limit: int = 250) -> list[dict[str, Any]]:
+        bounded_limit = _bounded_limit(limit)
+        with self.database.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT
+                    id, created_at, actor_id, operation, endpoint, model_name, model_status,
+                    status, latency_ms, error_code, error_message, runtime, agent_name, tool_calls
+                FROM ai_audit_log
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (bounded_limit,),
+            ).fetchall()
+
+        return [
+            {
+                "id": row["id"],
+                "created_at": row["created_at"],
+                "actor_id": row["actor_id"],
+                "operation": row["operation"],
+                "endpoint": row["endpoint"],
+                "model_name": row["model_name"],
+                "model_status": row["model_status"],
+                "status": row["status"],
+                "latency_ms": row["latency_ms"],
+                "error_code": row["error_code"],
+                "error_message": _from_json_or_text(row["error_message"]),
                 "runtime": row["runtime"],
                 "agent_name": row["agent_name"],
                 "tool_calls": json.loads(row["tool_calls"] or "[]"),
@@ -133,3 +187,41 @@ def _to_json(value: Any) -> str:
     if isinstance(value, BaseModel):
         return value.model_dump_json()
     return json.dumps(value, default=str)
+
+
+def _bounded_limit(limit: int) -> int:
+    return max(1, min(limit, AI_EVENT_READ_LIMIT))
+
+
+def _from_json_or_text(value: str | None) -> Any:
+    if value is None:
+        return None
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return value
+
+
+def _redact_payload(value: Any, field_name: str | None = None) -> Any:
+    if isinstance(value, BaseModel):
+        return _redact_payload(value.model_dump(mode="json"), field_name)
+    if isinstance(value, dict):
+        return {key: _redact_payload(item, key) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_redact_payload(item, field_name) for item in value]
+    if isinstance(value, str) and _is_sensitive_field(field_name):
+        return _redact_text(value)
+    return value
+
+
+def _is_sensitive_field(field_name: str | None) -> bool:
+    return bool(field_name and field_name.lower() in SENSITIVE_FIELD_NAMES)
+
+
+def _redact_text(value: str) -> dict[str, Any]:
+    return {
+        "redacted": True,
+        "kind": "sensitive_text",
+        "length": len(value),
+        "sha256": sha256(value.encode("utf-8")).hexdigest(),
+    }

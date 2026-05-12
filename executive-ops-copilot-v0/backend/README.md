@@ -18,4 +18,6 @@ AI parse, recommendation, and draft calls are logged to `ai_audit_log`; actor de
 
 Actor headers are trusted only when `ACTOR_AUTH_TOKEN` is configured and requests include the matching `X-DeskAI-Actor-Token`. Without that configured token, actor headers are ignored and AI audit rows use `local-user` so clients cannot forge arbitrary audit identities.
 
-AI audit and telemetry read endpoints expose sensitive request/response payloads and require `ADMIN_API_KEY` on the backend plus the `X-DeskAI-Admin-Key` request header. If `ADMIN_API_KEY` is not configured, those admin read endpoints fail closed.
+Free-form AI audit payload fields are redacted before SQLite storage, including request text, requester, attendees, draft subject/body, notes, and error messages.
+
+AI audit and telemetry read endpoints require `ADMIN_API_KEY` on the backend plus the `X-DeskAI-Admin-Key` request header. If `ADMIN_API_KEY` is not configured, those admin read endpoints fail closed.

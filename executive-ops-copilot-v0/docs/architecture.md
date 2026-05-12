@@ -19,7 +19,7 @@
 - Deterministic policy checks and model-generated text are separate service boundaries.
 - Raw LLM output is validated into contract-shaped models before it can cross the API boundary.
 - All persisted records use backend-generated IDs and timestamps.
-- AI workflow calls are audited with actor context, endpoint, operation, ADK model, model status, runtime, agent name, tool calls, request payload, response payload or error, status, and latency.
+- AI workflow calls are audited with actor context, endpoint, operation, ADK model, model status, runtime, agent name, observed tool calls, redacted request/response payload metadata, response/error status, and latency.
 
 ## Backend Responsibilities
 
@@ -69,6 +69,7 @@
 - `actor_id` defaults to `local-user` and can be supplied with `X-Actor-Id`; `X-Actor-Email` and `X-Actor-Name` are persisted when present.
 - AI audit entries are append-only records in `ai_audit_log`.
 - AI telemetry metrics are derived read models. The telemetry service reads persisted `ai_audit_log` rows and does not receive workflow objects directly.
+- The telemetry dashboard uses a metadata-only AI event projection and does not fetch request or response payload JSON.
 
 ## Telemetry Extension Pattern
 

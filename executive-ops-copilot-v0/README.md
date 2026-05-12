@@ -112,7 +112,7 @@ Persisted tables include:
 - `decisions`: simple feedback events from `POST /api/feedback`.
 - `decision_log`: full workflow decision records from `POST /api/decisions`.
 
-AI audit records include actor ID, endpoint, operation, configured model, model status, request payload, response payload or error, status, timestamp, and latency. Actor details are trusted only when `ACTOR_AUTH_TOKEN` is configured on the backend and the request includes the matching `X-DeskAI-Actor-Token`. Without that token boundary, supplied actor headers are ignored and audit rows use `local-user`.
+AI audit records include actor ID, endpoint, operation, configured model, model status, redacted request/response payload metadata, response/error status, timestamp, and latency. Free-form text fields such as request text, requester, attendees, draft subject/body, notes, and error messages are redacted before SQLite storage. Actor details are trusted only when `ACTOR_AUTH_TOKEN` is configured on the backend and the request includes the matching `X-DeskAI-Actor-Token`. Without that token boundary, supplied actor headers are ignored and audit rows use `local-user`.
 
 ```text
 X-DeskAI-Actor-Token: $ACTOR_AUTH_TOKEN
@@ -127,7 +127,7 @@ Retrieve audit events:
 curl -H "X-DeskAI-Admin-Key: $ADMIN_API_KEY" http://127.0.0.1:8000/api/audit/ai?limit=50
 ```
 
-AI audit and telemetry read endpoints expose sensitive workflow payloads and require `ADMIN_API_KEY` on the backend. If the key is not configured, those admin read endpoints fail closed.
+AI audit and telemetry read endpoints require `ADMIN_API_KEY` on the backend. If the key is not configured, those admin read endpoints fail closed.
 
 ## Run Frontend
 
