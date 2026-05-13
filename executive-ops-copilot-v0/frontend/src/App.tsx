@@ -1,23 +1,16 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import {
-  Activity,
   Bell,
   Building2,
-  CheckCircle2,
-  ClipboardList,
   CreditCard,
   FileText,
   Gauge,
-  Home,
   KeyRound,
-  LockKeyhole,
   LogOut,
   MessageSquare,
   PanelLeftClose,
   PanelLeftOpen,
-  PenLine,
   Route,
-  Settings,
   SlidersHorizontal,
   Sparkles,
   UserCircle,
@@ -38,6 +31,18 @@ import { RequestIntakePanel } from './components/RequestIntakePanel';
 import { StatusIndicator } from './components/StatusIndicator';
 import { WorkWeekCalendar } from './components/WorkWeekCalendar';
 import { ErrorState } from './components/ui';
+import {
+  brandLogoSrc,
+  commandPrompts,
+  enterpriseSignals,
+  pages,
+  personas,
+  starterRules,
+  trustMarks,
+  workflowSteps,
+  type PageId,
+  type PersonaId,
+} from './config/appConfig';
 import { api, setActorIdentity } from './lib/api';
 import type {
   CalendarContext,
@@ -49,110 +54,9 @@ import type {
   Recommendation,
 } from './types';
 
-const starterRules: ExecutiveRules = {
-  executive_name: 'Executive',
-  timezone: 'America/Los_Angeles',
-  working_hours: { start: '09:00', end: '17:00' },
-  protected_blocks: [],
-  preferences: ['Avoid moving protected focus time without explicit approval.'],
-};
-
 function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
 }
-
-const workflowSteps = [
-  {
-    label: 'Paste the request',
-    detail: 'Add the email or message exactly as received.',
-    icon: ClipboardList,
-  },
-  {
-    label: 'Review details',
-    detail: 'Confirm requester, timing, risk, and missing context.',
-    icon: CheckCircle2,
-  },
-  {
-    label: 'Get guidance',
-    detail: 'Generate a scheduling recommendation for review.',
-    icon: Route,
-  },
-  {
-    label: 'Prepare reply',
-    detail: 'Draft, edit, and log the final human decision.',
-    icon: PenLine,
-  },
-];
-
-const enterpriseSignals = [
-  { label: 'Requests reviewed', value: '1.8k', detail: 'this quarter', icon: Activity },
-  { label: 'Avg. cycle time', value: '4m', detail: 'request to draft', icon: Gauge },
-  { label: 'Audit coverage', value: '100%', detail: 'human decision log', icon: LockKeyhole },
-];
-
-const trustMarks = ['Northstar Ops', 'Atlas Finance', 'Forge AI', 'Helio Systems', 'Summit Cloud'];
-
-type PageId = 'home' | 'admin' | 'telemetry' | 'account' | 'settings';
-type PersonaId = 'executive_assistant' | 'admin';
-
-type Persona = {
-  id: PersonaId;
-  label: string;
-  eyebrow: string;
-  name: string;
-  title: string;
-  email: string;
-  phone: string;
-  timezone: string;
-  role: string;
-  accessLevel: string;
-  lastActive: string;
-};
-
-const pages = [
-  { id: 'home' as const, label: 'Home', detail: 'Chat and calendar', icon: Home },
-  { id: 'admin' as const, label: 'Admin Center', detail: 'Intake, drafts, logs', icon: Workflow },
-  { id: 'telemetry' as const, label: 'AI Dashboard', detail: 'DB telemetry', icon: Gauge },
-  { id: 'account' as const, label: 'Account', detail: 'Plan and seats', icon: UserCircle },
-  { id: 'settings' as const, label: 'Settings', detail: 'Security and AI controls', icon: Settings },
-];
-
-const commandPrompts = [
-  'Find a safe 30 minute window with Support leadership.',
-  'Summarize today\'s calendar risk before the 2 PM board prep.',
-  'Draft a concise reply asking for missing attendee context.',
-];
-
-const brandLogoSrc = '/brand/desk-ai-logo.jpeg';
-
-const personas: Record<PersonaId, Persona> = {
-  executive_assistant: {
-    id: 'executive_assistant',
-    label: 'Executive Assistant',
-    eyebrow: 'Executive assistant view',
-    name: 'Maya Srinivasan',
-    title: 'Executive Assistant to Dana Lee',
-    email: 'maya.srinivasan@northstar-ops.example',
-    phone: '+1 (415) 555-0142',
-    timezone: 'America/Los_Angeles',
-    role: 'Executive assistant',
-    accessLevel: 'Meeting intake, calendar coordination, scheduling approvals',
-    lastActive: 'Today at 2:41 PM Pacific',
-  },
-  admin: {
-    id: 'admin',
-    label: 'Workspace Admin',
-    eyebrow: 'Admin view',
-    name: 'Priya Shah',
-    title: 'Workspace Admin, Executive Operations',
-    email: 'priya.shah@northstar-ops.example',
-    phone: '+1 (415) 555-0198',
-    timezone: 'America/Los_Angeles',
-    role: 'Workspace admin',
-    accessLevel: 'Billing, rules, calendar assumptions, audit logs',
-    lastActive: 'Today at 2:36 PM Pacific',
-  },
-};
 
 export function App() {
   const [activePage, setActivePage] = useState<PageId>('home');
