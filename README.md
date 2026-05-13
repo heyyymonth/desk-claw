@@ -13,6 +13,14 @@ The current implementation lives in `executive-ops-copilot-v0/` and is built as 
 
 ![desk.ai system design](executive-ops-copilot-v0/docs/assets/architecture/deskai%20system%20design.png)
 
+## Agent Architecture
+
+![desk.ai multi-agent architecture](executive-ops-copilot-v0/docs/assets/architecture/deskai-agent-architecture.png)
+
+The Desk AI multi-agent layer is the backbone of the system. FastAPI owns orchestration and typed contracts, while Google ADK owns the model reasoning loop, tool selection, and trace capture. The parser, meeting-resolution, and draft agents each return validated JSON that the product can review and render safely.
+
+Tools remain deterministic backend functions, so the agents reason over scheduling context without gaining autonomous write access. This keeps the system local-first, auditable, and human-reviewed while still using the local `gemma4:latest` model for agentic reasoning.
+
 ## Product Direction
 
 V0 is focused on human-reviewed executive scheduling triage. The product does not send emails, create calendar invites, write to external calendars, or act autonomously. It keeps the assistant in control while making request parsing, risk review, recommendation generation, and response drafting faster and more consistent.

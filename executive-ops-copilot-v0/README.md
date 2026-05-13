@@ -8,6 +8,14 @@ The app is local-first and contract-first. The frontend calls FastAPI only. Fast
 
 ![desk.ai system design](docs/assets/architecture/deskai%20system%20design.png)
 
+## Agent Architecture
+
+![desk.ai multi-agent architecture](docs/assets/architecture/deskai-agent-architecture.png)
+
+The multi-agent layer is the backbone of Desk AI. FastAPI creates typed agent tasks and hands them to the Google ADK runtime, which owns model reasoning, tool selection, and trace capture. Each agent has a narrow responsibility: the parser agent converts raw meeting text into structured intent, the resolution agent reasons through calendar conflicts, executive rules, risk, and scheduling strategy, and the draft agent creates a safe human-reviewable response.
+
+The tools are deterministic backend functions. Agents decide when to call them, but the tools ground the result and the backend validates every output into schema-shaped JSON before it reaches the product surface. This keeps the system model-backed without allowing hidden autonomous actions, calendar write-back, or direct frontend-to-model access.
+
 ## Current Scope
 
 In scope:
