@@ -1,7 +1,10 @@
+import contextlib
+import io
 import json
 import multiprocessing
 import queue
 import os
+import threading
 from datetime import datetime, timedelta
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -803,10 +806,18 @@ def _run_agent_process(
 
 
 def _agent_process_entrypoint(operation: str, payload: dict, result_queue) -> None:
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    threading.excepthook = lambda args: None
     try:
-        result_queue.put(("ok", _run_agent_operation(operation, payload)))
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            result_queue.put(("ok", _run_agent_operation(operation, payload)))
     except Exception as exc:
-        result_queue.put(("error", str(exc)))
+        detail = str(exc)
+        captured_stderr = stderr.getvalue().strip()
+        if captured_stderr:
+            detail = f"{detail} {captured_stderr}"
+        result_queue.put(("error", detail))
 
 
 def _run_agent_operation(operation: str, payload: dict) -> dict:
@@ -839,6 +850,7 @@ def _run_agent_operation(operation: str, payload: dict) -> dict:
             session_prefix="parse",
             payload={"task": "Parse this raw scheduling request.", "raw_text": payload["raw_text"]},
             max_llm_calls=4,
+            return_on_tool_response=True,
         )
         return {"output": output, "tool_calls": tool_calls}
     if operation == "draft":
@@ -853,6 +865,7 @@ def _run_agent_operation(operation: str, payload: dict) -> dict:
                 "recommendation": recommendation.model_dump(mode="json"),
             },
             max_llm_calls=4,
+            return_on_tool_response=True,
         )
         return {"output": output, "tool_calls": tool_calls}
     raise AgentRuntimeError(f"Unsupported ADK operation: {operation}")
@@ -863,7 +876,14 @@ def _run_adk_json(agent, app_name: str, session_prefix: str, payload: dict, max_
     return output
 
 
-def _run_adk_json_with_tool_calls(agent, app_name: str, session_prefix: str, payload: dict, max_llm_calls: int) -> tuple[dict, list[str]]:
+def _run_adk_json_with_tool_calls(
+    agent,
+    app_name: str,
+    session_prefix: str,
+    payload: dict,
+    max_llm_calls: int,
+    return_on_tool_response: bool = False,
+) -> tuple[dict, list[str]]:
     try:
         from google.adk.runners import RunConfig, Runner
         from google.adk.sessions import InMemorySessionService
@@ -880,13 +900,21 @@ def _run_adk_json_with_tool_calls(agent, app_name: str, session_prefix: str, pay
 
     final_text = ""
     tool_calls: list[str] = []
-    for event in runner.run(
+    tool_responses: list[dict] = []
+    events = runner.run(
         user_id=user_id,
         session_id=session_id,
         new_message=message,
         run_config=RunConfig(max_llm_calls=max_llm_calls),
-    ):
+    )
+    for event in events:
         tool_calls.extend(_tool_call_names_from_event(event))
+        tool_responses.extend(_tool_response_objects_from_event(event))
+        if return_on_tool_response and tool_responses:
+            close = getattr(events, "close", None)
+            if close:
+                close()
+            return tool_responses[-1], _dedupe(tool_calls)
         if event.content is None:
             continue
         for part in event.content.parts or []:
@@ -894,6 +922,8 @@ def _run_adk_json_with_tool_calls(agent, app_name: str, session_prefix: str, pay
                 final_text = part.text
 
     if not final_text:
+        if tool_responses:
+            return tool_responses[-1], _dedupe(tool_calls)
         raise AgentRuntimeError("ADK agent returned no final text.")
     return _loads_json_object(final_text), _dedupe(tool_calls)
 
@@ -909,6 +939,21 @@ def _tool_call_names_from_event(event) -> list[str]:
         if name:
             names.append(name)
     return names
+
+
+def _tool_response_objects_from_event(event) -> list[dict]:
+    responses: list[dict] = []
+    content = getattr(event, "content", None)
+    if content is None:
+        return responses
+    for part in getattr(content, "parts", None) or []:
+        function_response = getattr(part, "function_response", None)
+        if function_response is None:
+            continue
+        payload = getattr(function_response, "response", None)
+        if isinstance(payload, dict):
+            responses.append(payload)
+    return responses
 
 
 def _dedupe(values: list[str]) -> list[str]:

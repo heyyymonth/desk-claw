@@ -15,6 +15,9 @@ class Settings:
         self.ollama_model = getenv("OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL)
         self.agent_runtime = getenv("AGENT_RUNTIME", "adk")
         self.adk_model = getenv("ADK_MODEL", f"ollama_chat/{self.ollama_model}" if self.llm_mode == "ollama" else DEFAULT_ADK_MODEL)
+        self.adk_agent_timeout_seconds = float(getenv("ADK_AGENT_TIMEOUT_SECONDS", "180"))
+        self.warm_ollama_on_startup = getenv("WARM_OLLAMA_ON_STARTUP", "true").lower() == "true"
+        self.ollama_warmup_timeout_seconds = float(getenv("OLLAMA_WARMUP_TIMEOUT_SECONDS", "180"))
         self.timezone = getenv("APP_TIMEZONE", "America/Los_Angeles")
         self.admin_api_key = getenv("ADMIN_API_KEY")
         self.actor_auth_token = getenv("ACTOR_AUTH_TOKEN")

@@ -9,6 +9,7 @@ from app.llm.schemas import DraftPayload, RecommendationPayload, ParsedMeetingRe
 from app.models import DraftResponse as ApiDraftResponse
 from app.models import MeetingRequest as ApiMeetingRequest
 from app.models import Recommendation as ApiRecommendation
+from app.services.model_warmup import warm_ollama_model
 
 
 def create_app() -> FastAPI:
@@ -34,6 +35,11 @@ def create_app() -> FastAPI:
     app.include_router(audit.router)
     app.include_router(telemetry.router)
     _add_compat_routes(app)
+    app.state.model_warmup = {"status": "not_started"}
+
+    @app.on_event("startup")
+    def warm_model_on_startup() -> None:
+        app.state.model_warmup = warm_ollama_model(get_settings())
 
     @app.get("/api/health")
     def health():
@@ -45,6 +51,7 @@ def create_app() -> FastAPI:
             "adk_model": settings.adk_model,
             "ollama_model": settings.ollama_model,
             "model_runtime": "google-adk" if settings.agent_runtime == "adk" else settings.agent_runtime,
+            "model_warmup": app.state.model_warmup,
         }
 
     return app

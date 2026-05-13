@@ -17,6 +17,7 @@ from app.agents.scheduling import (
     scheduling_agent_definition,
     select_resolution_strategy,
     _tool_call_names_from_event,
+    _tool_response_objects_from_event,
     validate_scheduling_rules,
 )
 from app.llm.schemas import CalendarBlock, ExecutiveRules, ParsedMeetingRequest
@@ -94,6 +95,36 @@ def test_adk_tool_call_trace_reads_function_call_events():
     )()
 
     assert _tool_call_names_from_event(event) == ["inspect_calendar_conflicts", "validate_scheduling_rules"]
+
+
+def test_adk_tool_response_trace_reads_function_response_events():
+    event = type(
+        "Event",
+        (),
+        {
+            "content": type(
+                "Content",
+                (),
+                {
+                    "parts": [
+                        type(
+                            "Part",
+                            (),
+                            {
+                                "function_response": type(
+                                    "FunctionResponse",
+                                    (),
+                                    {"response": {"decision": "schedule"}},
+                                )()
+                            },
+                        )(),
+                    ]
+                },
+            )()
+        },
+    )()
+
+    assert _tool_response_objects_from_event(event) == [{"decision": "schedule"}]
 
 
 def test_planner_records_tool_calls_and_schedules_open_slot():

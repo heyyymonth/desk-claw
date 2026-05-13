@@ -18,7 +18,7 @@ def get_adk_agent_runner(runner_class):
     settings = get_settings()
     if settings.agent_runtime != "adk" or settings.llm_mode == "mock":
         return None
-    return runner_class(settings.adk_model, settings.ollama_base_url)
+    return runner_class(settings.adk_model, settings.ollama_base_url, timeout_seconds=settings.adk_agent_timeout_seconds)
 
 
 def get_database() -> Database:
