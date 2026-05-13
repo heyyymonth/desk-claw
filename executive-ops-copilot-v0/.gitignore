@@ -7,6 +7,7 @@ __pycache__/
 *.py[cod]
 *.tsbuildinfo
 .DS_Store
+.local/
 *.sqlite3
 *.db
 backend/data/

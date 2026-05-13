@@ -59,6 +59,22 @@ ollama list
 
 `ollama list` should include `gemma4:latest`.
 
+For normal local development, start the full stack with:
+
+```bash
+./scripts/start-local.sh
+```
+
+This script treats model readiness as part of service startup:
+
+1. Starts or verifies Ollama at `http://127.0.0.1:11434`.
+2. Verifies `gemma4:latest` is available, pulling it if needed.
+3. Starts FastAPI with `WARM_OLLAMA_ON_STARTUP=true`.
+4. Waits for `/api/health` to return only after backend startup has loaded the model.
+5. Starts the Vite frontend and waits for it to serve `http://127.0.0.1:5173`.
+
+Startup can take around a minute on a cold local model load. After startup, request latency reflects the ADK agent/tool loop rather than model loading. The script stays attached as the local service supervisor; press `Ctrl-C` in that terminal to stop the services.
+
 The backend defaults to:
 
 ```bash
@@ -76,7 +92,18 @@ curl http://127.0.0.1:8000/api/health
 Expected shape:
 
 ```json
-{"status":"ok","ollama":"used","model":"gemma4:latest"}
+{
+  "status": "ok",
+  "ollama": "configured",
+  "model": "ollama_chat/gemma4:latest",
+  "model_warmup": {
+    "status": "ready",
+    "model": "gemma4:latest",
+    "elapsed_seconds": 59.244,
+    "ollama_total_seconds": 58.81,
+    "ollama_load_seconds": 36.443
+  }
+}
 ```
 
 ## Run Backend
