@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: desk-ai-config
+  namespace: desk-ai
+data:
+  DATABASE_URL: sqlite:////app/data/deskclaw.db
+  LLM_MODE: ollama
+  OLLAMA_BASE_URL: http://ollama:11434
+  OLLAMA_MODEL: gemma4:latest
+  WARM_OLLAMA_ON_STARTUP: "true"
+  OLLAMA_WARMUP_TIMEOUT_SECONDS: "240"
+  ADK_AGENT_TIMEOUT_SECONDS: "180"

@@ -1,6 +1,6 @@
 const DEFAULT_API_BASE_URL =
   typeof window === 'undefined' ? 'http://localhost:8000' : `${window.location.protocol}//${window.location.hostname}:8000`;
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? DEFAULT_API_BASE_URL;
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL === undefined ? DEFAULT_API_BASE_URL : import.meta.env.VITE_API_BASE_URL;
 const ADMIN_API_KEY = import.meta.env.VITE_ADMIN_API_KEY;
 const ACTOR_AUTH_TOKEN = import.meta.env.VITE_ACTOR_AUTH_TOKEN;
 

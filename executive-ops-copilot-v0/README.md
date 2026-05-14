@@ -267,6 +267,26 @@ npm run test:e2e
 
 The Playwright suite mocks `/api/**` with seeded V0 data, so it does not require real calendar, email, Slack, Microsoft, Google, or Ollama integrations.
 
+CI runs backend tests, frontend tests, frontend build, and Playwright E2E automatically on every push to `main` and every pull request targeting `main`.
+
+## Deployment Prep
+
+Container and Kubernetes deployment artifacts live in `infra/`.
+
+Local container stack:
+
+```bash
+docker compose up --build
+```
+
+Kubernetes manifests:
+
+```bash
+kubectl apply -k infra/k8s
+```
+
+The services are split into frontend, backend, and Ollama pods. Backend readiness waits for model warmup, so a ready backend means the configured Ollama model has been loaded before user traffic is served.
+
 ## Evals
 
 Scheduling eval cases live in:

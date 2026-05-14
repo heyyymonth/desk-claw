@@ -1,0 +1,30 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ollama-pull-gemma4
+  namespace: desk-ai
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: pull-model
+          image: ollama/ollama:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: OLLAMA_HOST
+              value: http://ollama:11434
+            - name: OLLAMA_MODEL
+              valueFrom:
+                configMapKeyRef:
+                  name: desk-ai-config
+                  key: OLLAMA_MODEL
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              until ollama list >/dev/null 2>&1; do
+                echo "waiting for ollama";
+                sleep 5;
+              done
+              ollama pull "$OLLAMA_MODEL"
