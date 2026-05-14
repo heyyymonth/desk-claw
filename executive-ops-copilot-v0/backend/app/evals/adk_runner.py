@@ -1,12 +1,12 @@
 from typing import Any
 
-from google.adk.evaluation.trajectory_evaluator import TrajectoryEvaluator
-
 from app.agents.scheduling import SchedulingAgentPlanner, scheduling_agent_definition
 from app.llm.schemas import CalendarBlock, ExecutiveRules, ParsedMeetingRequest, TimeWindow
 
 
 def run_adk_tool_evals(cases: list[dict[str, Any]], rules: ExecutiveRules) -> dict[str, Any]:
+    from google.adk.evaluation.trajectory_evaluator import TrajectoryEvaluator
+
     planner = SchedulingAgentPlanner()
     conversations = []
     results = []

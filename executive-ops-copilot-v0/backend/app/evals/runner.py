@@ -8,10 +8,11 @@ from app.services.draft_service import DraftService
 from app.services.recommendation_service import RecommendationService
 from app.services.request_parser import RequestParser
 from app.services.rules_engine import RulesEngine
-from app.evals.adk_runner import run_adk_tool_evals
 
 
 def run() -> dict[str, Any]:
+    from app.evals.adk_runner import run_adk_tool_evals
+
     root = Path(__file__).resolve().parents[3]
     cases = _load_yaml(root / "evals" / "cases" / "v0_scheduling_cases.yaml")["cases"]
     expected = _load_yaml(root / "evals" / "expected" / "v0_expected_outputs.yaml")["expected"]

@@ -10,6 +10,13 @@ pytest
 uvicorn app.main:app --reload
 ```
 
+Evals are decoupled from the default backend test scope. Install their extra dependencies only when needed:
+
+```bash
+pip install -e ".[dev,evals]"
+pytest -m evals
+```
+
 ## Persistence
 
 The backend supports `sqlite:///` URLs only in V0. The default is `sqlite:///./data/deskclaw.db`.

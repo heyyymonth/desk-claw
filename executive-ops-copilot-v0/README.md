@@ -124,6 +124,12 @@ pip install -e ".[dev]"
 LLM_MODE=ollama OLLAMA_MODEL=gemma4:latest python3 -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
+ADK eval dependencies are intentionally separate from the normal backend install. Install them only when running evals:
+
+```bash
+pip install -e ".[dev,evals]"
+```
+
 The default SQLite database path is `backend/data/deskclaw.db` when running from `backend/`. Local database files are ignored by git.
 
 ## Persistence and Audit
@@ -268,6 +274,7 @@ npm run test:e2e
 The Playwright suite mocks `/api/**` with seeded V0 data, so it does not require real calendar, email, Slack, Microsoft, Google, or Ollama integrations.
 
 CI runs backend tests, frontend tests, frontend build, and Playwright E2E automatically on every push to `main` and every pull request targeting `main`.
+ADK evals are not part of the default CI test gate.
 
 ## Deployment Prep
 
@@ -297,7 +304,16 @@ Scheduling eval cases live in:
 Run evals through the backend endpoint:
 
 ```bash
+cd backend
+pip install -e ".[dev,evals]"
 curl -X POST http://127.0.0.1:8000/api/evals/run
+```
+
+Or run the eval-marked endpoint contract directly:
+
+```bash
+cd backend
+python3 -m pytest -m evals
 ```
 
 Eval assertions cover meeting type, draft type, sensitivity, async candidacy, escalation requirement, aggregate risk level, and safe action.
