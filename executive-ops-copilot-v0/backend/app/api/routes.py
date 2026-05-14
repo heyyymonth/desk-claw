@@ -2,7 +2,6 @@ from fastapi import APIRouter
 
 from app.api import audit, calendar, drafts, evals, feedback, recommendations, requests, rules, telemetry
 
-
 router = APIRouter()
 router.include_router(requests.router)
 router.include_router(recommendations.router)

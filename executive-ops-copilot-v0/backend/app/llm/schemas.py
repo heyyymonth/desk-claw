@@ -4,7 +4,6 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
 
-
 Priority = Literal["low", "normal", "high", "urgent"]
 Decision = Literal["schedule", "decline", "clarify", "defer"]
 RiskLevel = Literal["low", "medium", "high"]

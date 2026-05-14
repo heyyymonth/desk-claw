@@ -4,7 +4,6 @@ import {
   Building2,
   CreditCard,
   FileText,
-  Gauge,
   KeyRound,
   LogOut,
   MessageSquare,

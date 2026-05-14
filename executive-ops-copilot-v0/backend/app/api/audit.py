@@ -3,7 +3,6 @@ from fastapi import APIRouter, Depends, Query
 from app.api.deps import get_audit_service, require_admin_access
 from app.services.audit_service import AuditService
 
-
 router = APIRouter(prefix="/api/audit", tags=["audit"])
 
 

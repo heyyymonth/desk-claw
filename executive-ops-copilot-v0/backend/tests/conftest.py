@@ -1,11 +1,9 @@
-import os
 import sys
 from pathlib import Path
 
 import pytest
 
 from app.core.settings import get_settings
-
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_DIR))

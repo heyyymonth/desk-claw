@@ -3,7 +3,6 @@ from fastapi import APIRouter
 from app.llm.schemas import ExecutiveRules
 from app.services.rules_engine import RulesEngine
 
-
 router = APIRouter(prefix="/api/rules", tags=["rules"])
 
 

@@ -9,7 +9,6 @@ from pydantic import BaseModel
 
 from app.db.session import Database
 
-
 SENSITIVE_FIELD_NAMES = {
     "attendees",
     "body",

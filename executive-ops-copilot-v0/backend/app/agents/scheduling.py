@@ -2,8 +2,8 @@ import contextlib
 import io
 import json
 import multiprocessing
-import queue
 import os
+import queue
 import threading
 from datetime import datetime, timedelta
 from uuid import uuid4
@@ -17,7 +17,6 @@ from app.llm.schemas import (
     Decision,
     DraftResponse,
     ExecutiveRules,
-    MeetingIntent,
     ParsedMeetingRequest,
     ProposedSlot,
     Recommendation,

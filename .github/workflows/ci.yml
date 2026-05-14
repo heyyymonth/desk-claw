@@ -14,7 +14,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  backend:
+  backend-lint:
+    name: Backend lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: executive-ops-copilot-v0/backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install backend dependencies
+        run: python -m pip install -e ".[dev]"
+
+      - name: Run backend lint
+        run: python -m ruff check app tests
+
+  backend-tests:
     name: Backend tests
     runs-on: ubuntu-latest
     defaults:
@@ -39,6 +61,29 @@ jobs:
           OLLAMA_MODEL: gemma4:latest
           WARM_OLLAMA_ON_STARTUP: "false"
         run: python -m pytest
+
+  frontend-lint:
+    name: Frontend lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: executive-ops-copilot-v0/frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: executive-ops-copilot-v0/frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Run frontend lint
+        run: npm run lint
 
   frontend:
     name: Frontend tests and build

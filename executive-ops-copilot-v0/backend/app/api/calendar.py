@@ -3,7 +3,6 @@ from fastapi import APIRouter, status
 from app.llm.schemas import CalendarBlock, CalendarResponse
 from app.services.calendar_analyzer import CalendarAnalyzer
 
-
 router = APIRouter(prefix="/api/calendar", tags=["calendar"])
 
 

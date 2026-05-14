@@ -2,10 +2,11 @@ import json
 from pathlib import Path
 
 from app.agents.scheduling import (
-    AdkRequestParserAgentRunner,
-    AdkSchedulingAgentRunner,
     DEFAULT_ADK_MODEL,
+    AdkSchedulingAgentRunner,
     SchedulingAgentPlanner,
+    _tool_call_names_from_event,
+    _tool_response_objects_from_event,
     classify_priority_and_risk,
     create_adk_draft_agent,
     create_adk_request_parser_agent,
@@ -16,8 +17,6 @@ from app.agents.scheduling import (
     local_adk_model_name,
     scheduling_agent_definition,
     select_resolution_strategy,
-    _tool_call_names_from_event,
-    _tool_response_objects_from_event,
     validate_scheduling_rules,
 )
 from app.llm.schemas import CalendarBlock, ExecutiveRules, ParsedMeetingRequest
@@ -229,7 +228,6 @@ def test_request_parser_tool_returns_schema_payload():
 
 
 def test_request_parser_runner_validates_adk_output():
-    runner = AdkRequestParserAgentRunner(DEFAULT_ADK_MODEL)
     output = extract_meeting_intent("Need 45 min with Finance next week")
 
     parsed = ParsedMeetingRequest.model_validate(output)

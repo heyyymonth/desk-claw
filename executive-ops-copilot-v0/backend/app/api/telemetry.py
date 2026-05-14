@@ -3,7 +3,6 @@ from fastapi import APIRouter, Depends, Query
 from app.api.deps import get_telemetry_service, require_admin_access
 from app.services.telemetry_service import TelemetryService
 
-
 router = APIRouter(prefix="/api/telemetry", tags=["telemetry"])
 
 

@@ -7,8 +7,7 @@ import type { ExecutiveRules } from '../src/types';
 import { rules } from './fixtures';
 
 describe('ExecutiveRulesPanel', () => {
-  it('allows executive preferences to be edited locally before recommendation', async () => {
-    const user = userEvent.setup();
+  it('allows executive preferences to be edited locally before recommendation', () => {
     const onChange = vi.fn();
 
     function Harness() {

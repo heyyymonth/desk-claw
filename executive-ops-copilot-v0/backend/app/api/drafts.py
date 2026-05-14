@@ -10,7 +10,6 @@ from app.llm.schemas import DraftPayload, DraftResponse
 from app.services.audit_service import AuditService
 from app.services.draft_service import DraftService
 
-
 router = APIRouter(prefix="/api/drafts", tags=["drafts"])
 
 

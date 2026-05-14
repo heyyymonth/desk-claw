@@ -1,4 +1,5 @@
 from datetime import timedelta
+
 from app.llm.schemas import CalendarAnalysis, CalendarBlock, ProposedSlot, TimeWindow
 from app.services.calendar import mock_calendar
 

@@ -5,7 +5,14 @@ from app.api import audit, calendar, deps, drafts, evals, feedback, recommendati
 from app.core.errors import ServiceError, service_error_handler
 from app.core.settings import get_settings
 from app.db.audit import ActorContext
-from app.llm.schemas import DraftPayload, RecommendationPayload, ParsedMeetingRequest, Recommendation, ExecutiveRules, CalendarBlock
+from app.llm.schemas import (
+    CalendarBlock,
+    DraftPayload,
+    ExecutiveRules,
+    ParsedMeetingRequest,
+    Recommendation,
+    RecommendationPayload,
+)
 from app.models import DraftResponse as ApiDraftResponse
 from app.models import MeetingRequest as ApiMeetingRequest
 from app.models import Recommendation as ApiRecommendation

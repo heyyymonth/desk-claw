@@ -6,10 +6,9 @@ from app.api.deps import get_actor_context, get_audit_service, get_request_parse
 from app.core.errors import ServiceError
 from app.core.settings import get_settings
 from app.db.audit import ActorContext, AuditEvent
-from app.llm.schemas import ParseRequestPayload, ParsedMeetingRequest
+from app.llm.schemas import ParsedMeetingRequest, ParseRequestPayload
 from app.services.audit_service import AuditService
 from app.services.request_parser import RequestParser
-
 
 router = APIRouter(prefix="/api/requests", tags=["requests"])
 

@@ -7,7 +7,6 @@ from app.models import DecisionLogInput
 from app.services.decision_log import DecisionLogService
 from app.services.workflow_decision_log import WorkflowDecisionLogService
 
-
 router = APIRouter(tags=["feedback"])
 
 

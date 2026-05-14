@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+
 from app.services.parser import parse_meeting_request
 from app.services.recommender import build_recommendation
 from app.services.rules import default_rules

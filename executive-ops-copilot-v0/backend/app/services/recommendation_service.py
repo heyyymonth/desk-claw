@@ -1,4 +1,9 @@
-from app.agents.scheduling import AdkSchedulingAgentRunner, AgentRuntimeError, SchedulingAgentPlanner, create_recommendation_from_plan
+from app.agents.scheduling import (
+    AdkSchedulingAgentRunner,
+    AgentRuntimeError,
+    SchedulingAgentPlanner,
+    create_recommendation_from_plan,
+)
 from app.llm.schemas import CalendarBlock, ExecutiveRules, ParsedMeetingRequest, Recommendation
 from app.services.calendar_analyzer import CalendarAnalyzer
 from app.services.risk_classifier import RiskClassifier

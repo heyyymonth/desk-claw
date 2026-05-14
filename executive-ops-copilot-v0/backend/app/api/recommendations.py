@@ -10,7 +10,6 @@ from app.llm.schemas import Recommendation, RecommendationPayload
 from app.services.audit_service import AuditService
 from app.services.recommendation_service import RecommendationService
 
-
 router = APIRouter(prefix="/api/recommendations", tags=["recommendations"])
 
 

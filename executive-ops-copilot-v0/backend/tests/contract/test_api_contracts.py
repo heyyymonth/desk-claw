@@ -3,7 +3,6 @@ from fastapi.testclient import TestClient
 from app.core.settings import get_settings
 from app.main import create_app
 
-
 client = TestClient(create_app())
 ADMIN_HEADERS = {"X-DeskAI-Admin-Key": "test-admin-key"}
 
