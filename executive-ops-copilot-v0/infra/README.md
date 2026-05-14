@@ -30,6 +30,20 @@ curl http://localhost:8000/api/health
 
 Kubernetes manifests live in `infra/k8s/`.
 
+## Container Images
+
+The CI workflow builds backend and frontend container images after lint, tests, build, and E2E pass.
+Pull requests build the images without publishing them. Pushes to `main` publish:
+
+```text
+ghcr.io/heyyymonth/desk-ai-backend:latest
+ghcr.io/heyyymonth/desk-ai-backend:git-<sha>
+ghcr.io/heyyymonth/desk-ai-frontend:latest
+ghcr.io/heyyymonth/desk-ai-frontend:git-<sha>
+```
+
+For a public cluster, make those GHCR packages public or configure Kubernetes image pull credentials.
+
 Before applying them to a real cluster, replace the placeholder images:
 
 ```text
