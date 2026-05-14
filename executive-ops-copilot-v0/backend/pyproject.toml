@@ -8,7 +8,7 @@ version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.110",
-  "google-adk",
+  "google-adk==0.4.0",
   "litellm>=1.65.5",
   "pydantic>=2.7",
   "pyyaml>=6.0",
@@ -29,3 +29,6 @@ include = ["app*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = [
+  "evals: tests that execute the ADK eval endpoint and should run in the evals CI job",
+]

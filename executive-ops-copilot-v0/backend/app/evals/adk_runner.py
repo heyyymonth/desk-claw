@@ -37,7 +37,7 @@ def run_adk_tool_evals(cases: list[dict[str, Any]], rules: ExecutiveRules) -> di
             }
         )
 
-    score = _trajectory_score(conversations)
+    score = float(TrajectoryEvaluator.evaluate(conversations))
     return {
         "framework": "google-adk",
         "agent": scheduling_agent_definition.name,
@@ -45,35 +45,6 @@ def run_adk_tool_evals(cases: list[dict[str, Any]], rules: ExecutiveRules) -> di
         "score": score,
         "passed": bool(score == 1.0),
         "results": results,
-    }
-
-
-def _trajectory_score(conversations: list[list[dict[str, Any]]]) -> float:
-    evaluator = TrajectoryEvaluator
-    evaluate = getattr(evaluator, "evaluate", None)
-    if callable(evaluate):
-        return float(evaluate(conversations))
-
-    total = 0
-    matches = 0
-    for conversation in conversations:
-        for row in conversation:
-            total += 1
-            if _tools_equal(row["actual_tool_use"], row["expected_tool_use"]):
-                matches += 1
-    if total == 0:
-        raise ValueError("The ADK trajectory evaluation dataset is empty.")
-    return matches / total
-
-
-def _tools_equal(actual: list[dict[str, Any]], expected: list[dict[str, Any]]) -> bool:
-    return [_tool_signature(tool) for tool in actual] == [_tool_signature(tool) for tool in expected]
-
-
-def _tool_signature(tool: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "tool_name": tool["tool_name"],
-        "tool_input": tool["tool_input"],
     }
 
 

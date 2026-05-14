@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+import pytest
 
 from app.main import create_app
 
@@ -36,6 +37,7 @@ def test_calendar_blocks_compat_endpoints():
     assert post_response.json()["title"] == "Hold"
 
 
+@pytest.mark.evals
 def test_eval_endpoint_runs_deterministic_basic_cases():
     response = client.post("/api/evals/run")
 
