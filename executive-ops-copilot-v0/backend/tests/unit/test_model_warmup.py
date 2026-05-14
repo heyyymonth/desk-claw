@@ -29,6 +29,7 @@ def test_warmup_skips_when_disabled(monkeypatch):
 
 def test_warmup_reports_load_timing(monkeypatch):
     monkeypatch.setenv("LLM_MODE", "ollama")
+    monkeypatch.setenv("WARM_OLLAMA_ON_STARTUP", "true")
 
     def fake_urlopen(request, timeout):
         assert request.full_url == "http://localhost:11434/api/chat"
@@ -53,6 +54,7 @@ def test_warmup_reports_load_timing(monkeypatch):
 
 def test_warmup_surfaces_ollama_failure(monkeypatch):
     monkeypatch.setenv("LLM_MODE", "ollama")
+    monkeypatch.setenv("WARM_OLLAMA_ON_STARTUP", "true")
 
     def fake_urlopen(request, timeout):
         raise OSError("connection refused")
