@@ -59,11 +59,22 @@ def _trajectory_score(conversations: list[list[dict[str, Any]]]) -> float:
     for conversation in conversations:
         for row in conversation:
             total += 1
-            if evaluator.are_tools_equal(row["actual_tool_use"], row["expected_tool_use"]):
+            if _tools_equal(row["actual_tool_use"], row["expected_tool_use"]):
                 matches += 1
     if total == 0:
         raise ValueError("The ADK trajectory evaluation dataset is empty.")
     return matches / total
+
+
+def _tools_equal(actual: list[dict[str, Any]], expected: list[dict[str, Any]]) -> bool:
+    return [_tool_signature(tool) for tool in actual] == [_tool_signature(tool) for tool in expected]
+
+
+def _tool_signature(tool: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "tool_name": tool["tool_name"],
+        "tool_input": tool["tool_input"],
+    }
 
 
 def _parsed_case(case: dict[str, Any]) -> ParsedMeetingRequest:
