@@ -307,6 +307,12 @@ Render immutable-image release manifests:
 ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
 ```
 
+Smoke test a deployed public ingress:
+
+```bash
+./scripts/smoke-deploy.sh https://desk-ai.example.com
+```
+
 The services are split into frontend, backend, and Ollama pods. Backend readiness waits for model warmup, so a ready backend means the configured Ollama model has been loaded before user traffic is served.
 
 ## Evals

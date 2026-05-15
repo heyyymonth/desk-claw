@@ -118,11 +118,20 @@ kubectl -n desk-ai wait --for=condition=complete job/ollama-pull-gemma4 --timeou
 kubectl apply -f /tmp/desk-ai-release.yaml
 kubectl -n desk-ai rollout status deployment/backend --timeout=600s
 kubectl -n desk-ai rollout status deployment/frontend --timeout=300s
+./scripts/smoke-deploy.sh https://desk-ai.example.com
 ```
 
 Do not apply raw `backend.yaml` or `frontend.yaml` directly for production releases; the published image tags are applied through kustomize and the release renderer.
 
 The backend readiness probe depends on `/api/health`, which only reports ready after startup model warmup succeeds.
+
+After DNS and TLS are active, run the public smoke test against the real ingress host:
+
+```bash
+./scripts/smoke-deploy.sh https://desk-ai.example.com
+```
+
+The smoke test calls the frontend root and deterministic backend endpoints through the same public origin. It does not call live LLM generation paths.
 
 ## Operational Notes
 
