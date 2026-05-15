@@ -79,6 +79,7 @@ For a public cluster, create `desk-ai-secrets` from a provider secret manager or
 ```bash
 SECRET_STORE_NAME=desk-ai-runtime-secrets REMOTE_SECRET_KEY=desk-ai/production/runtime INCLUDE_DATABASE_URL=true ./scripts/render-external-secret.sh /tmp/desk-ai-external-secret.yaml
 kubectl apply -f /tmp/desk-ai-external-secret.yaml
+SECRET_STORE_NAME=desk-ai-runtime-secrets REMOTE_SECRET_KEY=desk-ai/production/runtime INCLUDE_DATABASE_URL=true ./scripts/check-external-secret.sh desk-ai-secrets
 ```
 
 Set `INCLUDE_DATABASE_URL=true` only after the provider secret contains the managed Postgres URL. SQLite-backed pilots can omit it.
@@ -167,6 +168,7 @@ STORAGE_CLASS_NAME=desk-ai-retain DATABASE_MODE=postgres DATABASE_SECRET_NAME=de
 kubectl apply -f /tmp/desk-ai-release.yaml
 kubectl -n desk-ai rollout status deployment/backend --timeout=600s
 kubectl -n desk-ai rollout status deployment/frontend --timeout=300s
+SECRET_STORE_NAME=desk-ai-runtime-secrets REMOTE_SECRET_KEY=desk-ai/production/runtime INCLUDE_DATABASE_URL=true ./scripts/check-external-secret.sh desk-ai-secrets
 ./scripts/check-runtime-secret.sh desk-ai-secrets
 DATABASE_MODE=postgres DATABASE_SECRET_NAME=desk-ai-secrets DATABASE_URL_SECRET_KEY=DATABASE_URL ./scripts/check-database-runtime.sh https://desk-ai.example.com
 ./scripts/check-model-runtime.sh https://desk-ai.example.com

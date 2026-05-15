@@ -64,6 +64,25 @@ kubectl -n desk-ai get externalsecret desk-ai-secrets
 kubectl -n desk-ai get secret desk-ai-secrets
 ```
 
+Verify that the ExternalSecret is ready and points at the expected provider secret:
+
+```bash
+SECRET_STORE_NAME=desk-ai-runtime-secrets \
+  SECRET_STORE_KIND=ClusterSecretStore \
+  REMOTE_SECRET_KEY=desk-ai/production/runtime \
+  ./scripts/check-external-secret.sh desk-ai-secrets
+```
+
+For managed Postgres cutover, include the database mapping in the check:
+
+```bash
+SECRET_STORE_NAME=desk-ai-runtime-secrets \
+  SECRET_STORE_KIND=ClusterSecretStore \
+  REMOTE_SECRET_KEY=desk-ai/production/runtime \
+  INCLUDE_DATABASE_URL=true \
+  ./scripts/check-external-secret.sh desk-ai-secrets
+```
+
 Render the release so the backend requires the Secret:
 
 ```bash
@@ -79,6 +98,10 @@ REQUIRE_RUNTIME_SECRET=true \
 After applying the release, verify the Secret and deployment wiring:
 
 ```bash
+SECRET_STORE_NAME=desk-ai-runtime-secrets \
+  SECRET_STORE_KIND=ClusterSecretStore \
+  REMOTE_SECRET_KEY=desk-ai/production/runtime \
+  ./scripts/check-external-secret.sh desk-ai-secrets
 ./scripts/check-runtime-secret.sh desk-ai-secrets
 DATABASE_MODE=postgres ./scripts/check-database-runtime.sh "$PUBLIC_URL"
 ```
@@ -115,6 +138,7 @@ For External Secrets Operator:
 
    ```bash
    kubectl -n desk-ai get externalsecret desk-ai-secrets
+   ./scripts/check-external-secret.sh desk-ai-secrets
    ./scripts/check-runtime-secret.sh desk-ai-secrets
    ```
 
@@ -132,7 +156,7 @@ For manual Secrets, apply the replacement Secret and run the same backend rollou
 | Symptom | Likely Cause | Action |
 | --- | --- | --- |
 | Backend pods fail with missing Secret. | Release was rendered with `REQUIRE_RUNTIME_SECRET=true` before the Secret existed. | Apply the ExternalSecret or manual Secret in `desk-ai`, then restart rollout. |
-| `ExternalSecret` is not ready. | Store reference, provider identity, remote key, or provider permissions are wrong. | Inspect `kubectl -n desk-ai describe externalsecret desk-ai-secrets` and the External Secrets controller logs. |
+| `ExternalSecret` is not ready. | Store reference, provider identity, remote key, or provider permissions are wrong. | Run `scripts/check-external-secret.sh desk-ai-secrets`, inspect `kubectl -n desk-ai describe externalsecret desk-ai-secrets`, and check the External Secrets controller logs. |
 | Secret exists but check fails for placeholder values. | `secrets.example.yaml` values were copied into production. | Rotate to generated values from the provider secret manager. |
 | Admin telemetry returns unauthorized. | `ADMIN_API_KEY` missing, changed without client update, or backend pods not restarted after rotation. | Check the Secret, update the private admin client, and restart backend pods. |
 | Actor headers are ignored. | `ACTOR_AUTH_TOKEN` missing or does not match caller header. | Check the Secret and trusted caller configuration. |

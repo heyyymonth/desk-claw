@@ -27,6 +27,7 @@ CERT_MANAGER_ISSUER_MANIFEST="${TMPDIR:-/tmp}/desk-ai-cert-manager-issuer-render
 EXTERNAL_SECRET_MANIFEST="${TMPDIR:-/tmp}/desk-ai-external-secret-rendered.yaml"
 SNAPSHOT_MANIFEST="${TMPDIR:-/tmp}/desk-ai-volume-snapshot-rendered.yaml"
 TLS_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-public-tls-check.out"
+EXTERNAL_SECRET_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-external-secret-check.out"
 RUNTIME_SECRET_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-runtime-secret-check.out"
 MODEL_RUNTIME_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-model-runtime-check.out"
 STORAGE_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-storage-check.out"
@@ -469,6 +470,7 @@ validate_manifest() {
 
 for script in \
   "$ROOT_DIR/scripts/check-database-runtime.sh" \
+  "$ROOT_DIR/scripts/check-external-secret.sh" \
   "$ROOT_DIR/scripts/check-model-runtime.sh" \
   "$ROOT_DIR/scripts/check-network-policy.sh" \
   "$ROOT_DIR/scripts/check-public-access.sh" \
@@ -832,8 +834,37 @@ grep -q "Public HTTPS certificate validates for desk-ai.example.test" "$TLS_CHEC
   exit 1
 }
 
+EXTERNAL_SECRET_FAKE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/desk-ai-external-secret-check.XXXXXX")"
+trap 'rm -rf "$TLS_CHECK_FAKE_DIR" "$EXTERNAL_SECRET_FAKE_DIR"' EXIT
+
+cat > "$EXTERNAL_SECRET_FAKE_DIR/kubectl" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+case "$*" in
+  *"get externalsecret desk-ai-secrets -o json"*)
+    cat <<'JSON'
+{"kind":"ExternalSecret","spec":{"secretStoreRef":{"name":"desk-ai-runtime-secrets","kind":"ClusterSecretStore"},"target":{"name":"desk-ai-secrets"},"data":[{"secretKey":"ADMIN_API_KEY","remoteRef":{"key":"desk-ai/production/runtime","property":"ADMIN_API_KEY"}},{"secretKey":"ACTOR_AUTH_TOKEN","remoteRef":{"key":"desk-ai/production/runtime","property":"ACTOR_AUTH_TOKEN"}},{"secretKey":"DATABASE_URL","remoteRef":{"key":"desk-ai/production/runtime","property":"DATABASE_URL"}}]},"status":{"conditions":[{"type":"Ready","status":"True","reason":"SecretSynced","message":"Secret was synced"}],"refreshTime":"2026-05-15T23:00:00Z"}}
+JSON
+    ;;
+  *)
+    echo "unexpected kubectl args: $*" >&2
+    exit 1
+    ;;
+esac
+SH
+
+chmod +x "$EXTERNAL_SECRET_FAKE_DIR/kubectl"
+
+KUBECTL="$EXTERNAL_SECRET_FAKE_DIR/kubectl" SECRET_STORE_NAME=desk-ai-runtime-secrets SECRET_STORE_KIND=ClusterSecretStore REMOTE_SECRET_KEY=desk-ai/production/runtime INCLUDE_DATABASE_URL=true "$ROOT_DIR/scripts/check-external-secret.sh" desk-ai-secrets > "$EXTERNAL_SECRET_CHECK_OUTPUT"
+
+grep -q "ExternalSecret desk-ai-secrets is Ready" "$EXTERNAL_SECRET_CHECK_OUTPUT" || {
+  echo "ExternalSecret check did not validate the fake ExternalSecret readiness state." >&2
+  exit 1
+}
+
 RUNTIME_SECRET_FAKE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/desk-ai-runtime-secret-check.XXXXXX")"
-trap 'rm -rf "$TLS_CHECK_FAKE_DIR" "$RUNTIME_SECRET_FAKE_DIR"' EXIT
+trap 'rm -rf "$TLS_CHECK_FAKE_DIR" "$EXTERNAL_SECRET_FAKE_DIR" "$RUNTIME_SECRET_FAKE_DIR"' EXIT
 
 cat > "$RUNTIME_SECRET_FAKE_DIR/kubectl" <<'SH'
 #!/usr/bin/env bash
