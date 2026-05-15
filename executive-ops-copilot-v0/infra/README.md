@@ -44,6 +44,20 @@ ghcr.io/heyyymonth/desk-ai-frontend:git-<sha>
 
 For a public cluster, make those GHCR packages public or configure Kubernetes image pull credentials.
 
+Create the backend runtime secret before enabling admin telemetry or trusted actor attribution:
+
+```bash
+cp infra/k8s/secrets.example.yaml infra/k8s/secrets.yaml
+```
+
+Edit `infra/k8s/secrets.yaml` with real generated values, then apply it out of band:
+
+```bash
+kubectl apply -f infra/k8s/secrets.yaml
+```
+
+The real `secrets.yaml` file is ignored by git. On a hyperscaler, prefer the provider secret manager or External Secrets and make it create a Kubernetes Secret named `desk-ai-secrets` in the `desk-ai` namespace. The backend reads `ADMIN_API_KEY` and `ACTOR_AUTH_TOKEN` from that Secret when present; without it, admin read endpoints fail closed and trusted actor headers stay disabled.
+
 The default kustomization maps the workload placeholders to the published GHCR images:
 
 ```text
@@ -88,5 +102,5 @@ The backend readiness probe depends on `/api/health`, which only reports ready a
 
 - SQLite is mounted on a `ReadWriteOnce` PVC and the backend defaults to one replica. Move to Postgres before scaling backend replicas horizontally.
 - Ollama model storage is mounted on a PVC so the model pull survives pod restarts.
-- `ADMIN_API_KEY` and `ACTOR_AUTH_TOKEN` should be supplied as Kubernetes Secrets before enabling protected admin or actor-auth flows in production.
+- Do not ship `VITE_ADMIN_API_KEY` or `VITE_ACTOR_AUTH_TOKEN` in public frontend builds. Those Vite variables are only for local V0 inspection until real login/session auth replaces the admin key path.
 - The frontend nginx proxy assumes the backend service name is `backend` in the same namespace.

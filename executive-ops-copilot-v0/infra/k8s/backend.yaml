@@ -32,6 +32,9 @@ spec:
           envFrom:
             - configMapRef:
                 name: desk-ai-config
+            - secretRef:
+                name: desk-ai-secrets
+                optional: true
           ports:
             - containerPort: 8000
           volumeMounts:

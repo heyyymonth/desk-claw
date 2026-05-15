@@ -4,6 +4,9 @@ playwright-report/
 test-results/
 __pycache__/
 .pytest_cache/
+.env
+.env.*
+!.env.example
 *.py[cod]
 *.egg-info/
 *.tsbuildinfo
@@ -12,4 +15,5 @@ __pycache__/
 *.sqlite3
 *.db
 backend/data/
+infra/k8s/secrets.yaml
 .venv/
