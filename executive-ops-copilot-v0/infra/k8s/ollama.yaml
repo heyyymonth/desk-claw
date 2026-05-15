@@ -3,6 +3,10 @@ kind: PersistentVolumeClaim
 metadata:
   name: ollama-data
   namespace: desk-ai
+  annotations:
+    desk.ai/storage-role: model-cache
+    desk.ai/backup-policy: recreate-or-csi-snapshot
+    desk.ai/recovery-priority: rebuildable
 spec:
   accessModes:
     - ReadWriteOnce

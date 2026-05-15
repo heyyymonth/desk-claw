@@ -152,20 +152,20 @@ raise SystemExit(0 if result == "ok" else 1)
 
 ## Provider Volume Snapshots
 
-If the selected cluster supports CSI `VolumeSnapshot`, use provider-native snapshots in addition to the SQLite backup. This is especially useful for `ollama-data`.
+If the selected cluster supports CSI `VolumeSnapshot`, use provider-native snapshots in addition to the SQLite backup. This is especially useful for `ollama-data`. StorageClass and VolumeSnapshotClass selection is covered in `docs/deployment-storage-policy.md`.
 
-Example shape, not committed to the base manifests because `volumeSnapshotClassName` is provider-specific:
+Render a backend data snapshot:
 
-```yaml
-apiVersion: snapshot.storage.k8s.io/v1
-kind: VolumeSnapshot
-metadata:
-  name: backend-data-20260515
-  namespace: desk-ai
-spec:
-  volumeSnapshotClassName: <provider-snapshot-class>
-  source:
-    persistentVolumeClaimName: backend-data
+```bash
+export SNAPSHOT_TS="$(date -u +%Y%m%dT%H%M%SZ)"
+
+VOLUME_SNAPSHOT_CLASS_NAME=desk-ai-snapshots \
+  ./scripts/render-volume-snapshot.sh \
+  backend-data \
+  "backend-data-${SNAPSHOT_TS}" \
+  "/tmp/backend-data-${SNAPSHOT_TS}.yaml"
+
+kubectl apply -f "/tmp/backend-data-${SNAPSHOT_TS}.yaml"
 ```
 
 Restore shape:
@@ -231,4 +231,3 @@ Run a restore drill before public cutover and after any storage-class change:
 - Do not scale backend above one replica while SQLite is in use.
 - Do not delete old SQLite backups until managed Postgres backup and point-in-time recovery are proven.
 - Do not assume provider snapshots are portable across regions or hyperscalers.
-

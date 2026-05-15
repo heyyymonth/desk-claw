@@ -8,6 +8,8 @@ RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-release-rendered.yaml"
 DNS_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-dns-release-rendered.yaml"
 TLS_PRECREATED_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-precreated-tls-release-rendered.yaml"
 RUNTIME_SECRET_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-runtime-secret-release-rendered.yaml"
+STORAGE_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-storage-release-rendered.yaml"
+STORAGE_EXTERNAL_MODEL_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-storage-external-model-release-rendered.yaml"
 PRIVATE_GHCR_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-private-ghcr-rendered.yaml"
 PRIVATE_GHCR_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-private-ghcr-release-rendered.yaml"
 GPU_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-ollama-gpu-rendered.yaml"
@@ -18,12 +20,16 @@ PRIVATE_GHCR_GPU_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-private-ghcr-olla
 PRIVATE_GHCR_EXTERNAL_MODEL_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-private-ghcr-external-model-release-rendered.yaml"
 CERT_MANAGER_ISSUER_MANIFEST="${TMPDIR:-/tmp}/desk-ai-cert-manager-issuer-rendered.yaml"
 EXTERNAL_SECRET_MANIFEST="${TMPDIR:-/tmp}/desk-ai-external-secret-rendered.yaml"
+SNAPSHOT_MANIFEST="${TMPDIR:-/tmp}/desk-ai-volume-snapshot-rendered.yaml"
 TLS_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-public-tls-check.out"
 RUNTIME_SECRET_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-runtime-secret-check.out"
 MODEL_RUNTIME_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-model-runtime-check.out"
+STORAGE_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-storage-check.out"
 INVALID_PUBLIC_HOST_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-public-host.err"
 INVALID_TLS_MODE_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-tls-mode.err"
 INVALID_MODEL_ENDPOINT_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-model-endpoint.err"
+INVALID_STORAGE_CLASS_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-storage-class.err"
+INVALID_SNAPSHOT_CLASS_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-snapshot-class.err"
 INVALID_ACME_EMAIL_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-acme-email.err"
 INVALID_EXTERNAL_SECRET_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-external-secret.err"
 INVALID_REQUIRE_RUNTIME_SECRET_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-require-runtime-secret.err"
@@ -223,14 +229,79 @@ check_model_hosting_invariants() {
   ' "$manifest" "$model_mode"
 }
 
+check_storage_policy_invariants() {
+  local manifest="$1"
+  local model_mode="${2:-in-cluster}"
+  local expected_backend_storage_class="${3:-}"
+  local expected_ollama_storage_class="${4:-}"
+
+  if ! command -v ruby >/dev/null 2>&1; then
+    echo "Ruby is not installed; skipping storage policy invariant validation." >&2
+    return
+  fi
+
+  ruby -e '
+    require "yaml"
+
+    manifest = ARGV.fetch(0)
+    mode = ARGV.fetch(1)
+    expected_backend_storage_class = ARGV.fetch(2)
+    expected_ollama_storage_class = ARGV.fetch(3)
+    docs = YAML.load_stream(File.read(manifest)).compact
+    errors = []
+
+    resource = lambda do |kind, name|
+      docs.find { |doc| doc["kind"] == kind && doc.dig("metadata", "name") == name }
+    end
+
+    check_pvc = lambda do |name, role, backup_policy, recovery_priority, expected_storage_class|
+      pvc = resource.call("PersistentVolumeClaim", name)
+      unless pvc
+        errors << "manifest is missing PersistentVolumeClaim/#{name}"
+        next
+      end
+
+      annotations = pvc.dig("metadata", "annotations") || {}
+      access_modes = pvc.dig("spec", "accessModes") || []
+      storage = pvc.dig("spec", "resources", "requests", "storage").to_s
+      storage_class = pvc.dig("spec", "storageClassName").to_s
+
+      errors << "#{name} must use ReadWriteOnce" unless access_modes.include?("ReadWriteOnce")
+      errors << "#{name} must request storage" if storage.empty?
+      errors << "#{name} missing desk.ai/storage-role=#{role}" unless annotations["desk.ai/storage-role"] == role
+      errors << "#{name} missing desk.ai/backup-policy=#{backup_policy}" unless annotations["desk.ai/backup-policy"] == backup_policy
+      errors << "#{name} missing desk.ai/recovery-priority=#{recovery_priority}" unless annotations["desk.ai/recovery-priority"] == recovery_priority
+      if !expected_storage_class.empty? && storage_class != expected_storage_class
+        errors << "#{name} storageClassName is #{storage_class.inspect}, expected #{expected_storage_class.inspect}"
+      end
+    end
+
+    check_pvc.call("backend-data", "sqlite-state", "sqlite-online-plus-csi-snapshot", "critical", expected_backend_storage_class)
+
+    if mode == "external"
+      errors << "external model manifest should not include PersistentVolumeClaim/ollama-data" if resource.call("PersistentVolumeClaim", "ollama-data")
+    else
+      check_pvc.call("ollama-data", "model-cache", "recreate-or-csi-snapshot", "rebuildable", expected_ollama_storage_class)
+    end
+
+    unless errors.empty?
+      warn errors.join("\n")
+      exit 1
+    end
+  ' "$manifest" "$model_mode" "$expected_backend_storage_class" "$expected_ollama_storage_class"
+}
+
 validate_manifest() {
   local manifest="$1"
   local model_mode="${2:-in-cluster}"
+  local expected_backend_storage_class="${3:-}"
+  local expected_ollama_storage_class="${4:-}"
   parse_yaml "$manifest"
   validate_schema "$manifest"
   check_common_invariants "$manifest" "$model_mode"
   check_sqlite_replica_policy "$manifest"
   check_model_hosting_invariants "$manifest" "$model_mode"
+  check_storage_policy_invariants "$manifest" "$model_mode" "$expected_backend_storage_class" "$expected_ollama_storage_class"
 }
 
 for script in \
@@ -238,9 +309,11 @@ for script in \
   "$ROOT_DIR/scripts/check-public-dns.sh" \
   "$ROOT_DIR/scripts/check-public-tls.sh" \
   "$ROOT_DIR/scripts/check-runtime-secret.sh" \
+  "$ROOT_DIR/scripts/check-storage-policy.sh" \
   "$ROOT_DIR/scripts/render-cert-manager-issuer.sh" \
   "$ROOT_DIR/scripts/render-external-secret.sh" \
-  "$ROOT_DIR/scripts/render-release-k8s.sh"; do
+  "$ROOT_DIR/scripts/render-release-k8s.sh" \
+  "$ROOT_DIR/scripts/render-volume-snapshot.sh"; do
   bash -n "$script"
 done
 
@@ -258,6 +331,12 @@ validate_manifest "$TLS_PRECREATED_RELEASE_MANIFEST"
 
 REQUIRE_RUNTIME_SECRET=true "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee > "$RUNTIME_SECRET_RELEASE_MANIFEST"
 validate_manifest "$RUNTIME_SECRET_RELEASE_MANIFEST"
+
+STORAGE_CLASS_NAME=desk-ai-retain "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee > "$STORAGE_RELEASE_MANIFEST"
+validate_manifest "$STORAGE_RELEASE_MANIFEST" in-cluster desk-ai-retain desk-ai-retain
+
+MODEL_ENDPOINT_URL=https://ollama.internal.example.test STORAGE_CLASS_NAME=desk-ai-retain K8S_BASE_DIR="infra/k8s-overlays/external-model" "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee > "$STORAGE_EXTERNAL_MODEL_RELEASE_MANIFEST"
+validate_manifest "$STORAGE_EXTERNAL_MODEL_RELEASE_MANIFEST" external desk-ai-retain ""
 
 "$KUBECTL" kustomize "$ROOT_DIR/infra/k8s-overlays/private-ghcr" > "$PRIVATE_GHCR_MANIFEST"
 validate_manifest "$PRIVATE_GHCR_MANIFEST"
@@ -286,6 +365,16 @@ fi
 
 grep -q "MODEL_ENDPOINT_URL must be set" "$INVALID_MODEL_ENDPOINT_ERROR" || {
   echo "Release renderer did not explain missing MODEL_ENDPOINT_URL input." >&2
+  exit 1
+}
+
+if STORAGE_CLASS_NAME=Invalid_Class "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee >/dev/null 2>"$INVALID_STORAGE_CLASS_ERROR"; then
+  echo "Release renderer accepted an invalid STORAGE_CLASS_NAME." >&2
+  exit 1
+fi
+
+grep -q "STORAGE_CLASS_NAME must be a valid Kubernetes DNS subdomain name\\|BACKEND_STORAGE_CLASS_NAME must be a valid Kubernetes DNS subdomain name" "$INVALID_STORAGE_CLASS_ERROR" || {
+  echo "Release renderer did not explain invalid STORAGE_CLASS_NAME input." >&2
   exit 1
 }
 
@@ -382,6 +471,35 @@ grep -q "name: desk-ai-runtime-secrets" "$EXTERNAL_SECRET_MANIFEST" || {
 
 grep -q "key: desk-ai/production/runtime" "$EXTERNAL_SECRET_MANIFEST" || {
   echo "ExternalSecret renderer did not use the requested remote secret key." >&2
+  exit 1
+}
+
+if "$ROOT_DIR/scripts/render-volume-snapshot.sh" backend-data backend-data-20260515 >/dev/null 2>"$INVALID_SNAPSHOT_CLASS_ERROR"; then
+  echo "VolumeSnapshot renderer accepted a missing VOLUME_SNAPSHOT_CLASS_NAME." >&2
+  exit 1
+fi
+
+grep -q "VOLUME_SNAPSHOT_CLASS_NAME must be set" "$INVALID_SNAPSHOT_CLASS_ERROR" || {
+  echo "VolumeSnapshot renderer did not explain missing VOLUME_SNAPSHOT_CLASS_NAME input." >&2
+  exit 1
+}
+
+VOLUME_SNAPSHOT_CLASS_NAME=desk-ai-snapshots "$ROOT_DIR/scripts/render-volume-snapshot.sh" backend-data backend-data-20260515 > "$SNAPSHOT_MANIFEST"
+parse_yaml "$SNAPSHOT_MANIFEST"
+validate_schema "$SNAPSHOT_MANIFEST"
+
+grep -q "kind: VolumeSnapshot" "$SNAPSHOT_MANIFEST" || {
+  echo "VolumeSnapshot renderer did not render a VolumeSnapshot." >&2
+  exit 1
+}
+
+grep -q "volumeSnapshotClassName: desk-ai-snapshots" "$SNAPSHOT_MANIFEST" || {
+  echo "VolumeSnapshot renderer did not use the requested VolumeSnapshotClass." >&2
+  exit 1
+}
+
+grep -q "persistentVolumeClaimName: backend-data" "$SNAPSHOT_MANIFEST" || {
+  echo "VolumeSnapshot renderer did not use the requested source PVC." >&2
   exit 1
 }
 
@@ -493,6 +611,48 @@ grep -q "Model runtime health passed" "$MODEL_RUNTIME_CHECK_OUTPUT" || {
   exit 1
 }
 
+STORAGE_CHECK_FAKE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/desk-ai-storage-check.XXXXXX")"
+trap 'rm -rf "$TLS_CHECK_FAKE_DIR" "$RUNTIME_SECRET_FAKE_DIR" "$MODEL_RUNTIME_FAKE_DIR" "$STORAGE_CHECK_FAKE_DIR"' EXIT
+
+cat > "$STORAGE_CHECK_FAKE_DIR/kubectl" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+case "$*" in
+  "get storageclass desk-ai-retain -o json")
+    cat <<'JSON'
+{"metadata":{"name":"desk-ai-retain"},"provisioner":"csi.example.com","reclaimPolicy":"Retain","allowVolumeExpansion":true}
+JSON
+    ;;
+  "get volumesnapshotclass desk-ai-snapshots")
+    exit 0
+    ;;
+  "-n desk-ai get pvc backend-data -o json")
+    cat <<'JSON'
+{"metadata":{"name":"backend-data","annotations":{"desk.ai/storage-role":"sqlite-state","desk.ai/backup-policy":"sqlite-online-plus-csi-snapshot","desk.ai/recovery-priority":"critical"}},"spec":{"storageClassName":"desk-ai-retain"},"status":{"phase":"Bound"}}
+JSON
+    ;;
+  "-n desk-ai get pvc ollama-data -o json")
+    cat <<'JSON'
+{"metadata":{"name":"ollama-data","annotations":{"desk.ai/storage-role":"model-cache","desk.ai/backup-policy":"recreate-or-csi-snapshot","desk.ai/recovery-priority":"rebuildable"}},"spec":{"storageClassName":"desk-ai-retain"},"status":{"phase":"Bound"}}
+JSON
+    ;;
+  *)
+    echo "unexpected kubectl args: $*" >&2
+    exit 1
+    ;;
+esac
+SH
+
+chmod +x "$STORAGE_CHECK_FAKE_DIR/kubectl"
+
+KUBECTL="$STORAGE_CHECK_FAKE_DIR/kubectl" VOLUME_SNAPSHOT_CLASS_NAME=desk-ai-snapshots REQUIRE_VOLUME_SNAPSHOT_CLASS=true "$ROOT_DIR/scripts/check-storage-policy.sh" desk-ai-retain > "$STORAGE_CHECK_OUTPUT"
+
+grep -q "Storage policy check passed" "$STORAGE_CHECK_OUTPUT" || {
+  echo "Storage policy check did not validate the fake StorageClass and PVCs." >&2
+  exit 1
+}
+
 grep -q "ghcr.io/heyyymonth/desk-ai-backend:git-deadbee" "$RELEASE_MANIFEST" || {
   echo "Release manifests do not use the requested immutable backend image tag." >&2
   exit 1
@@ -580,6 +740,31 @@ grep -q "OLLAMA_BASE_URL: https://ollama.internal.example.test" "$EXTERNAL_MODEL
 
 if grep -q "name: ollama-ingress\\|name: ollama-pull-gemma4\\|name: ollama-data" "$EXTERNAL_MODEL_RELEASE_MANIFEST"; then
   echo "External model release manifests still include in-cluster Ollama resources." >&2
+  exit 1
+fi
+
+grep -q "storageClassName: desk-ai-retain" "$STORAGE_RELEASE_MANIFEST" || {
+  echo "Storage release manifests do not pin PVCs to the requested StorageClass." >&2
+  exit 1
+}
+
+grep -q "desk.ai/backup-policy: sqlite-online-plus-csi-snapshot" "$STORAGE_RELEASE_MANIFEST" || {
+  echo "Storage release manifests do not include the backend backup policy annotation." >&2
+  exit 1
+}
+
+grep -q "desk.ai/backup-policy: recreate-or-csi-snapshot" "$STORAGE_RELEASE_MANIFEST" || {
+  echo "Storage release manifests do not include the Ollama backup policy annotation." >&2
+  exit 1
+}
+
+grep -q "storageClassName: desk-ai-retain" "$STORAGE_EXTERNAL_MODEL_RELEASE_MANIFEST" || {
+  echo "External model storage release does not pin backend-data to the requested StorageClass." >&2
+  exit 1
+}
+
+if grep -q "name: ollama-data" "$STORAGE_EXTERNAL_MODEL_RELEASE_MANIFEST"; then
+  echo "External model storage release still includes the Ollama PVC." >&2
   exit 1
 fi
 

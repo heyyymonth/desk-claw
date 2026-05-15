@@ -17,6 +17,8 @@ Set TLS_MODE=cert-manager|precreated-secret|provider-managed to choose how Ingre
 Set TLS_CLUSTER_ISSUER=letsencrypt-prod when TLS_MODE=cert-manager.
 Set RUNTIME_SECRET_NAME=desk-ai-secrets to choose the backend runtime Secret.
 Set REQUIRE_RUNTIME_SECRET=true for public releases that must fail if runtime secrets are missing.
+Set STORAGE_CLASS_NAME=<class> to pin backend-data and ollama-data PVCs to a provider StorageClass.
+Set BACKEND_STORAGE_CLASS_NAME or OLLAMA_STORAGE_CLASS_NAME to override one PVC separately.
 USAGE
 }
 
@@ -40,6 +42,9 @@ TLS_CLUSTER_ISSUER="${TLS_CLUSTER_ISSUER:-letsencrypt-prod}"
 RUNTIME_SECRET_NAME="${RUNTIME_SECRET_NAME:-desk-ai-secrets}"
 REQUIRE_RUNTIME_SECRET="${REQUIRE_RUNTIME_SECRET:-false}"
 MODEL_ENDPOINT_URL="${MODEL_ENDPOINT_URL:-}"
+STORAGE_CLASS_NAME="${STORAGE_CLASS_NAME:-}"
+BACKEND_STORAGE_CLASS_NAME="${BACKEND_STORAGE_CLASS_NAME:-$STORAGE_CLASS_NAME}"
+OLLAMA_STORAGE_CLASS_NAME="${OLLAMA_STORAGE_CLASS_NAME:-$STORAGE_CLASS_NAME}"
 
 if [[ "$K8S_BASE_DIR" != /* ]]; then
   K8S_BASE_DIR="$ROOT_DIR/$K8S_BASE_DIR"
@@ -60,6 +65,15 @@ if [[ "$K8S_BASE_DIR" == "$ROOT_DIR/infra/k8s-overlays/private-ghcr-external-mod
   EXTERNAL_MODEL_OVERLAY=true
 fi
 
+validate_kubernetes_name() {
+  local name="$1"
+  local label="$2"
+  if ! [[ "$name" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$ ]]; then
+    echo "$label must be a valid Kubernetes DNS subdomain name." >&2
+    exit 1
+  fi
+}
+
 case "$TLS_MODE" in
   cert-manager | precreated-secret | provider-managed) ;;
   *)
@@ -76,6 +90,14 @@ fi
 if ! [[ "$RUNTIME_SECRET_NAME" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]]; then
   echo "RUNTIME_SECRET_NAME must be a valid Kubernetes DNS label." >&2
   exit 1
+fi
+
+if [[ -n "$BACKEND_STORAGE_CLASS_NAME" ]]; then
+  validate_kubernetes_name "$BACKEND_STORAGE_CLASS_NAME" "BACKEND_STORAGE_CLASS_NAME"
+fi
+
+if [[ -n "$OLLAMA_STORAGE_CLASS_NAME" ]]; then
+  validate_kubernetes_name "$OLLAMA_STORAGE_CLASS_NAME" "OLLAMA_STORAGE_CLASS_NAME"
 fi
 
 case "$REQUIRE_RUNTIME_SECRET" in
@@ -214,6 +236,34 @@ if [[ -n "$MODEL_ENDPOINT_URL" ]]; then
       - op: replace
         path: /data/OLLAMA_BASE_URL
         value: "$MODEL_ENDPOINT_URL"
+YAML
+fi
+
+if [[ -n "$BACKEND_STORAGE_CLASS_NAME" ]]; then
+  append_patches_header
+  cat >> "$TMP_DIR/kustomization.yaml" <<YAML
+  - target:
+      kind: PersistentVolumeClaim
+      name: backend-data
+      namespace: desk-ai
+    patch: |-
+      - op: add
+        path: /spec/storageClassName
+        value: "$BACKEND_STORAGE_CLASS_NAME"
+YAML
+fi
+
+if [[ "$EXTERNAL_MODEL_OVERLAY" == "false" && -n "$OLLAMA_STORAGE_CLASS_NAME" ]]; then
+  append_patches_header
+  cat >> "$TMP_DIR/kustomization.yaml" <<YAML
+  - target:
+      kind: PersistentVolumeClaim
+      name: ollama-data
+      namespace: desk-ai
+    patch: |-
+      - op: add
+        path: /spec/storageClassName
+        value: "$OLLAMA_STORAGE_CLASS_NAME"
 YAML
 fi
 

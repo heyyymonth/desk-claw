@@ -28,6 +28,7 @@ This checklist tracks the repo-side and outside-infrastructure work needed befor
 | TLS issuing path | Complete | `docs/deployment-tls.md` documents cert-manager, pre-created Secret, and provider-managed certificate modes; `scripts/render-cert-manager-issuer.sh` and `scripts/check-public-tls.sh` support issuance and verification. |
 | Secret management release path | Complete | `docs/deployment-secret-management.md` documents External Secrets and manual fallback paths; `scripts/render-external-secret.sh`, `scripts/check-runtime-secret.sh`, and `REQUIRE_RUNTIME_SECRET=true` support production verification. |
 | Model hosting release path | Complete | `docs/deployment-model-hosting.md` documents CPU, NVIDIA GPU, and external private model modes; `infra/k8s-overlays/ollama-gpu-nvidia`, `infra/k8s-overlays/external-model`, `MODEL_ENDPOINT_URL`, and `scripts/check-model-runtime.sh` support release-time verification. |
+| Persistent storage release path | Complete | `docs/deployment-storage-policy.md` documents StorageClass and VolumeSnapshotClass selection; `STORAGE_CLASS_NAME`, PVC backup annotations, `scripts/check-storage-policy.sh`, and `scripts/render-volume-snapshot.sh` support production verification. |
 | Local container stack | Present | Docker Compose starts Ollama, backend, and frontend for local validation. |
 
 ## Issues Found While Preparing Deployment
@@ -54,6 +55,7 @@ This checklist tracks the repo-side and outside-infrastructure work needed befor
 | TLS was hardcoded to cert-manager without an issuer setup path. | Clusters using provider-managed certs or pre-created TLS Secrets could retain a stale cert-manager annotation, and cert-manager clusters had no repeatable ClusterIssuer render. | Added `TLS_MODE`, `TLS_CLUSTER_ISSUER`, cert-manager ClusterIssuer rendering, and public TLS verification. |
 | Runtime secrets were optional in every manifest render. | Public backend pods could start without admin/actor secret material, leaving operators with a silent auth mismatch. | Added `REQUIRE_RUNTIME_SECRET=true`, ExternalSecret rendering, and a runtime Secret checker that validates Secret contents and backend deployment wiring. |
 | Model hosting was implicit and base-only. | Operators could accidentally expose a CPU-only Ollama pod to broad traffic, hand-edit GPU settings, or leave an external model endpoint undocumented. | Added explicit CPU, NVIDIA GPU, and external private model release paths, manifest validation for each mode, and a model runtime checker tied to `/api/health`. |
+| PVC storage class selection was implicit. | Production could bind SQLite and model-cache data to an unsuitable default StorageClass with unknown expansion, reclaim, or snapshot behavior. | Added release-time StorageClass pinning, PVC backup annotations, storage policy verification, and VolumeSnapshot rendering. |
 
 ## Remaining Repo Work
 
@@ -69,7 +71,7 @@ No blocking repo-side deployment readiness items remain in this checklist. The r
 | TLS issuing path | Choose cert-manager, provider-managed certificates, or a manually created TLS Secret using `docs/deployment-tls.md`; verify with `scripts/check-public-tls.sh`. |
 | Secret management | Use provider secret manager or External Secrets to create `desk-ai-secrets` using `docs/deployment-secret-management.md`; verify with `scripts/check-runtime-secret.sh`. |
 | Model hosting shape | Choose one supported path from `docs/deployment-model-hosting.md`: base in-cluster CPU, `infra/k8s-overlays/ollama-gpu-nvidia`, or `infra/k8s-overlays/external-model` with `MODEL_ENDPOINT_URL`; use the composed private-GHCR overlays when package access is private. |
-| Persistent storage class | Choose the PVC storage class and backup policy for Ollama model data and backend data. |
+| Persistent storage class | Choose the provider StorageClass and optional VolumeSnapshotClass using `docs/deployment-storage-policy.md`; render releases with `STORAGE_CLASS_NAME` and verify with `scripts/check-storage-policy.sh`. |
 | Public access controls | Decide IP allowlists, WAF, DDoS protection, and identity provider before broad exposure. |
 | NetworkPolicy enforcement | Confirm the cluster CNI enforces NetworkPolicy and identify ingress-controller namespace/pod labels before frontend ingress isolation. |
 | Managed Postgres | Choose provider, region, network path, backup/PITR policy, and secret-management integration before backend horizontal scaling. |
@@ -94,5 +96,6 @@ Do not treat the system as public-production ready until these are true:
 - Backend `/metrics` and ingress-controller metrics are scraped by the selected observability stack, with alerts for backend/model readiness, AI latency, tool failures, telemetry scrape errors, and ingress 4xx/5xx rates.
 - Backend persistence remains one replica on SQLite, or Postgres support has been implemented and cut over through the database migration runbook.
 - PVC backups and at least one restore drill have succeeded, or managed storage backup/PITR has replaced the PVC recovery path.
+- The selected StorageClass is pinned in the release manifest, the selected VolumeSnapshotClass exists if snapshots are required, and `scripts/check-storage-policy.sh` passes.
 - The selected model-hosting mode is explicit, Ollama capacity or private endpoint capacity is sized, and `scripts/check-model-runtime.sh` passes after rollout.
 - A post-deploy smoke test passes through the public ingress.

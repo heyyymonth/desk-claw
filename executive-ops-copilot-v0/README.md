@@ -132,6 +132,8 @@ pip install -e ".[dev,evals]"
 
 Deployment model hosting is documented in `docs/deployment-model-hosting.md`. The Kubernetes release path supports the default in-cluster CPU Ollama runtime, an NVIDIA GPU Ollama overlay, and a private external Ollama-compatible endpoint while keeping FastAPI as the model boundary.
 
+Deployment storage policy is documented in `docs/deployment-storage-policy.md`. Production Kubernetes releases should pin the selected PVC StorageClass with `STORAGE_CLASS_NAME`, verify it with `scripts/check-storage-policy.sh`, and use `scripts/render-volume-snapshot.sh` when provider CSI snapshots are part of the backup plan.
+
 The default SQLite database path is `backend/data/deskclaw.db` when running from `backend/`. Local database files are ignored by git.
 
 ## Persistence and Audit

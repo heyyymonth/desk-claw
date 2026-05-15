@@ -16,6 +16,7 @@ Before promoting a commit:
 - Public hostname, TLS Secret name, DNS owner, and ingress target are decided using `docs/deployment-domain-dns.md`.
 - TLS issuing mode and issuer setup are decided using `docs/deployment-tls.md`.
 - Model hosting mode is selected using `docs/deployment-model-hosting.md`.
+- StorageClass, VolumeSnapshotClass, and backup policy are selected using `docs/deployment-storage-policy.md`.
 - Any cloud firewall/security-group rules allow public HTTPS traffic to the ingress controller.
 - Ollama capacity and timeout values have been reviewed against `docs/deployment-resource-tuning.md`.
 
@@ -33,6 +34,8 @@ export RUNTIME_SECRET_NAME="desk-ai-secrets"
 export MODEL_HOSTING_MODE="in-cluster"
 export K8S_BASE_DIR="infra/k8s"
 export MODEL_ENDPOINT_URL=""
+export STORAGE_CLASS_NAME="desk-ai-retain"
+export VOLUME_SNAPSHOT_CLASS_NAME="desk-ai-snapshots"
 export PUBLIC_URL="https://${PUBLIC_HOST}"
 ```
 
@@ -102,6 +105,7 @@ Render the release manifest with the immutable commit tag and selected model-hos
 ```bash
 K8S_BASE_DIR="$K8S_BASE_DIR" \
   MODEL_ENDPOINT_URL="$MODEL_ENDPOINT_URL" \
+  STORAGE_CLASS_NAME="$STORAGE_CLASS_NAME" \
   REQUIRE_RUNTIME_SECRET=true \
   RUNTIME_SECRET_NAME="$RUNTIME_SECRET_NAME" \
   TLS_MODE="$TLS_MODE" \
@@ -120,6 +124,7 @@ K8S_BASE_DIR=infra/k8s-overlays/private-ghcr \
   TLS_MODE="$TLS_MODE" \
   TLS_CLUSTER_ISSUER="$TLS_CLUSTER_ISSUER" \
   MODEL_ENDPOINT_URL="$MODEL_ENDPOINT_URL" \
+  STORAGE_CLASS_NAME="$STORAGE_CLASS_NAME" \
   REQUIRE_RUNTIME_SECRET=true \
   RUNTIME_SECRET_NAME="$RUNTIME_SECRET_NAME" \
   ./scripts/render-release-k8s.sh "$RELEASE_TAG" "$RELEASE_FILE"
@@ -174,6 +179,15 @@ Verify that the selected model runtime is warm and wired through ADK:
 MODEL_HOSTING_MODE="$MODEL_HOSTING_MODE" ./scripts/check-model-runtime.sh "$PUBLIC_URL"
 ```
 
+Verify StorageClass, snapshot class, PVC binding, and backup annotations:
+
+```bash
+MODEL_HOSTING_MODE="$MODEL_HOSTING_MODE" \
+  VOLUME_SNAPSHOT_CLASS_NAME="$VOLUME_SNAPSHOT_CLASS_NAME" \
+  REQUIRE_VOLUME_SNAPSHOT_CLASS=true \
+  ./scripts/check-storage-policy.sh "$STORAGE_CLASS_NAME"
+```
+
 Verify that public DNS points at the current ingress target:
 
 ```bash
@@ -192,7 +206,7 @@ Run the public smoke check:
 ./scripts/smoke-deploy.sh "$PUBLIC_URL"
 ```
 
-A release is complete only after rollout status commands, runtime-secret verification, model-runtime verification, DNS verification, TLS verification, and the smoke test pass.
+A release is complete only after rollout status commands, runtime-secret verification, model-runtime verification, storage-policy verification, DNS verification, TLS verification, and the smoke test pass.
 
 ## Preferred Rollback: Promote the Last Known Good Commit
 
@@ -203,12 +217,13 @@ export PREVIOUS_RELEASE_SHA=<last-known-good-git-sha>
 export PREVIOUS_RELEASE_TAG="git-${PREVIOUS_RELEASE_SHA}"
 export ROLLBACK_FILE="/tmp/desk-ai-${PREVIOUS_RELEASE_TAG}.yaml"
 
-K8S_BASE_DIR="$K8S_BASE_DIR" MODEL_ENDPOINT_URL="$MODEL_ENDPOINT_URL" REQUIRE_RUNTIME_SECRET=true RUNTIME_SECRET_NAME="$RUNTIME_SECRET_NAME" TLS_MODE="$TLS_MODE" TLS_CLUSTER_ISSUER="$TLS_CLUSTER_ISSUER" PUBLIC_HOST="$PUBLIC_HOST" TLS_SECRET_NAME="$TLS_SECRET_NAME" ./scripts/render-release-k8s.sh "$PREVIOUS_RELEASE_TAG" "$ROLLBACK_FILE"
+K8S_BASE_DIR="$K8S_BASE_DIR" MODEL_ENDPOINT_URL="$MODEL_ENDPOINT_URL" STORAGE_CLASS_NAME="$STORAGE_CLASS_NAME" REQUIRE_RUNTIME_SECRET=true RUNTIME_SECRET_NAME="$RUNTIME_SECRET_NAME" TLS_MODE="$TLS_MODE" TLS_CLUSTER_ISSUER="$TLS_CLUSTER_ISSUER" PUBLIC_HOST="$PUBLIC_HOST" TLS_SECRET_NAME="$TLS_SECRET_NAME" ./scripts/render-release-k8s.sh "$PREVIOUS_RELEASE_TAG" "$ROLLBACK_FILE"
 kubectl apply -f "$ROLLBACK_FILE"
 kubectl -n desk-ai rollout status deployment/backend --timeout=600s
 kubectl -n desk-ai rollout status deployment/frontend --timeout=300s
 ./scripts/check-runtime-secret.sh "$RUNTIME_SECRET_NAME"
 MODEL_HOSTING_MODE="$MODEL_HOSTING_MODE" ./scripts/check-model-runtime.sh "$PUBLIC_URL"
+MODEL_HOSTING_MODE="$MODEL_HOSTING_MODE" VOLUME_SNAPSHOT_CLASS_NAME="$VOLUME_SNAPSHOT_CLASS_NAME" REQUIRE_VOLUME_SNAPSHOT_CLASS=true ./scripts/check-storage-policy.sh "$STORAGE_CLASS_NAME"
 ./scripts/check-public-dns.sh "$PUBLIC_HOST"
 ./scripts/check-public-tls.sh "$PUBLIC_HOST"
 ./scripts/smoke-deploy.sh "$PUBLIC_URL"
@@ -270,6 +285,7 @@ Common responses:
 | Ollama is ready but model warmup fails. | Re-run or inspect `ollama-pull-gemma4`, then check model availability inside the Ollama pod. |
 | External model mode cannot warm up. | Confirm `MODEL_ENDPOINT_URL`, private DNS, firewall/security-group rules, TLS trust, and that `gemma4:latest` is available on the endpoint. |
 | GPU Ollama pod is pending. | Check the NVIDIA device plugin, allocatable `nvidia.com/gpu`, `desk-ai/model-runtime=ollama-gpu` node label, and taint/toleration. |
+| Storage policy check fails. | Confirm the StorageClass exists, allows expansion, PVCs are `Bound`, and the selected VolumeSnapshotClass exists if snapshots are required. |
 | Backend pod fails because `desk-ai-secrets` is missing. | Apply the ExternalSecret/manual Secret from `docs/deployment-secret-management.md`, then rerun rollout status. |
 | DNS check fails. | Confirm the DNS zone, record type, and Ingress load balancer target in `docs/deployment-domain-dns.md`. |
 | TLS check fails. | Confirm `TLS_MODE`, `TLS_CLUSTER_ISSUER`, `TLS_SECRET_NAME`, Certificate status, and provider-specific ingress TLS requirements in `docs/deployment-tls.md`. |

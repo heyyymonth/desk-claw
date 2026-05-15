@@ -95,6 +95,7 @@ NetworkPolicy implementation:
 Secret manager:
 Metrics backend:
 Persistent storage class:
+VolumeSnapshotClass:
 Backup/snapshot mechanism:
 Managed Postgres target:
 Identity provider:
@@ -110,12 +111,13 @@ Decision date:
 2. Confirm NetworkPolicy enforcement is active before relying on backend/Ollama isolation.
 3. Create or configure image-pull access for GHCR using `docs/deployment-image-access.md`, unless the packages are public.
 4. Choose the model-hosting path using `docs/deployment-model-hosting.md`; install GPU dependencies or create the private model endpoint before the first release if needed.
-5. Install or select the ingress controller/load-balancer path.
-6. Configure DNS using `docs/deployment-domain-dns.md`, then configure TLS using `docs/deployment-tls.md`.
-7. Connect the secret manager to a Kubernetes Secret named `desk-ai-secrets` using `docs/deployment-secret-management.md`.
-8. Install the observability stack and confirm backend `/metrics` plus ingress errors are scraped.
-9. Run `K8S_BASE_DIR=<selected-path> MODEL_ENDPOINT_URL=<external-url-if-needed> REQUIRE_RUNTIME_SECRET=true TLS_MODE=<mode> PUBLIC_HOST=<host> TLS_SECRET_NAME=<secret> ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml`.
-10. Apply the release, run `./scripts/check-runtime-secret.sh desk-ai-secrets`, run `MODEL_HOSTING_MODE=<mode> ./scripts/check-model-runtime.sh https://<host>`, run `./scripts/check-public-dns.sh <host>`, run `./scripts/check-public-tls.sh <host>`, then run `./scripts/smoke-deploy.sh https://<host>`.
+5. Choose the StorageClass and VolumeSnapshotClass using `docs/deployment-storage-policy.md`.
+6. Install or select the ingress controller/load-balancer path.
+7. Configure DNS using `docs/deployment-domain-dns.md`, then configure TLS using `docs/deployment-tls.md`.
+8. Connect the secret manager to a Kubernetes Secret named `desk-ai-secrets` using `docs/deployment-secret-management.md`.
+9. Install the observability stack and confirm backend `/metrics` plus ingress errors are scraped.
+10. Run `K8S_BASE_DIR=<selected-path> MODEL_ENDPOINT_URL=<external-url-if-needed> STORAGE_CLASS_NAME=<storage-class> REQUIRE_RUNTIME_SECRET=true TLS_MODE=<mode> PUBLIC_HOST=<host> TLS_SECRET_NAME=<secret> ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml`.
+11. Apply the release, run `./scripts/check-runtime-secret.sh desk-ai-secrets`, run `MODEL_HOSTING_MODE=<mode> ./scripts/check-model-runtime.sh https://<host>`, run `VOLUME_SNAPSHOT_CLASS_NAME=<snapshot-class> REQUIRE_VOLUME_SNAPSHOT_CLASS=true ./scripts/check-storage-policy.sh <storage-class>`, run `./scripts/check-public-dns.sh <host>`, run `./scripts/check-public-tls.sh <host>`, then run `./scripts/smoke-deploy.sh https://<host>`.
 
 ## References
 

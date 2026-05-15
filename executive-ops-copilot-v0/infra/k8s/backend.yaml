@@ -3,6 +3,10 @@ kind: PersistentVolumeClaim
 metadata:
   name: backend-data
   namespace: desk-ai
+  annotations:
+    desk.ai/storage-role: sqlite-state
+    desk.ai/backup-policy: sqlite-online-plus-csi-snapshot
+    desk.ai/recovery-priority: critical
 spec:
   accessModes:
     - ReadWriteOnce
