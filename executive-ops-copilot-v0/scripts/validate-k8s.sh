@@ -7,13 +7,18 @@ RENDERED_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-rendered.yaml"
 RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-release-rendered.yaml"
 DNS_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-dns-release-rendered.yaml"
 TLS_PRECREATED_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-precreated-tls-release-rendered.yaml"
+RUNTIME_SECRET_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-runtime-secret-release-rendered.yaml"
 PRIVATE_GHCR_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-private-ghcr-rendered.yaml"
 PRIVATE_GHCR_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-private-ghcr-release-rendered.yaml"
 CERT_MANAGER_ISSUER_MANIFEST="${TMPDIR:-/tmp}/desk-ai-cert-manager-issuer-rendered.yaml"
+EXTERNAL_SECRET_MANIFEST="${TMPDIR:-/tmp}/desk-ai-external-secret-rendered.yaml"
 TLS_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-public-tls-check.out"
+RUNTIME_SECRET_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-runtime-secret-check.out"
 INVALID_PUBLIC_HOST_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-public-host.err"
 INVALID_TLS_MODE_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-tls-mode.err"
 INVALID_ACME_EMAIL_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-acme-email.err"
+INVALID_EXTERNAL_SECRET_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-external-secret.err"
+INVALID_REQUIRE_RUNTIME_SECRET_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-require-runtime-secret.err"
 KUBECTL="${KUBECTL:-kubectl}"
 
 parse_yaml() {
@@ -130,7 +135,9 @@ validate_manifest() {
 for script in \
   "$ROOT_DIR/scripts/check-public-dns.sh" \
   "$ROOT_DIR/scripts/check-public-tls.sh" \
+  "$ROOT_DIR/scripts/check-runtime-secret.sh" \
   "$ROOT_DIR/scripts/render-cert-manager-issuer.sh" \
+  "$ROOT_DIR/scripts/render-external-secret.sh" \
   "$ROOT_DIR/scripts/render-release-k8s.sh"; do
   bash -n "$script"
 done
@@ -146,6 +153,9 @@ validate_manifest "$DNS_RELEASE_MANIFEST"
 
 TLS_MODE=precreated-secret PUBLIC_HOST=desk-ai.example.test TLS_SECRET_NAME=desk-ai-manual-tls "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee > "$TLS_PRECREATED_RELEASE_MANIFEST"
 validate_manifest "$TLS_PRECREATED_RELEASE_MANIFEST"
+
+REQUIRE_RUNTIME_SECRET=true "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee > "$RUNTIME_SECRET_RELEASE_MANIFEST"
+validate_manifest "$RUNTIME_SECRET_RELEASE_MANIFEST"
 
 "$KUBECTL" kustomize "$ROOT_DIR/infra/k8s-overlays/private-ghcr" > "$PRIVATE_GHCR_MANIFEST"
 validate_manifest "$PRIVATE_GHCR_MANIFEST"
@@ -175,6 +185,16 @@ grep -q "TLS_MODE must be one of" "$INVALID_TLS_MODE_ERROR" || {
   exit 1
 }
 
+if REQUIRE_RUNTIME_SECRET=maybe "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee >/dev/null 2>"$INVALID_REQUIRE_RUNTIME_SECRET_ERROR"; then
+  echo "Release renderer accepted an invalid REQUIRE_RUNTIME_SECRET value." >&2
+  exit 1
+fi
+
+grep -q "REQUIRE_RUNTIME_SECRET must be true or false" "$INVALID_REQUIRE_RUNTIME_SECRET_ERROR" || {
+  echo "Release renderer did not explain invalid REQUIRE_RUNTIME_SECRET input." >&2
+  exit 1
+}
+
 if ACME_ENV=staging "$ROOT_DIR/scripts/render-cert-manager-issuer.sh" letsencrypt-staging >/dev/null 2>"$INVALID_ACME_EMAIL_ERROR"; then
   echo "ClusterIssuer renderer accepted missing ACME_EMAIL." >&2
   exit 1
@@ -201,6 +221,35 @@ grep -q "server: https://acme-staging-v02.api.letsencrypt.org/directory" "$CERT_
 
 grep -q "ingressClassName: nginx" "$CERT_MANAGER_ISSUER_MANIFEST" || {
   echo "ClusterIssuer renderer did not configure the nginx HTTP-01 ingress solver." >&2
+  exit 1
+}
+
+if "$ROOT_DIR/scripts/render-external-secret.sh" >/dev/null 2>"$INVALID_EXTERNAL_SECRET_ERROR"; then
+  echo "ExternalSecret renderer accepted a missing SECRET_STORE_NAME." >&2
+  exit 1
+fi
+
+grep -q "SECRET_STORE_NAME must be set" "$INVALID_EXTERNAL_SECRET_ERROR" || {
+  echo "ExternalSecret renderer did not explain missing SECRET_STORE_NAME input." >&2
+  exit 1
+}
+
+SECRET_STORE_NAME=desk-ai-runtime-secrets REMOTE_SECRET_KEY=desk-ai/production/runtime "$ROOT_DIR/scripts/render-external-secret.sh" > "$EXTERNAL_SECRET_MANIFEST"
+parse_yaml "$EXTERNAL_SECRET_MANIFEST"
+validate_schema "$EXTERNAL_SECRET_MANIFEST"
+
+grep -q "kind: ExternalSecret" "$EXTERNAL_SECRET_MANIFEST" || {
+  echo "ExternalSecret renderer did not render an ExternalSecret." >&2
+  exit 1
+}
+
+grep -q "name: desk-ai-runtime-secrets" "$EXTERNAL_SECRET_MANIFEST" || {
+  echo "ExternalSecret renderer did not use the requested SecretStore name." >&2
+  exit 1
+}
+
+grep -q "key: desk-ai/production/runtime" "$EXTERNAL_SECRET_MANIFEST" || {
+  echo "ExternalSecret renderer did not use the requested remote secret key." >&2
   exit 1
 }
 
@@ -241,6 +290,45 @@ KUBECTL="$TLS_CHECK_FAKE_DIR/kubectl" OPENSSL="$TLS_CHECK_FAKE_DIR/openssl" TLS_
 
 grep -q "Public HTTPS certificate validates for desk-ai.example.test" "$TLS_CHECK_OUTPUT" || {
   echo "Public TLS check did not validate the fake HTTPS certificate." >&2
+  exit 1
+}
+
+RUNTIME_SECRET_FAKE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/desk-ai-runtime-secret-check.XXXXXX")"
+trap 'rm -rf "$TLS_CHECK_FAKE_DIR" "$RUNTIME_SECRET_FAKE_DIR"' EXIT
+
+cat > "$RUNTIME_SECRET_FAKE_DIR/kubectl" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+case "$*" in
+  *"get secret desk-ai-secrets -o json"*)
+    cat <<'JSON'
+{"type":"Opaque","data":{"ADMIN_API_KEY":"cmVhbC1hZG1pbi10b2tlbg==","ACTOR_AUTH_TOKEN":"cmVhbC1hY3Rvci10b2tlbg=="}}
+JSON
+    ;;
+  *"get deployment backend -o json"*)
+    cat <<'JSON'
+{"spec":{"template":{"spec":{"containers":[{"name":"backend","envFrom":[{"configMapRef":{"name":"desk-ai-config"}},{"secretRef":{"name":"desk-ai-secrets","optional":false}}]}]}}}}
+JSON
+    ;;
+  *)
+    echo "unexpected kubectl args: $*" >&2
+    exit 1
+    ;;
+esac
+SH
+
+chmod +x "$RUNTIME_SECRET_FAKE_DIR/kubectl"
+
+KUBECTL="$RUNTIME_SECRET_FAKE_DIR/kubectl" "$ROOT_DIR/scripts/check-runtime-secret.sh" desk-ai-secrets > "$RUNTIME_SECRET_CHECK_OUTPUT"
+
+grep -q "Secret desk-ai-secrets contains required key" "$RUNTIME_SECRET_CHECK_OUTPUT" || {
+  echo "Runtime Secret check did not validate required Secret keys." >&2
+  exit 1
+}
+
+grep -q "Deployment backend references Secret desk-ai-secrets" "$RUNTIME_SECRET_CHECK_OUTPUT" || {
+  echo "Runtime Secret check did not validate backend deployment wiring." >&2
   exit 1
 }
 
@@ -288,6 +376,16 @@ if grep -q "cert-manager.io/cluster-issuer" "$TLS_PRECREATED_RELEASE_MANIFEST"; 
   echo "Pre-created TLS release manifests still include the cert-manager ClusterIssuer annotation." >&2
   exit 1
 fi
+
+grep -q "name: desk-ai-secrets" "$RUNTIME_SECRET_RELEASE_MANIFEST" || {
+  echo "Runtime-secret release manifests do not reference the requested backend Secret name." >&2
+  exit 1
+}
+
+grep -q "optional: false" "$RUNTIME_SECRET_RELEASE_MANIFEST" || {
+  echo "Runtime-secret release manifests do not require the backend Secret." >&2
+  exit 1
+}
 
 grep -q "ghcr.io/heyyymonth/desk-ai-backend:git-deadbee" "$PRIVATE_GHCR_RELEASE_MANIFEST" || {
   echo "Private GHCR release manifests do not use the requested immutable backend image tag." >&2

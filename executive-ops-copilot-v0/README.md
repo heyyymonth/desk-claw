@@ -283,6 +283,7 @@ Container and Kubernetes deployment artifacts live in `infra/`.
 The tracked deployment readiness checklist lives in `docs/deployment-readiness.md`.
 Public domain and DNS setup lives in `docs/deployment-domain-dns.md`.
 TLS issuing setup lives in `docs/deployment-tls.md`.
+Secret management setup lives in `docs/deployment-secret-management.md`.
 
 Local container stack:
 
@@ -307,7 +308,7 @@ Install `kubeconform` locally to run the same offline schema validation that CI 
 Render immutable-image release manifests:
 
 ```bash
-TLS_MODE=cert-manager TLS_CLUSTER_ISSUER=letsencrypt-prod PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
+REQUIRE_RUNTIME_SECRET=true RUNTIME_SECRET_NAME=desk-ai-secrets TLS_MODE=cert-manager TLS_CLUSTER_ISSUER=letsencrypt-prod PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
 ```
 
 Promote or roll back a Kubernetes release using the runbook:
@@ -321,6 +322,7 @@ Smoke test a deployed public ingress:
 ```bash
 ./scripts/check-public-dns.sh desk-ai.example.com
 ./scripts/check-public-tls.sh desk-ai.example.com
+./scripts/check-runtime-secret.sh desk-ai-secrets
 ./scripts/smoke-deploy.sh https://desk-ai.example.com
 ```
 
@@ -330,6 +332,7 @@ Provider selection guidance lives in `docs/deployment-provider-selection.md`.
 Container image access guidance lives in `docs/deployment-image-access.md`.
 Domain and DNS guidance lives in `docs/deployment-domain-dns.md`.
 TLS issuing guidance lives in `docs/deployment-tls.md`.
+Secret management guidance lives in `docs/deployment-secret-management.md`.
 Network policy guidance lives in `docs/deployment-network-policy.md`.
 Database migration guidance lives in `docs/deployment-database-migration.md`; backend replicas must stay at one while SQLite is configured.
 Backup and restore guidance lives in `docs/deployment-backup-restore.md`.
@@ -381,6 +384,7 @@ Eval assertions cover meeting type, draft type, sensitivity, async candidacy, es
 - `docs/deployment-image-access.md`: public/private GHCR pull options and Kubernetes image-pull Secret setup.
 - `docs/deployment-domain-dns.md`: public hostname selection, release-time Ingress host rendering, DNS record setup, and verification.
 - `docs/deployment-tls.md`: cert-manager, pre-created Secret, and provider-managed certificate setup and verification.
+- `docs/deployment-secret-management.md`: External Secrets, manual runtime Secret fallback, rotation, and production Secret verification.
 - `docs/deployment-resource-tuning.md`: Ollama/backend CPU, memory, GPU, and timeout sizing guidance.
 - `docs/deployment-rollout-runbook.md`: immutable commit-tag promotion, rollout verification, smoke checks, and rollback commands.
 - `docs/deployment-network-policy.md`: Kubernetes NetworkPolicy baseline, CNI requirements, and provider-specific hardening guidance.

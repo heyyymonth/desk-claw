@@ -40,6 +40,7 @@ Provider selection guidance lives in `../docs/deployment-provider-selection.md`.
 Container image access guidance lives in `../docs/deployment-image-access.md`.
 Domain and DNS guidance lives in `../docs/deployment-domain-dns.md`.
 TLS issuing guidance lives in `../docs/deployment-tls.md`.
+Secret management guidance lives in `../docs/deployment-secret-management.md`.
 Resource and timeout tuning guidance lives in `../docs/deployment-resource-tuning.md`.
 Rollout and rollback commands live in `../docs/deployment-rollout-runbook.md`.
 Network policy guidance lives in `../docs/deployment-network-policy.md`.
@@ -70,19 +71,21 @@ export GHCR_TOKEN=<classic-pat-with-read-packages>
 ./scripts/create-ghcr-pull-secret.sh
 ```
 
-Create the backend runtime secret before enabling admin telemetry or trusted actor attribution:
+For a public cluster, create `desk-ai-secrets` from a provider secret manager or External Secrets before applying a production release:
+
+```bash
+SECRET_STORE_NAME=desk-ai-runtime-secrets REMOTE_SECRET_KEY=desk-ai/production/runtime ./scripts/render-external-secret.sh /tmp/desk-ai-external-secret.yaml
+kubectl apply -f /tmp/desk-ai-external-secret.yaml
+```
+
+For a local/private manual fallback only, copy the example, replace every value, and apply the ignored file out of band:
 
 ```bash
 cp infra/k8s/secrets.example.yaml infra/k8s/secrets.yaml
-```
-
-Edit `infra/k8s/secrets.yaml` with real generated values, then apply it out of band:
-
-```bash
 kubectl apply -f infra/k8s/secrets.yaml
 ```
 
-The real `secrets.yaml` file is ignored by git. On a hyperscaler, prefer the provider secret manager or External Secrets and make it create a Kubernetes Secret named `desk-ai-secrets` in the `desk-ai` namespace. The backend reads `ADMIN_API_KEY` and `ACTOR_AUTH_TOKEN` from that Secret when present; without it, admin read endpoints fail closed and trusted actor headers stay disabled.
+The real `secrets.yaml` file is ignored by git. On a hyperscaler, prefer the provider secret manager or External Secrets and make it create a Kubernetes Secret named `desk-ai-secrets` in the `desk-ai` namespace. The backend reads `ADMIN_API_KEY` and `ACTOR_AUTH_TOKEN` from that Secret. Public releases should be rendered with `REQUIRE_RUNTIME_SECRET=true`; without that flag, the local/default manifest keeps the Secret optional and admin read endpoints fail closed when the key is absent.
 
 The default kustomization maps the workload placeholders to the published GHCR images:
 
@@ -117,14 +120,14 @@ Production dependencies outside this repo:
 For production rollouts, prefer immutable commit tags over `latest`. Render a release manifest with the CI commit tag, then apply the rendered output:
 
 ```bash
-TLS_MODE=cert-manager TLS_CLUSTER_ISSUER=letsencrypt-prod PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
+REQUIRE_RUNTIME_SECRET=true RUNTIME_SECRET_NAME=desk-ai-secrets TLS_MODE=cert-manager TLS_CLUSTER_ISSUER=letsencrypt-prod PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
 kubectl apply -f /tmp/desk-ai-release.yaml
 ```
 
 For private GHCR packages, render the private image-pull overlay:
 
 ```bash
-K8S_BASE_DIR=infra/k8s-overlays/private-ghcr TLS_MODE=cert-manager TLS_CLUSTER_ISSUER=letsencrypt-prod PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
+K8S_BASE_DIR=infra/k8s-overlays/private-ghcr REQUIRE_RUNTIME_SECRET=true RUNTIME_SECRET_NAME=desk-ai-secrets TLS_MODE=cert-manager TLS_CLUSTER_ISSUER=letsencrypt-prod PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
 kubectl apply -f /tmp/desk-ai-release.yaml
 ```
 
@@ -140,10 +143,11 @@ kubectl apply -f infra/k8s/ollama.yaml
 kubectl -n desk-ai wait --for=condition=available deployment/ollama --timeout=300s
 kubectl apply -f infra/k8s/ollama-model-job.yaml
 kubectl -n desk-ai wait --for=condition=complete job/ollama-pull-gemma4 --timeout=1800s
-TLS_MODE=cert-manager TLS_CLUSTER_ISSUER=letsencrypt-prod PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
+REQUIRE_RUNTIME_SECRET=true RUNTIME_SECRET_NAME=desk-ai-secrets TLS_MODE=cert-manager TLS_CLUSTER_ISSUER=letsencrypt-prod PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
 kubectl apply -f /tmp/desk-ai-release.yaml
 kubectl -n desk-ai rollout status deployment/backend --timeout=600s
 kubectl -n desk-ai rollout status deployment/frontend --timeout=300s
+./scripts/check-runtime-secret.sh desk-ai-secrets
 ./scripts/check-public-dns.sh desk-ai.example.com
 ./scripts/check-public-tls.sh desk-ai.example.com
 ./scripts/smoke-deploy.sh https://desk-ai.example.com

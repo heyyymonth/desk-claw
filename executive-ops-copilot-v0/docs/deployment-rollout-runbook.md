@@ -12,7 +12,7 @@ Before promoting a commit:
   - `ghcr.io/heyyymonth/desk-ai-frontend:git-<sha>`
 - Image access is decided using `docs/deployment-image-access.md`: either packages are public, or `desk-ai/ghcr-pull-secret` exists and the private GHCR overlay is used.
 - `kubectl config current-context` points at the intended cluster.
-- The `desk-ai-secrets` Secret exists in the `desk-ai` namespace or is created by the configured secret-management controller.
+- Secret management is configured using `docs/deployment-secret-management.md`, and `desk-ai-secrets` exists in the `desk-ai` namespace or is created by the configured controller.
 - Public hostname, TLS Secret name, DNS owner, and ingress target are decided using `docs/deployment-domain-dns.md`.
 - TLS issuing mode and issuer setup are decided using `docs/deployment-tls.md`.
 - Any cloud firewall/security-group rules allow public HTTPS traffic to the ingress controller.
@@ -28,6 +28,7 @@ export PUBLIC_HOST="desk-ai.example.com"
 export TLS_SECRET_NAME="desk-ai-tls"
 export TLS_MODE="cert-manager"
 export TLS_CLUSTER_ISSUER="letsencrypt-prod"
+export RUNTIME_SECRET_NAME="desk-ai-secrets"
 export PUBLIC_URL="https://${PUBLIC_HOST}"
 ```
 
@@ -70,10 +71,19 @@ ACME_EMAIL=ops@example.com ACME_ENV=prod ./scripts/render-cert-manager-issuer.sh
 kubectl apply -f /tmp/desk-ai-${TLS_CLUSTER_ISSUER}.yaml
 ```
 
+If this is the first deployment in the cluster, apply the ExternalSecret or manually created runtime Secret from `docs/deployment-secret-management.md` before rendering the application release:
+
+```bash
+SECRET_STORE_NAME=desk-ai-runtime-secrets \
+  REMOTE_SECRET_KEY=desk-ai/production/runtime \
+  ./scripts/render-external-secret.sh /tmp/desk-ai-external-secret.yaml
+kubectl apply -f /tmp/desk-ai-external-secret.yaml
+```
+
 Render the release manifest with the immutable commit tag:
 
 ```bash
-TLS_MODE="$TLS_MODE" TLS_CLUSTER_ISSUER="$TLS_CLUSTER_ISSUER" PUBLIC_HOST="$PUBLIC_HOST" TLS_SECRET_NAME="$TLS_SECRET_NAME" ./scripts/render-release-k8s.sh "$RELEASE_TAG" "$RELEASE_FILE"
+REQUIRE_RUNTIME_SECRET=true RUNTIME_SECRET_NAME="$RUNTIME_SECRET_NAME" TLS_MODE="$TLS_MODE" TLS_CLUSTER_ISSUER="$TLS_CLUSTER_ISSUER" PUBLIC_HOST="$PUBLIC_HOST" TLS_SECRET_NAME="$TLS_SECRET_NAME" ./scripts/render-release-k8s.sh "$RELEASE_TAG" "$RELEASE_FILE"
 ```
 
 If GHCR packages are private, render the image-pull-secret overlay instead:
@@ -84,6 +94,8 @@ K8S_BASE_DIR=infra/k8s-overlays/private-ghcr \
   TLS_SECRET_NAME="$TLS_SECRET_NAME" \
   TLS_MODE="$TLS_MODE" \
   TLS_CLUSTER_ISSUER="$TLS_CLUSTER_ISSUER" \
+  REQUIRE_RUNTIME_SECRET=true \
+  RUNTIME_SECRET_NAME="$RUNTIME_SECRET_NAME" \
   ./scripts/render-release-k8s.sh "$RELEASE_TAG" "$RELEASE_FILE"
 ```
 
@@ -93,6 +105,7 @@ Review the application image tags before applying:
 grep -E "image: ghcr.io/heyyymonth/desk-ai-(backend|frontend):" "$RELEASE_FILE"
 grep -A2 "imagePullSecrets:" "$RELEASE_FILE" || true
 grep -E "host:|secretName:" "$RELEASE_FILE"
+grep -A4 "secretRef:" "$RELEASE_FILE"
 ```
 
 Apply the release:
@@ -115,6 +128,12 @@ kubectl -n desk-ai get deployment backend -o jsonpath='{.spec.template.spec.cont
 kubectl -n desk-ai get deployment frontend -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
 ```
 
+Verify that runtime secrets exist and the backend requires them:
+
+```bash
+./scripts/check-runtime-secret.sh "$RUNTIME_SECRET_NAME"
+```
+
 Verify that public DNS points at the current ingress target:
 
 ```bash
@@ -133,7 +152,7 @@ Run the public smoke check:
 ./scripts/smoke-deploy.sh "$PUBLIC_URL"
 ```
 
-A release is complete only after rollout status commands, DNS verification, TLS verification, and the smoke test pass.
+A release is complete only after rollout status commands, runtime-secret verification, DNS verification, TLS verification, and the smoke test pass.
 
 ## Preferred Rollback: Promote the Last Known Good Commit
 
@@ -144,10 +163,11 @@ export PREVIOUS_RELEASE_SHA=<last-known-good-git-sha>
 export PREVIOUS_RELEASE_TAG="git-${PREVIOUS_RELEASE_SHA}"
 export ROLLBACK_FILE="/tmp/desk-ai-${PREVIOUS_RELEASE_TAG}.yaml"
 
-TLS_MODE="$TLS_MODE" TLS_CLUSTER_ISSUER="$TLS_CLUSTER_ISSUER" PUBLIC_HOST="$PUBLIC_HOST" TLS_SECRET_NAME="$TLS_SECRET_NAME" ./scripts/render-release-k8s.sh "$PREVIOUS_RELEASE_TAG" "$ROLLBACK_FILE"
+REQUIRE_RUNTIME_SECRET=true RUNTIME_SECRET_NAME="$RUNTIME_SECRET_NAME" TLS_MODE="$TLS_MODE" TLS_CLUSTER_ISSUER="$TLS_CLUSTER_ISSUER" PUBLIC_HOST="$PUBLIC_HOST" TLS_SECRET_NAME="$TLS_SECRET_NAME" ./scripts/render-release-k8s.sh "$PREVIOUS_RELEASE_TAG" "$ROLLBACK_FILE"
 kubectl apply -f "$ROLLBACK_FILE"
 kubectl -n desk-ai rollout status deployment/backend --timeout=600s
 kubectl -n desk-ai rollout status deployment/frontend --timeout=300s
+./scripts/check-runtime-secret.sh "$RUNTIME_SECRET_NAME"
 ./scripts/check-public-dns.sh "$PUBLIC_HOST"
 ./scripts/check-public-tls.sh "$PUBLIC_HOST"
 ./scripts/smoke-deploy.sh "$PUBLIC_URL"
@@ -207,6 +227,7 @@ Common responses:
 | Backend rollout waits until timeout. | Check `/api/health`, Ollama readiness, model warmup fields, and backend logs. |
 | Frontend rolls out but `/api` fails. | Check nginx proxy config, backend service endpoints, and same-origin ingress routing. |
 | Ollama is ready but model warmup fails. | Re-run or inspect `ollama-pull-gemma4`, then check model availability inside the Ollama pod. |
+| Backend pod fails because `desk-ai-secrets` is missing. | Apply the ExternalSecret/manual Secret from `docs/deployment-secret-management.md`, then rerun rollout status. |
 | DNS check fails. | Confirm the DNS zone, record type, and Ingress load balancer target in `docs/deployment-domain-dns.md`. |
 | TLS check fails. | Confirm `TLS_MODE`, `TLS_CLUSTER_ISSUER`, `TLS_SECRET_NAME`, Certificate status, and provider-specific ingress TLS requirements in `docs/deployment-tls.md`. |
 | Smoke test fails after rollout succeeds. | Roll back first if public traffic is affected, then inspect ingress, backend logs, and telemetry. |

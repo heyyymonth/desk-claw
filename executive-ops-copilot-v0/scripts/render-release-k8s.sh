@@ -12,6 +12,8 @@ Set PUBLIC_HOST=desk-ai.example.com to patch the frontend Ingress host and TLS h
 Set TLS_SECRET_NAME=desk-ai-tls to patch the frontend Ingress TLS Secret name.
 Set TLS_MODE=cert-manager|precreated-secret|provider-managed to choose how Ingress TLS is issued.
 Set TLS_CLUSTER_ISSUER=letsencrypt-prod when TLS_MODE=cert-manager.
+Set RUNTIME_SECRET_NAME=desk-ai-secrets to choose the backend runtime Secret.
+Set REQUIRE_RUNTIME_SECRET=true for public releases that must fail if runtime secrets are missing.
 USAGE
 }
 
@@ -32,6 +34,8 @@ PUBLIC_HOST="${PUBLIC_HOST:-}"
 TLS_SECRET_NAME="${TLS_SECRET_NAME:-desk-ai-tls}"
 TLS_MODE="${TLS_MODE:-cert-manager}"
 TLS_CLUSTER_ISSUER="${TLS_CLUSTER_ISSUER:-letsencrypt-prod}"
+RUNTIME_SECRET_NAME="${RUNTIME_SECRET_NAME:-desk-ai-secrets}"
+REQUIRE_RUNTIME_SECRET="${REQUIRE_RUNTIME_SECRET:-false}"
 
 if [[ "$K8S_BASE_DIR" != /* ]]; then
   K8S_BASE_DIR="$ROOT_DIR/$K8S_BASE_DIR"
@@ -56,6 +60,19 @@ if ! [[ "$TLS_SECRET_NAME" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]]; then
   echo "TLS_SECRET_NAME must be a valid Kubernetes DNS label." >&2
   exit 1
 fi
+
+if ! [[ "$RUNTIME_SECRET_NAME" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]]; then
+  echo "RUNTIME_SECRET_NAME must be a valid Kubernetes DNS label." >&2
+  exit 1
+fi
+
+case "$REQUIRE_RUNTIME_SECRET" in
+  true | false) ;;
+  *)
+    echo "REQUIRE_RUNTIME_SECRET must be true or false." >&2
+    exit 1
+    ;;
+esac
 
 if [[ "$TLS_MODE" == "cert-manager" ]] && ! [[ "$TLS_CLUSTER_ISSUER" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$ ]]; then
   echo "TLS_CLUSTER_ISSUER must be a valid Kubernetes DNS subdomain name." >&2
@@ -102,9 +119,19 @@ images:
     newTag: $RELEASE_TAG
 YAML
 
-if [[ -n "$PUBLIC_HOST" ]]; then
-  cat >> "$TMP_DIR/kustomization.yaml" <<YAML
+PATCHES_STARTED=false
+append_patches_header() {
+  if [[ "$PATCHES_STARTED" == "false" ]]; then
+    cat >> "$TMP_DIR/kustomization.yaml" <<YAML
 patches:
+YAML
+    PATCHES_STARTED=true
+  fi
+}
+
+if [[ -n "$PUBLIC_HOST" ]]; then
+  append_patches_header
+  cat >> "$TMP_DIR/kustomization.yaml" <<YAML
   - target:
       kind: Ingress
       name: frontend
@@ -133,6 +160,23 @@ YAML
         path: /metadata/annotations/cert-manager.io~1cluster-issuer
 YAML
   fi
+fi
+
+if [[ "$REQUIRE_RUNTIME_SECRET" == "true" || "$RUNTIME_SECRET_NAME" != "desk-ai-secrets" ]]; then
+  append_patches_header
+  cat >> "$TMP_DIR/kustomization.yaml" <<YAML
+  - target:
+      kind: Deployment
+      name: backend
+      namespace: desk-ai
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/envFrom/1/secretRef/name
+        value: $RUNTIME_SECRET_NAME
+      - op: replace
+        path: /spec/template/spec/containers/0/envFrom/1/secretRef/optional
+        value: $([[ "$REQUIRE_RUNTIME_SECRET" == "true" ]] && echo "false" || echo "true")
+YAML
 fi
 
 if [[ -n "$OUTPUT_FILE" ]]; then
