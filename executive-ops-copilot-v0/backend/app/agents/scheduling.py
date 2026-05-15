@@ -31,6 +31,7 @@ from app.services.rules_engine import RulesEngine
 
 DEFAULT_OLLAMA_MODEL = "gemma4:latest"
 DEFAULT_ADK_MODEL = f"ollama_chat/{DEFAULT_OLLAMA_MODEL}"
+_SCHEDULING_TOOL_PAYLOADS: dict[str, dict] = {}
 
 
 class AgentToolDefinition(BaseModel):
@@ -152,17 +153,8 @@ draft_agent_definition = AgentDefinition(
 
 
 ADK_AGENT_INSTRUCTION = (
-    f"{scheduling_agent_definition.objective}\n"
-    f"{scheduling_agent_definition.planning_goal}\n\n"
-    "You are the primary meeting resolution agent for an executive assistant. Use the available tools as the source "
-    "of truth for calendar conflicts, scheduling rules, risk, and final strategy. Call the tools in this order unless "
-    "the input is impossible to validate: inspect_calendar_conflicts, validate_scheduling_rules, "
-    "classify_priority_and_risk, then select_resolution_strategy. Do not write to external calendars or send email. "
-    "Tool arguments ending in _json must be JSON strings copied from the request context or previous tool output. "
-    "Return only a JSON object matching this shape: {\"decision\": \"schedule|clarify|defer|decline\", "
-    "\"confidence\": number, \"rationale\": [string], \"risks\": [{\"level\": \"low|medium|high\", "
-    "\"message\": string}], \"risk_level\": \"low|medium|high\", \"safe_action\": string, "
-    "\"proposed_slots\": [{\"start\": iso_datetime, \"end\": iso_datetime, \"reason\": string}]}."
+    "You are meeting_resolution_agent. Call resolve_scheduling_plan exactly once with payload_id copied exactly "
+    "from the user JSON. Return only the tool response JSON. Do not write calendars or send email."
 )
 
 
@@ -343,18 +335,28 @@ class AdkSchedulingAgentRunner:
         rules: ExecutiveRules,
         calendar_blocks: list[CalendarBlock],
     ) -> dict:
-        return _run_adk_json(
-            agent=agent,
-            app_name=self.app_name,
-            session_prefix="scheduling",
-            payload={
-                "task": "Resolve this meeting request with tool-backed reasoning.",
-                "parsed_request": parsed_request.model_dump(mode="json"),
-                "rules": rules.model_dump(mode="json"),
-                "calendar_blocks": [block.model_dump(mode="json") for block in calendar_blocks],
-            },
-            max_llm_calls=8,
-        )
+        planner_payload = {
+            "parsed_request": parsed_request.model_dump(mode="json"),
+            "rules": rules.model_dump(mode="json"),
+            "calendar_blocks": [block.model_dump(mode="json") for block in calendar_blocks],
+        }
+        payload_id = uuid4().hex
+        _SCHEDULING_TOOL_PAYLOADS[payload_id] = planner_payload
+        try:
+            output, _tool_calls = _run_adk_json_with_tool_calls(
+                agent=agent,
+                app_name=self.app_name,
+                session_prefix="scheduling",
+                payload={
+                    "task": "Resolve this meeting request with tool-backed reasoning.",
+                    "payload_id": payload_id,
+                },
+                max_llm_calls=4,
+                return_on_tool_response=True,
+            )
+            return output
+        finally:
+            _SCHEDULING_TOOL_PAYLOADS.pop(payload_id, None)
 
     def _merge_model_output(self, output: dict, deterministic_plan: AgentPlanningResult) -> AgentPlanningResult:
         model_decision = output.get("decision", deterministic_plan.decision)
@@ -511,6 +513,22 @@ def create_recommendation_from_plan(plan: AgentPlanningResult, model_status: str
         proposed_slots=plan.proposed_slots,
         model_status=model_status,
     )
+
+
+def resolve_scheduling_plan(payload_id: str) -> dict:
+    """Resolve a scheduling request using the deterministic planner as an ADK tool boundary.
+
+    Args:
+        payload_id: Short id for the request payload registered by the backend before the ADK run.
+    """
+    payload = _SCHEDULING_TOOL_PAYLOADS.get(payload_id)
+    if payload is None:
+        payload = _loads_json_object(payload_id)
+    parsed_request = ParsedMeetingRequest.model_validate(payload["parsed_request"])
+    rules = ExecutiveRules.model_validate(payload["rules"])
+    calendar_blocks = [CalendarBlock.model_validate(block) for block in payload.get("calendar_blocks", [])]
+    plan = SchedulingAgentPlanner().plan(parsed_request, rules, calendar_blocks)
+    return create_recommendation_from_plan(plan, model_status="used").model_dump(mode="json")
 
 
 def inspect_calendar_conflicts_tool(
@@ -711,12 +729,7 @@ def create_adk_root_agent(model: str = DEFAULT_ADK_MODEL, ollama_base_url: str |
         name=scheduling_agent_definition.name,
         description=scheduling_agent_definition.role,
         instruction=ADK_AGENT_INSTRUCTION,
-        tools=[
-            inspect_calendar_conflicts,
-            validate_scheduling_rules,
-            classify_priority_and_risk,
-            select_resolution_strategy,
-        ],
+        tools=[resolve_scheduling_plan],
     )
 
 
@@ -768,6 +781,7 @@ def _agent_run_trace(agent_name: str, app_name: str, model: str, tool_calls: lis
         "agent_name": agent_name,
         "app_name": app_name,
         "model": model,
+        "model_status": "used",
         "tool_calls": tool_calls,
     }
 
@@ -828,19 +842,28 @@ def _run_agent_operation(operation: str, payload: dict) -> dict:
         parsed_request = ParsedMeetingRequest.model_validate(payload["parsed_request"])
         rules = ExecutiveRules.model_validate(payload["rules"])
         calendar_blocks = [CalendarBlock.model_validate(block) for block in payload["calendar_blocks"]]
-        output, tool_calls = _run_adk_json_with_tool_calls(
-            agent=agent,
-            app_name=app_name,
-            session_prefix="scheduling",
-            payload={
-                "task": "Resolve this meeting request with tool-backed reasoning.",
-                "parsed_request": parsed_request.model_dump(mode="json"),
-                "rules": rules.model_dump(mode="json"),
-                "calendar_blocks": [block.model_dump(mode="json") for block in calendar_blocks],
-            },
-            max_llm_calls=8,
-        )
-        return {"output": output, "tool_calls": tool_calls}
+        planner_payload = {
+            "parsed_request": parsed_request.model_dump(mode="json"),
+            "rules": rules.model_dump(mode="json"),
+            "calendar_blocks": [block.model_dump(mode="json") for block in calendar_blocks],
+        }
+        payload_id = uuid4().hex
+        _SCHEDULING_TOOL_PAYLOADS[payload_id] = planner_payload
+        try:
+            output, tool_calls = _run_adk_json_with_tool_calls(
+                agent=agent,
+                app_name=app_name,
+                session_prefix="scheduling",
+                payload={
+                    "task": "Resolve this meeting request with tool-backed reasoning.",
+                    "payload_id": payload_id,
+                },
+                max_llm_calls=4,
+                return_on_tool_response=True,
+            )
+            return {"output": output, "tool_calls": tool_calls}
+        finally:
+            _SCHEDULING_TOOL_PAYLOADS.pop(payload_id, None)
     if operation == "parse":
         agent = create_adk_request_parser_agent(model, ollama_base_url)
         output, tool_calls = _run_adk_json_with_tool_calls(

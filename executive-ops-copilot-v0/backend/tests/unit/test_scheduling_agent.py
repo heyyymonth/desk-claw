@@ -15,11 +15,12 @@ from app.agents.scheduling import (
     extract_meeting_intent,
     inspect_calendar_conflicts,
     local_adk_model_name,
+    resolve_scheduling_plan,
     scheduling_agent_definition,
     select_resolution_strategy,
     validate_scheduling_rules,
 )
-from app.llm.schemas import CalendarBlock, ExecutiveRules, ParsedMeetingRequest
+from app.llm.schemas import CalendarBlock, ExecutiveRules, ParsedMeetingRequest, Recommendation
 
 
 def parsed_request(**intent_updates):
@@ -140,6 +141,22 @@ def test_planner_records_tool_calls_and_schedules_open_slot():
     assert plan.tool_calls[0].summary == "Found 0 conflict(s) and 1 candidate open slot(s)."
 
 
+def test_resolve_scheduling_plan_tool_returns_recommendation_payload():
+    request = parsed_request()
+    payload = {
+        "parsed_request": request.model_dump(mode="json"),
+        "rules": rules().model_dump(mode="json"),
+        "calendar_blocks": [],
+    }
+
+    output = resolve_scheduling_plan(json.dumps(payload))
+
+    recommendation = Recommendation.model_validate(output)
+    assert recommendation.model_status == "used"
+    assert recommendation.decision == "schedule"
+    assert recommendation.proposed_slots
+
+
 def test_planner_defers_when_requested_window_is_blocked():
     blocks = [
         CalendarBlock(
@@ -162,7 +179,7 @@ def test_create_adk_root_agent_is_adk_compatible_or_reports_missing_dependency()
     agent = create_adk_root_agent()
 
     assert agent.name == "meeting_resolution_agent"
-    assert len(agent.tools) == 4
+    assert len(agent.tools) == 1
 
 
 def test_adk_agents_default_to_local_gemma4_but_accept_other_models():
