@@ -12,7 +12,7 @@ This checklist tracks the repo-side and outside-infrastructure work needed befor
 | Kubernetes image wiring | Complete | `infra/k8s/kustomization.yaml` maps workload placeholders to published GHCR images. |
 | Runtime secret contract | Complete | `desk-ai-secrets` is documented and wired into backend pods without committing real values. |
 | Public entry point | Complete | Frontend is exposed through Ingress; backend remains private behind the frontend `/api` proxy. |
-| Kubernetes manifest validation | Complete | CI runs `scripts/validate-k8s.sh` to render kustomize, run a client dry-run, and check deployment invariants. |
+| Kubernetes manifest validation | Complete | CI runs `scripts/validate-k8s.sh` to render kustomize, run offline schema validation, and check deployment invariants. |
 | Local container stack | Present | Docker Compose starts Ollama, backend, and frontend for local validation. |
 
 ## Issues Found While Preparing Deployment
@@ -24,6 +24,7 @@ This checklist tracks the repo-side and outside-infrastructure work needed befor
 | Backend admin/actor secrets had no Kubernetes contract. | Operators could enable unsafe ad hoc secrets or accidentally commit values. | Added `secrets.example.yaml`, ignored real `secrets.yaml`, and wired optional `desk-ai-secrets`. |
 | Frontend was exposed directly as `LoadBalancer`. | Public access was tied to a service-level load balancer and left no TLS/host routing shape. | Moved public access to Ingress and kept frontend/backend services internal. |
 | Production frontend must use same-origin `/api`. | A public browser cannot call `hostname:8000` directly. | CI builds the frontend with empty `VITE_API_BASE_URL`, so nginx proxies `/api` to the backend service. Do not set `VITE_API_BASE_URL` for public builds unless intentionally routing to a separate API origin. |
+| `kubectl apply --dry-run=client` tried API discovery in CI. | A runner without a cluster failed against `localhost:8080`, even for client dry-run. | CI now renders manifests with `kubectl kustomize`, parses the YAML stream, validates schemas with kubeconform, and checks repo-specific invariants offline. |
 | Local Docker credential helper may be missing. | Local image build can fail before reaching Dockerfile logic. | CI build is authoritative; local workaround is to use a clean `DOCKER_CONFIG` or repair Docker Desktop credentials. |
 
 ## Remaining Repo Work

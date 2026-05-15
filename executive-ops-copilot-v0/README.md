@@ -299,6 +299,8 @@ Validate the rendered manifests locally:
 ./scripts/validate-k8s.sh
 ```
 
+Install `kubeconform` locally to run the same offline schema validation that CI runs. Without it, the script still renders the manifests and checks Desk AI deployment invariants.
+
 The services are split into frontend, backend, and Ollama pods. Backend readiness waits for model warmup, so a ready backend means the configured Ollama model has been loaded before user traffic is served.
 
 ## Evals

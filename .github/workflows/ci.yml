@@ -172,8 +172,17 @@ jobs:
           chmod +x "$RUNNER_TEMP/bin/kubectl"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
-      - name: Check kubectl client
-        run: kubectl version --client=true
+      - name: Install kubeconform
+        env:
+          KUBECONFORM_VERSION: v0.7.0
+        run: |
+          curl --retry 3 --retry-delay 2 -fsSL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" | tar -xz -C "$RUNNER_TEMP/bin" kubeconform
+          chmod +x "$RUNNER_TEMP/bin/kubeconform"
+
+      - name: Check validation clients
+        run: |
+          kubectl version --client=true
+          kubeconform -v
 
       - name: Validate Kubernetes manifests
         run: ./executive-ops-copilot-v0/scripts/validate-k8s.sh

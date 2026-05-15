@@ -7,7 +7,18 @@ RENDERED_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-rendered.yaml"
 KUBECTL="${KUBECTL:-kubectl}"
 
 "$KUBECTL" kustomize "$K8S_DIR" > "$RENDERED_MANIFEST"
-"$KUBECTL" apply --dry-run=client --validate=false -k "$K8S_DIR" >/dev/null
+
+if command -v ruby >/dev/null 2>&1; then
+  ruby -e 'require "yaml"; YAML.load_stream(File.read(ARGV.fetch(0)))' "$RENDERED_MANIFEST"
+else
+  echo "Ruby is not installed; skipping YAML stream parse." >&2
+fi
+
+if command -v kubeconform >/dev/null 2>&1; then
+  kubeconform -strict -summary -ignore-missing-schemas "$RENDERED_MANIFEST"
+else
+  echo "kubeconform is not installed; skipping offline Kubernetes schema validation." >&2
+fi
 
 if grep -q "ghcr.io/OWNER" "$RENDERED_MANIFEST"; then
   echo "Rendered manifests still contain placeholder GHCR image names." >&2
