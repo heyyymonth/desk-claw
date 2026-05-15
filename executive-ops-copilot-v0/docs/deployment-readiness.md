@@ -15,6 +15,7 @@ This checklist tracks the repo-side and outside-infrastructure work needed befor
 | Kubernetes manifest validation | Complete | CI runs `scripts/validate-k8s.sh` to render kustomize, run offline schema validation, and check deployment invariants. |
 | Immutable release render path | Complete | `scripts/render-release-k8s.sh` renders production manifests with backend and frontend pinned to the same `git-<sha>` image tag. |
 | Deployed smoke test | Complete | `scripts/smoke-deploy.sh` checks the public frontend root, `/api/health`, default rules, and mock calendar through ingress. |
+| Resource tuning guidance | Complete | `docs/deployment-resource-tuning.md` documents Ollama/backend CPU, memory, GPU, and timeout sizing guidance. |
 | Local container stack | Present | Docker Compose starts Ollama, backend, and frontend for local validation. |
 
 ## Issues Found While Preparing Deployment
@@ -28,16 +29,16 @@ This checklist tracks the repo-side and outside-infrastructure work needed befor
 | Production frontend must use same-origin `/api`. | A public browser cannot call `hostname:8000` directly. | CI builds the frontend with empty `VITE_API_BASE_URL`, so nginx proxies `/api` to the backend service. Do not set `VITE_API_BASE_URL` for public builds unless intentionally routing to a separate API origin. |
 | `kubectl apply --dry-run=client` tried API discovery in CI. | A runner without a cluster failed against `localhost:8080`, even for client dry-run. | CI now renders manifests with `kubectl kustomize`, parses the YAML stream, validates schemas with kubeconform, and checks repo-specific invariants offline. |
 | Local Docker credential helper may be missing. | Local image build can fail before reaching Dockerfile logic. | CI build is authoritative; local workaround is to use a clean `DOCKER_CONFIG` or repair Docker Desktop credentials. |
+| Ollama resource expectations were implicit. | Clusters could be under-sized, causing cold-start delays, request timeouts, or `OOMKilled` pods. | Added resource tuning guidance and raised the checked-in Ollama memory baseline for `gemma4:latest`. |
 
 ## Remaining Repo Work
 
-1. Add resource tuning documentation for Ollama and backend timeouts, including expected CPU, memory, and GPU needs.
-2. Add rollout and rollback commands using `kubectl rollout status`, `kubectl rollout undo`, and commit-tag image promotion.
-3. Add network policy manifests after the target ingress controller and cluster CNI are known.
-4. Add database migration path from single-replica SQLite PVC to managed Postgres before horizontal backend scaling.
-5. Add backup/restore guidance for persistent volumes until managed storage replaces them.
-6. Add production auth/session design before exposing admin dashboards to real users.
-7. Add runtime observability exports for backend health, AI telemetry, tool failures, model latency, and ingress errors.
+1. Add rollout and rollback commands using `kubectl rollout status`, `kubectl rollout undo`, and commit-tag image promotion.
+2. Add network policy manifests after the target ingress controller and cluster CNI are known.
+3. Add database migration path from single-replica SQLite PVC to managed Postgres before horizontal backend scaling.
+4. Add backup/restore guidance for persistent volumes until managed storage replaces them.
+5. Add production auth/session design before exposing admin dashboards to real users.
+6. Add runtime observability exports for backend health, AI telemetry, tool failures, model latency, and ingress errors.
 
 ## Outside-Repo Dependencies
 

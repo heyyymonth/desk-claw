@@ -30,6 +30,7 @@ curl http://localhost:8000/api/health
 
 Kubernetes manifests live in `infra/k8s/`.
 Deployment readiness tracking lives in `../docs/deployment-readiness.md`.
+Resource and timeout tuning guidance lives in `../docs/deployment-resource-tuning.md`.
 
 ## Container Images
 
@@ -132,6 +133,16 @@ After DNS and TLS are active, run the public smoke test against the real ingress
 ```
 
 The smoke test calls the frontend root and deterministic backend endpoints through the same public origin. It does not call live LLM generation paths.
+
+## Resource Tuning
+
+The checked-in Kubernetes resources are an internal pilot baseline:
+
+- backend: `250m` CPU and `512Mi` memory requests, with `2` CPU and `2Gi` memory limits;
+- Ollama: `1` CPU and `8Gi` memory requests, with `4` CPU and `16Gi` memory limits;
+- frontend: `100m` CPU and `128Mi` memory requests, with `500m` CPU and `512Mi` memory limits.
+
+For public exposure, review `../docs/deployment-resource-tuning.md` before choosing node shapes. The most important decisions are whether Ollama runs CPU-only or on a GPU node, whether `gemma4:latest` fits in usable VRAM with runtime/cache overhead, and whether `OLLAMA_WARMUP_TIMEOUT_SECONDS` and `ADK_AGENT_TIMEOUT_SECONDS` match observed cold-load and agent-loop latency.
 
 ## Operational Notes
 

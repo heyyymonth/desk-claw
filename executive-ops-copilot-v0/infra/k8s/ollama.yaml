@@ -49,10 +49,10 @@ spec:
           resources:
             requests:
               cpu: "1"
-              memory: 6Gi
+              memory: 8Gi
             limits:
               cpu: "4"
-              memory: 12Gi
+              memory: 16Gi
       volumes:
         - name: ollama-data
           persistentVolumeClaim:
