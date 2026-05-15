@@ -8,6 +8,8 @@ RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-release-rendered.yaml"
 DNS_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-dns-release-rendered.yaml"
 TLS_PRECREATED_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-precreated-tls-release-rendered.yaml"
 RUNTIME_SECRET_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-runtime-secret-release-rendered.yaml"
+PUBLIC_ACCESS_ALLOWLIST_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-public-access-allowlist-release-rendered.yaml"
+PUBLIC_ACCESS_PROVIDER_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-public-access-provider-release-rendered.yaml"
 STORAGE_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-storage-release-rendered.yaml"
 STORAGE_EXTERNAL_MODEL_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-storage-external-model-release-rendered.yaml"
 PRIVATE_GHCR_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-private-ghcr-rendered.yaml"
@@ -25,8 +27,12 @@ TLS_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-public-tls-check.out"
 RUNTIME_SECRET_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-runtime-secret-check.out"
 MODEL_RUNTIME_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-model-runtime-check.out"
 STORAGE_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-storage-check.out"
+PUBLIC_ACCESS_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-public-access-check.out"
 INVALID_PUBLIC_HOST_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-public-host.err"
 INVALID_TLS_MODE_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-tls-mode.err"
+INVALID_PUBLIC_ACCESS_MODE_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-public-access-mode.err"
+MISSING_PUBLIC_ACCESS_CONTROL_ERROR="${TMPDIR:-/tmp}/desk-ai-missing-public-access-control.err"
+MISSING_PUBLIC_ALLOWED_CIDRS_ERROR="${TMPDIR:-/tmp}/desk-ai-missing-public-allowed-cidrs.err"
 INVALID_MODEL_ENDPOINT_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-model-endpoint.err"
 INVALID_STORAGE_CLASS_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-storage-class.err"
 INVALID_SNAPSHOT_CLASS_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-snapshot-class.err"
@@ -291,6 +297,57 @@ check_storage_policy_invariants() {
   ' "$manifest" "$model_mode" "$expected_backend_storage_class" "$expected_ollama_storage_class"
 }
 
+check_public_access_invariants() {
+  local manifest="$1"
+  local expected_mode="$2"
+  local expected_cidrs="${3:-}"
+  local expected_waf="${4:-}"
+  local expected_ddos="${5:-}"
+  local expected_identity="${6:-}"
+
+  if ! command -v ruby >/dev/null 2>&1; then
+    echo "Ruby is not installed; skipping public access invariant validation." >&2
+    return
+  fi
+
+  ruby -e '
+    require "yaml"
+
+    manifest = ARGV.fetch(0)
+    expected_mode = ARGV.fetch(1)
+    expected_cidrs = ARGV.fetch(2)
+    expected_waf = ARGV.fetch(3)
+    expected_ddos = ARGV.fetch(4)
+    expected_identity = ARGV.fetch(5)
+    docs = YAML.load_stream(File.read(manifest)).compact
+    ingress = docs.find { |doc| doc["kind"] == "Ingress" && doc.dig("metadata", "name") == "frontend" }
+    errors = []
+
+    if ingress.nil?
+      errors << "manifest is missing Ingress/frontend"
+    else
+      annotations = ingress.dig("metadata", "annotations") || {}
+      errors << "desk.ai/public-access-mode is #{annotations["desk.ai/public-access-mode"].inspect}, expected #{expected_mode.inspect}" unless annotations["desk.ai/public-access-mode"] == expected_mode
+
+      if expected_mode == "ip-allowlist"
+        errors << "nginx whitelist-source-range is #{annotations["nginx.ingress.kubernetes.io/whitelist-source-range"].inspect}, expected #{expected_cidrs.inspect}" unless annotations["nginx.ingress.kubernetes.io/whitelist-source-range"] == expected_cidrs
+        errors << "desk.ai/allowed-cidrs is #{annotations["desk.ai/allowed-cidrs"].inspect}, expected #{expected_cidrs.inspect}" unless annotations["desk.ai/allowed-cidrs"] == expected_cidrs
+      end
+
+      if expected_mode == "provider-gated"
+        errors << "desk.ai/waf-policy-id is #{annotations["desk.ai/waf-policy-id"].inspect}, expected #{expected_waf.inspect}" unless annotations["desk.ai/waf-policy-id"] == expected_waf
+        errors << "desk.ai/ddos-protection is #{annotations["desk.ai/ddos-protection"].inspect}, expected #{expected_ddos.inspect}" unless annotations["desk.ai/ddos-protection"] == expected_ddos
+        errors << "desk.ai/identity-provider is #{annotations["desk.ai/identity-provider"].inspect}, expected #{expected_identity.inspect}" unless annotations["desk.ai/identity-provider"] == expected_identity
+      end
+    end
+
+    unless errors.empty?
+      warn errors.join("\n")
+      exit 1
+    end
+  ' "$manifest" "$expected_mode" "$expected_cidrs" "$expected_waf" "$expected_ddos" "$expected_identity"
+}
+
 validate_manifest() {
   local manifest="$1"
   local model_mode="${2:-in-cluster}"
@@ -306,6 +363,7 @@ validate_manifest() {
 
 for script in \
   "$ROOT_DIR/scripts/check-model-runtime.sh" \
+  "$ROOT_DIR/scripts/check-public-access.sh" \
   "$ROOT_DIR/scripts/check-public-dns.sh" \
   "$ROOT_DIR/scripts/check-public-tls.sh" \
   "$ROOT_DIR/scripts/check-runtime-secret.sh" \
@@ -331,6 +389,14 @@ validate_manifest "$TLS_PRECREATED_RELEASE_MANIFEST"
 
 REQUIRE_RUNTIME_SECRET=true "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee > "$RUNTIME_SECRET_RELEASE_MANIFEST"
 validate_manifest "$RUNTIME_SECRET_RELEASE_MANIFEST"
+
+PUBLIC_HOST=desk-ai.example.test REQUIRE_PUBLIC_ACCESS_CONTROL=true PUBLIC_ACCESS_MODE=ip-allowlist PUBLIC_ALLOWED_CIDRS=203.0.113.10/32,198.51.100.0/24 "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee > "$PUBLIC_ACCESS_ALLOWLIST_RELEASE_MANIFEST"
+validate_manifest "$PUBLIC_ACCESS_ALLOWLIST_RELEASE_MANIFEST"
+check_public_access_invariants "$PUBLIC_ACCESS_ALLOWLIST_RELEASE_MANIFEST" ip-allowlist "203.0.113.10/32,198.51.100.0/24"
+
+PUBLIC_HOST=desk-ai.example.test REQUIRE_PUBLIC_ACCESS_CONTROL=true PUBLIC_ACCESS_MODE=provider-gated PUBLIC_WAF_POLICY_ID=aws-wafv2-desk-ai-prod PUBLIC_DDOS_PROTECTION=true PUBLIC_IDENTITY_PROVIDER=okta-workforce "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee > "$PUBLIC_ACCESS_PROVIDER_RELEASE_MANIFEST"
+validate_manifest "$PUBLIC_ACCESS_PROVIDER_RELEASE_MANIFEST"
+check_public_access_invariants "$PUBLIC_ACCESS_PROVIDER_RELEASE_MANIFEST" provider-gated "" aws-wafv2-desk-ai-prod true okta-workforce
 
 STORAGE_CLASS_NAME=desk-ai-retain "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee > "$STORAGE_RELEASE_MANIFEST"
 validate_manifest "$STORAGE_RELEASE_MANIFEST" in-cluster desk-ai-retain desk-ai-retain
@@ -375,6 +441,36 @@ fi
 
 grep -q "STORAGE_CLASS_NAME must be a valid Kubernetes DNS subdomain name\\|BACKEND_STORAGE_CLASS_NAME must be a valid Kubernetes DNS subdomain name" "$INVALID_STORAGE_CLASS_ERROR" || {
   echo "Release renderer did not explain invalid STORAGE_CLASS_NAME input." >&2
+  exit 1
+}
+
+if PUBLIC_HOST=desk-ai.example.test REQUIRE_PUBLIC_ACCESS_CONTROL=true "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee >/dev/null 2>"$MISSING_PUBLIC_ACCESS_CONTROL_ERROR"; then
+  echo "Release renderer accepted missing PUBLIC_ACCESS_MODE while public access control is required." >&2
+  exit 1
+fi
+
+grep -q "PUBLIC_ACCESS_MODE must be set when REQUIRE_PUBLIC_ACCESS_CONTROL=true" "$MISSING_PUBLIC_ACCESS_CONTROL_ERROR" || {
+  echo "Release renderer did not explain missing PUBLIC_ACCESS_MODE input." >&2
+  exit 1
+}
+
+if PUBLIC_ACCESS_MODE=invalid "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee >/dev/null 2>"$INVALID_PUBLIC_ACCESS_MODE_ERROR"; then
+  echo "Release renderer accepted an invalid PUBLIC_ACCESS_MODE." >&2
+  exit 1
+fi
+
+grep -q "PUBLIC_ACCESS_MODE must be one of" "$INVALID_PUBLIC_ACCESS_MODE_ERROR" || {
+  echo "Release renderer did not explain invalid PUBLIC_ACCESS_MODE input." >&2
+  exit 1
+}
+
+if PUBLIC_ACCESS_MODE=ip-allowlist "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee >/dev/null 2>"$MISSING_PUBLIC_ALLOWED_CIDRS_ERROR"; then
+  echo "Release renderer accepted ip-allowlist mode without PUBLIC_ALLOWED_CIDRS." >&2
+  exit 1
+fi
+
+grep -q "PUBLIC_ALLOWED_CIDRS must be set" "$MISSING_PUBLIC_ALLOWED_CIDRS_ERROR" || {
+  echo "Release renderer did not explain missing PUBLIC_ALLOWED_CIDRS input." >&2
   exit 1
 }
 
@@ -653,6 +749,35 @@ grep -q "Storage policy check passed" "$STORAGE_CHECK_OUTPUT" || {
   exit 1
 }
 
+PUBLIC_ACCESS_CHECK_FAKE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/desk-ai-public-access-check.XXXXXX")"
+trap 'rm -rf "$TLS_CHECK_FAKE_DIR" "$RUNTIME_SECRET_FAKE_DIR" "$MODEL_RUNTIME_FAKE_DIR" "$STORAGE_CHECK_FAKE_DIR" "$PUBLIC_ACCESS_CHECK_FAKE_DIR"' EXIT
+
+cat > "$PUBLIC_ACCESS_CHECK_FAKE_DIR/kubectl" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+case "$*" in
+  *"get ingress frontend -o json"*)
+    cat <<'JSON'
+{"metadata":{"annotations":{"desk.ai/public-access-mode":"ip-allowlist","desk.ai/allowed-cidrs":"203.0.113.10/32,198.51.100.0/24","nginx.ingress.kubernetes.io/whitelist-source-range":"203.0.113.10/32,198.51.100.0/24"}},"spec":{"tls":[{"hosts":["desk-ai.example.test"],"secretName":"desk-ai-example-tls"}],"rules":[{"host":"desk-ai.example.test"}]}}
+JSON
+    ;;
+  *)
+    echo "unexpected kubectl args: $*" >&2
+    exit 1
+    ;;
+esac
+SH
+
+chmod +x "$PUBLIC_ACCESS_CHECK_FAKE_DIR/kubectl"
+
+KUBECTL="$PUBLIC_ACCESS_CHECK_FAKE_DIR/kubectl" PUBLIC_ACCESS_MODE=ip-allowlist PUBLIC_ALLOWED_CIDRS=203.0.113.10/32,198.51.100.0/24 "$ROOT_DIR/scripts/check-public-access.sh" desk-ai.example.test > "$PUBLIC_ACCESS_CHECK_OUTPUT"
+
+grep -q "Public access check passed" "$PUBLIC_ACCESS_CHECK_OUTPUT" || {
+  echo "Public access check did not validate the fake Ingress access controls." >&2
+  exit 1
+}
+
 grep -q "ghcr.io/heyyymonth/desk-ai-backend:git-deadbee" "$RELEASE_MANIFEST" || {
   echo "Release manifests do not use the requested immutable backend image tag." >&2
   exit 1
@@ -722,6 +847,36 @@ if grep -q "ghcr.io/heyyymonth/desk-ai-.*:latest" "$PRIVATE_GHCR_RELEASE_MANIFES
   echo "Private GHCR release manifests still contain mutable latest application image tags." >&2
   exit 1
 fi
+
+grep -q "nginx.ingress.kubernetes.io/whitelist-source-range: 203.0.113.10/32,198.51.100.0/24" "$PUBLIC_ACCESS_ALLOWLIST_RELEASE_MANIFEST" || {
+  echo "Public access allowlist release does not include the requested nginx source allowlist." >&2
+  exit 1
+}
+
+grep -q "desk.ai/public-access-mode: ip-allowlist" "$PUBLIC_ACCESS_ALLOWLIST_RELEASE_MANIFEST" || {
+  echo "Public access allowlist release does not declare ip-allowlist mode." >&2
+  exit 1
+}
+
+grep -q "desk.ai/public-access-mode: provider-gated" "$PUBLIC_ACCESS_PROVIDER_RELEASE_MANIFEST" || {
+  echo "Public access provider-gated release does not declare provider-gated mode." >&2
+  exit 1
+}
+
+grep -q "desk.ai/waf-policy-id: aws-wafv2-desk-ai-prod" "$PUBLIC_ACCESS_PROVIDER_RELEASE_MANIFEST" || {
+  echo "Public access provider-gated release does not include the selected WAF policy id." >&2
+  exit 1
+}
+
+grep -q "desk.ai/ddos-protection: \"true\"" "$PUBLIC_ACCESS_PROVIDER_RELEASE_MANIFEST" || {
+  echo "Public access provider-gated release does not include DDoS protection acknowledgement." >&2
+  exit 1
+}
+
+grep -q "desk.ai/identity-provider: okta-workforce" "$PUBLIC_ACCESS_PROVIDER_RELEASE_MANIFEST" || {
+  echo "Public access provider-gated release does not include the selected identity provider." >&2
+  exit 1
+}
 
 grep -q "nvidia.com/gpu: \"1\"" "$GPU_RELEASE_MANIFEST" || {
   echo "GPU release manifests do not request one NVIDIA GPU." >&2

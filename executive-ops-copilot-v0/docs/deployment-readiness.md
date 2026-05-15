@@ -29,6 +29,7 @@ This checklist tracks the repo-side and outside-infrastructure work needed befor
 | Secret management release path | Complete | `docs/deployment-secret-management.md` documents External Secrets and manual fallback paths; `scripts/render-external-secret.sh`, `scripts/check-runtime-secret.sh`, and `REQUIRE_RUNTIME_SECRET=true` support production verification. |
 | Model hosting release path | Complete | `docs/deployment-model-hosting.md` documents CPU, NVIDIA GPU, and external private model modes; `infra/k8s-overlays/ollama-gpu-nvidia`, `infra/k8s-overlays/external-model`, `MODEL_ENDPOINT_URL`, and `scripts/check-model-runtime.sh` support release-time verification. |
 | Persistent storage release path | Complete | `docs/deployment-storage-policy.md` documents StorageClass and VolumeSnapshotClass selection; `STORAGE_CLASS_NAME`, PVC backup annotations, `scripts/check-storage-policy.sh`, and `scripts/render-volume-snapshot.sh` support production verification. |
+| Public access controls release path | Complete | `docs/deployment-public-access.md` documents IP allowlist and provider-gated modes; `REQUIRE_PUBLIC_ACCESS_CONTROL=true`, `PUBLIC_ACCESS_MODE`, and `scripts/check-public-access.sh` support release-time verification. |
 | Local container stack | Present | Docker Compose starts Ollama, backend, and frontend for local validation. |
 
 ## Issues Found While Preparing Deployment
@@ -56,6 +57,7 @@ This checklist tracks the repo-side and outside-infrastructure work needed befor
 | Runtime secrets were optional in every manifest render. | Public backend pods could start without admin/actor secret material, leaving operators with a silent auth mismatch. | Added `REQUIRE_RUNTIME_SECRET=true`, ExternalSecret rendering, and a runtime Secret checker that validates Secret contents and backend deployment wiring. |
 | Model hosting was implicit and base-only. | Operators could accidentally expose a CPU-only Ollama pod to broad traffic, hand-edit GPU settings, or leave an external model endpoint undocumented. | Added explicit CPU, NVIDIA GPU, and external private model release paths, manifest validation for each mode, and a model runtime checker tied to `/api/health`. |
 | PVC storage class selection was implicit. | Production could bind SQLite and model-cache data to an unsuitable default StorageClass with unknown expansion, reclaim, or snapshot behavior. | Added release-time StorageClass pinning, PVC backup annotations, storage policy verification, and VolumeSnapshot rendering. |
+| Public ingress access controls were only an owner decision. | A release could become publicly reachable without an allowlist, WAF/DDoS record, or identity-provider decision. | Added explicit `ip-allowlist` and `provider-gated` public access modes, ingress annotations, renderer validation, and a deployed Ingress checker. |
 
 ## Remaining Repo Work
 
@@ -72,7 +74,7 @@ No blocking repo-side deployment readiness items remain in this checklist. The r
 | Secret management | Use provider secret manager or External Secrets to create `desk-ai-secrets` using `docs/deployment-secret-management.md`; verify with `scripts/check-runtime-secret.sh`. |
 | Model hosting shape | Choose one supported path from `docs/deployment-model-hosting.md`: base in-cluster CPU, `infra/k8s-overlays/ollama-gpu-nvidia`, or `infra/k8s-overlays/external-model` with `MODEL_ENDPOINT_URL`; use the composed private-GHCR overlays when package access is private. |
 | Persistent storage class | Choose the provider StorageClass and optional VolumeSnapshotClass using `docs/deployment-storage-policy.md`; render releases with `STORAGE_CLASS_NAME` and verify with `scripts/check-storage-policy.sh`. |
-| Public access controls | Decide IP allowlists, WAF, DDoS protection, and identity provider before broad exposure. |
+| Public access controls | Choose `ip-allowlist` or `provider-gated` mode using `docs/deployment-public-access.md`; verify with `scripts/check-public-access.sh`. |
 | NetworkPolicy enforcement | Confirm the cluster CNI enforces NetworkPolicy and identify ingress-controller namespace/pod labels before frontend ingress isolation. |
 | Managed Postgres | Choose provider, region, network path, backup/PITR policy, and secret-management integration before backend horizontal scaling. |
 | Storage backup mechanism | Choose CSI snapshots, provider disk snapshots, or an external backup tool and confirm restore support for the selected storage class. |
@@ -89,6 +91,7 @@ Do not treat the system as public-production ready until these are true:
 - The selected GHCR access path is verified: public packages pull anonymously, or `desk-ai/ghcr-pull-secret` exists and the private overlay is used.
 - Rollout status and rollback commands are known to the operator before promotion.
 - The ingress hostname, TLS path, and DNS are real, not placeholders, and `scripts/check-public-dns.sh` passes.
+- Public access controls are explicit in the release render, and `scripts/check-public-access.sh` passes against the deployed Ingress.
 - The TLS mode is explicit in the release render and `scripts/check-public-tls.sh` passes against the public hostname.
 - Runtime secrets come from a secret manager or out-of-band Kubernetes Secret, the release is rendered with `REQUIRE_RUNTIME_SECRET=true`, and `scripts/check-runtime-secret.sh` passes.
 - The cluster CNI is confirmed to enforce NetworkPolicy, or traffic isolation is handled by another provider control.

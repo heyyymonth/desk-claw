@@ -41,6 +41,7 @@ Container image access guidance lives in `../docs/deployment-image-access.md`.
 Domain and DNS guidance lives in `../docs/deployment-domain-dns.md`.
 TLS issuing guidance lives in `../docs/deployment-tls.md`.
 Secret management guidance lives in `../docs/deployment-secret-management.md`.
+Public access control guidance lives in `../docs/deployment-public-access.md`.
 Model hosting guidance lives in `../docs/deployment-model-hosting.md`.
 Storage policy guidance lives in `../docs/deployment-storage-policy.md`.
 Resource and timeout tuning guidance lives in `../docs/deployment-resource-tuning.md`.
@@ -109,7 +110,7 @@ The default Kubernetes path exposes only the frontend through an Ingress. The ba
 The checked-in Ingress host is a placeholder. For production, set the public host, TLS Secret, and TLS mode while rendering the immutable release manifest rather than editing the base Ingress file:
 
 ```bash
-TLS_MODE=cert-manager TLS_CLUSTER_ISSUER=letsencrypt-prod PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
+TLS_MODE=cert-manager TLS_CLUSTER_ISSUER=letsencrypt-prod PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls REQUIRE_PUBLIC_ACCESS_CONTROL=true PUBLIC_ACCESS_MODE=ip-allowlist PUBLIC_ALLOWED_CIDRS=203.0.113.10/32 ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
 ```
 
 Production dependencies outside this repo:
@@ -122,27 +123,27 @@ Production dependencies outside this repo:
 For production rollouts, prefer immutable commit tags over `latest`. Render a release manifest with the CI commit tag, then apply the rendered output:
 
 ```bash
-STORAGE_CLASS_NAME=desk-ai-retain REQUIRE_RUNTIME_SECRET=true RUNTIME_SECRET_NAME=desk-ai-secrets TLS_MODE=cert-manager TLS_CLUSTER_ISSUER=letsencrypt-prod PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
+STORAGE_CLASS_NAME=desk-ai-retain REQUIRE_PUBLIC_ACCESS_CONTROL=true PUBLIC_ACCESS_MODE=ip-allowlist PUBLIC_ALLOWED_CIDRS=203.0.113.10/32 REQUIRE_RUNTIME_SECRET=true RUNTIME_SECRET_NAME=desk-ai-secrets TLS_MODE=cert-manager TLS_CLUSTER_ISSUER=letsencrypt-prod PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
 kubectl apply -f /tmp/desk-ai-release.yaml
 ```
 
 For private GHCR packages, render the private image-pull overlay:
 
 ```bash
-K8S_BASE_DIR=infra/k8s-overlays/private-ghcr STORAGE_CLASS_NAME=desk-ai-retain REQUIRE_RUNTIME_SECRET=true RUNTIME_SECRET_NAME=desk-ai-secrets TLS_MODE=cert-manager TLS_CLUSTER_ISSUER=letsencrypt-prod PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
+K8S_BASE_DIR=infra/k8s-overlays/private-ghcr STORAGE_CLASS_NAME=desk-ai-retain REQUIRE_PUBLIC_ACCESS_CONTROL=true PUBLIC_ACCESS_MODE=ip-allowlist PUBLIC_ALLOWED_CIDRS=203.0.113.10/32 REQUIRE_RUNTIME_SECRET=true RUNTIME_SECRET_NAME=desk-ai-secrets TLS_MODE=cert-manager TLS_CLUSTER_ISSUER=letsencrypt-prod PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
 kubectl apply -f /tmp/desk-ai-release.yaml
 ```
 
 For an in-cluster NVIDIA GPU model runtime, select the GPU overlay:
 
 ```bash
-K8S_BASE_DIR=infra/k8s-overlays/ollama-gpu-nvidia STORAGE_CLASS_NAME=desk-ai-retain REQUIRE_RUNTIME_SECRET=true RUNTIME_SECRET_NAME=desk-ai-secrets TLS_MODE=cert-manager TLS_CLUSTER_ISSUER=letsencrypt-prod PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
+K8S_BASE_DIR=infra/k8s-overlays/ollama-gpu-nvidia STORAGE_CLASS_NAME=desk-ai-retain REQUIRE_PUBLIC_ACCESS_CONTROL=true PUBLIC_ACCESS_MODE=ip-allowlist PUBLIC_ALLOWED_CIDRS=203.0.113.10/32 REQUIRE_RUNTIME_SECRET=true RUNTIME_SECRET_NAME=desk-ai-secrets TLS_MODE=cert-manager TLS_CLUSTER_ISSUER=letsencrypt-prod PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
 ```
 
 For a private external Ollama-compatible endpoint, select the external model overlay and set the endpoint URL:
 
 ```bash
-K8S_BASE_DIR=infra/k8s-overlays/external-model MODEL_ENDPOINT_URL=https://ollama.internal.example.com STORAGE_CLASS_NAME=desk-ai-retain REQUIRE_RUNTIME_SECRET=true RUNTIME_SECRET_NAME=desk-ai-secrets TLS_MODE=cert-manager TLS_CLUSTER_ISSUER=letsencrypt-prod PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
+K8S_BASE_DIR=infra/k8s-overlays/external-model MODEL_ENDPOINT_URL=https://ollama.internal.example.com STORAGE_CLASS_NAME=desk-ai-retain REQUIRE_PUBLIC_ACCESS_CONTROL=true PUBLIC_ACCESS_MODE=ip-allowlist PUBLIC_ALLOWED_CIDRS=203.0.113.10/32 REQUIRE_RUNTIME_SECRET=true RUNTIME_SECRET_NAME=desk-ai-secrets TLS_MODE=cert-manager TLS_CLUSTER_ISSUER=letsencrypt-prod PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
 ```
 
 If GHCR packages are private and model hosting also needs an overlay, use `infra/k8s-overlays/private-ghcr-ollama-gpu-nvidia` or `infra/k8s-overlays/private-ghcr-external-model`.
@@ -159,13 +160,14 @@ kubectl apply -f infra/k8s/ollama.yaml
 kubectl -n desk-ai wait --for=condition=available deployment/ollama --timeout=300s
 kubectl apply -f infra/k8s/ollama-model-job.yaml
 kubectl -n desk-ai wait --for=condition=complete job/ollama-pull-gemma4 --timeout=1800s
-STORAGE_CLASS_NAME=desk-ai-retain REQUIRE_RUNTIME_SECRET=true RUNTIME_SECRET_NAME=desk-ai-secrets TLS_MODE=cert-manager TLS_CLUSTER_ISSUER=letsencrypt-prod PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
+STORAGE_CLASS_NAME=desk-ai-retain REQUIRE_PUBLIC_ACCESS_CONTROL=true PUBLIC_ACCESS_MODE=ip-allowlist PUBLIC_ALLOWED_CIDRS=203.0.113.10/32 REQUIRE_RUNTIME_SECRET=true RUNTIME_SECRET_NAME=desk-ai-secrets TLS_MODE=cert-manager TLS_CLUSTER_ISSUER=letsencrypt-prod PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
 kubectl apply -f /tmp/desk-ai-release.yaml
 kubectl -n desk-ai rollout status deployment/backend --timeout=600s
 kubectl -n desk-ai rollout status deployment/frontend --timeout=300s
 ./scripts/check-runtime-secret.sh desk-ai-secrets
 ./scripts/check-model-runtime.sh https://desk-ai.example.com
 VOLUME_SNAPSHOT_CLASS_NAME=desk-ai-snapshots REQUIRE_VOLUME_SNAPSHOT_CLASS=true ./scripts/check-storage-policy.sh desk-ai-retain
+PUBLIC_ACCESS_MODE=ip-allowlist PUBLIC_ALLOWED_CIDRS=203.0.113.10/32 ./scripts/check-public-access.sh desk-ai.example.com
 ./scripts/check-public-dns.sh desk-ai.example.com
 ./scripts/check-public-tls.sh desk-ai.example.com
 ./scripts/smoke-deploy.sh https://desk-ai.example.com
@@ -214,6 +216,7 @@ For public exposure, review `../docs/deployment-resource-tuning.md` before choos
 
 - SQLite is mounted on a `ReadWriteOnce` PVC and the backend defaults to one replica. Move to managed Postgres before scaling backend replicas horizontally; see `../docs/deployment-database-migration.md`.
 - Pin production PVCs with `STORAGE_CLASS_NAME` during release rendering and verify with `./scripts/check-storage-policy.sh`; see `../docs/deployment-storage-policy.md`.
+- Render production public ingress with `REQUIRE_PUBLIC_ACCESS_CONTROL=true` and verify with `./scripts/check-public-access.sh`; see `../docs/deployment-public-access.md`.
 - Back up `backend-data` before releases, migrations, and storage changes. Use `../docs/deployment-backup-restore.md` until managed Postgres backup/PITR replaces SQLite backups.
 - Ollama model storage is mounted on a PVC so the model pull survives pod restarts. Treat `ollama-data` as recreatable model cache unless recovery time requires provider snapshots.
 - Do not ship `VITE_ADMIN_API_KEY` or `VITE_ACTOR_AUTH_TOKEN` in public frontend builds. CI validates this for the public frontend image. Those Vite variables are only for local V0 inspection until real login/session auth replaces the admin key path; see `../docs/deployment-auth-session.md`.

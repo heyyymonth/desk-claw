@@ -19,6 +19,9 @@ Set RUNTIME_SECRET_NAME=desk-ai-secrets to choose the backend runtime Secret.
 Set REQUIRE_RUNTIME_SECRET=true for public releases that must fail if runtime secrets are missing.
 Set STORAGE_CLASS_NAME=<class> to pin backend-data and ollama-data PVCs to a provider StorageClass.
 Set BACKEND_STORAGE_CLASS_NAME or OLLAMA_STORAGE_CLASS_NAME to override one PVC separately.
+Set REQUIRE_PUBLIC_ACCESS_CONTROL=true for public releases that must declare an access mode.
+Set PUBLIC_ACCESS_MODE=ip-allowlist with PUBLIC_ALLOWED_CIDRS=<cidr,cidr> for nginx ingress CIDR allowlisting.
+Set PUBLIC_ACCESS_MODE=provider-gated with PUBLIC_WAF_POLICY_ID, PUBLIC_DDOS_PROTECTION=true, and PUBLIC_IDENTITY_PROVIDER for provider edge controls.
 USAGE
 }
 
@@ -45,6 +48,12 @@ MODEL_ENDPOINT_URL="${MODEL_ENDPOINT_URL:-}"
 STORAGE_CLASS_NAME="${STORAGE_CLASS_NAME:-}"
 BACKEND_STORAGE_CLASS_NAME="${BACKEND_STORAGE_CLASS_NAME:-$STORAGE_CLASS_NAME}"
 OLLAMA_STORAGE_CLASS_NAME="${OLLAMA_STORAGE_CLASS_NAME:-$STORAGE_CLASS_NAME}"
+REQUIRE_PUBLIC_ACCESS_CONTROL="${REQUIRE_PUBLIC_ACCESS_CONTROL:-false}"
+PUBLIC_ACCESS_MODE="${PUBLIC_ACCESS_MODE:-}"
+PUBLIC_ALLOWED_CIDRS="${PUBLIC_ALLOWED_CIDRS:-}"
+PUBLIC_WAF_POLICY_ID="${PUBLIC_WAF_POLICY_ID:-}"
+PUBLIC_DDOS_PROTECTION="${PUBLIC_DDOS_PROTECTION:-}"
+PUBLIC_IDENTITY_PROVIDER="${PUBLIC_IDENTITY_PROVIDER:-}"
 
 if [[ "$K8S_BASE_DIR" != /* ]]; then
   K8S_BASE_DIR="$ROOT_DIR/$K8S_BASE_DIR"
@@ -72,6 +81,37 @@ validate_kubernetes_name() {
     echo "$label must be a valid Kubernetes DNS subdomain name." >&2
     exit 1
   fi
+}
+
+validate_public_metadata_value() {
+  local value="$1"
+  local label="$2"
+  if ! [[ "$value" =~ ^[A-Za-z0-9._:/=@+-]+$ ]]; then
+    echo "$label may only contain letters, numbers, dots, dashes, underscores, slashes, colons, equals, at signs, or plus signs." >&2
+    exit 1
+  fi
+}
+
+validate_cidr_list() {
+  local cidrs="$1"
+  ruby -ripaddr -e '
+    value = ARGV.fetch(0)
+    entries = value.split(",").map(&:strip)
+    if entries.empty? || entries.any?(&:empty?)
+      warn "PUBLIC_ALLOWED_CIDRS must be a comma-separated list of CIDR ranges."
+      exit 1
+    end
+    entries.each do |entry|
+      unless entry.include?("/")
+        warn "PUBLIC_ALLOWED_CIDRS entry #{entry.inspect} must include a prefix length."
+        exit 1
+      end
+      IPAddr.new(entry)
+    rescue ArgumentError
+      warn "PUBLIC_ALLOWED_CIDRS entry #{entry.inspect} is not a valid CIDR range."
+      exit 1
+    end
+  ' "$cidrs"
 }
 
 case "$TLS_MODE" in
@@ -108,6 +148,68 @@ case "$REQUIRE_RUNTIME_SECRET" in
     ;;
 esac
 
+case "$REQUIRE_PUBLIC_ACCESS_CONTROL" in
+  true | false) ;;
+  *)
+    echo "REQUIRE_PUBLIC_ACCESS_CONTROL must be true or false." >&2
+    exit 1
+    ;;
+esac
+
+if [[ -n "$PUBLIC_ACCESS_MODE" ]]; then
+  case "$PUBLIC_ACCESS_MODE" in
+    ip-allowlist | provider-gated) ;;
+    *)
+      echo "PUBLIC_ACCESS_MODE must be one of: ip-allowlist, provider-gated." >&2
+      exit 1
+      ;;
+  esac
+fi
+
+if [[ "$REQUIRE_PUBLIC_ACCESS_CONTROL" == "true" && -z "$PUBLIC_ACCESS_MODE" ]]; then
+  echo "PUBLIC_ACCESS_MODE must be set when REQUIRE_PUBLIC_ACCESS_CONTROL=true." >&2
+  exit 1
+fi
+
+if [[ "$PUBLIC_ACCESS_MODE" == "ip-allowlist" ]]; then
+  if [[ -z "$PUBLIC_ALLOWED_CIDRS" ]]; then
+    echo "PUBLIC_ALLOWED_CIDRS must be set when PUBLIC_ACCESS_MODE=ip-allowlist." >&2
+    exit 1
+  fi
+  validate_cidr_list "$PUBLIC_ALLOWED_CIDRS"
+fi
+
+case "$PUBLIC_DDOS_PROTECTION" in
+  "" | true | false) ;;
+  *)
+    echo "PUBLIC_DDOS_PROTECTION must be true or false when set." >&2
+    exit 1
+    ;;
+esac
+
+if [[ -n "$PUBLIC_WAF_POLICY_ID" ]]; then
+  validate_public_metadata_value "$PUBLIC_WAF_POLICY_ID" "PUBLIC_WAF_POLICY_ID"
+fi
+
+if [[ -n "$PUBLIC_IDENTITY_PROVIDER" ]]; then
+  validate_public_metadata_value "$PUBLIC_IDENTITY_PROVIDER" "PUBLIC_IDENTITY_PROVIDER"
+fi
+
+if [[ "$PUBLIC_ACCESS_MODE" == "provider-gated" ]]; then
+  if [[ -z "$PUBLIC_WAF_POLICY_ID" ]]; then
+    echo "PUBLIC_WAF_POLICY_ID must be set when PUBLIC_ACCESS_MODE=provider-gated." >&2
+    exit 1
+  fi
+  if [[ "$PUBLIC_DDOS_PROTECTION" != "true" ]]; then
+    echo "PUBLIC_DDOS_PROTECTION=true must be set when PUBLIC_ACCESS_MODE=provider-gated." >&2
+    exit 1
+  fi
+  if [[ -z "$PUBLIC_IDENTITY_PROVIDER" ]]; then
+    echo "PUBLIC_IDENTITY_PROVIDER must be set when PUBLIC_ACCESS_MODE=provider-gated." >&2
+    exit 1
+  fi
+fi
+
 if [[ "$TLS_MODE" == "cert-manager" ]] && ! [[ "$TLS_CLUSTER_ISSUER" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$ ]]; then
   echo "TLS_CLUSTER_ISSUER must be a valid Kubernetes DNS subdomain name." >&2
   exit 1
@@ -123,6 +225,11 @@ if [[ -n "$PUBLIC_HOST" ]]; then
     echo "PUBLIC_HOST must be a valid lower-case DNS hostname with at least one dot." >&2
     exit 1
   fi
+fi
+
+if [[ "$REQUIRE_PUBLIC_ACCESS_CONTROL" == "true" && -z "$PUBLIC_HOST" ]]; then
+  echo "PUBLIC_HOST must be set when REQUIRE_PUBLIC_ACCESS_CONTROL=true." >&2
+  exit 1
 fi
 
 if [[ -n "$MODEL_ENDPOINT_URL" ]]; then
@@ -265,6 +372,55 @@ if [[ "$EXTERNAL_MODEL_OVERLAY" == "false" && -n "$OLLAMA_STORAGE_CLASS_NAME" ]]
         path: /spec/storageClassName
         value: "$OLLAMA_STORAGE_CLASS_NAME"
 YAML
+fi
+
+if [[ -n "$PUBLIC_ACCESS_MODE" ]]; then
+  append_patches_header
+  cat >> "$TMP_DIR/kustomization.yaml" <<YAML
+  - target:
+      kind: Ingress
+      name: frontend
+      namespace: desk-ai
+    patch: |-
+      - op: add
+        path: /metadata/annotations/desk.ai~1public-access-mode
+        value: "$PUBLIC_ACCESS_MODE"
+YAML
+
+  if [[ "$PUBLIC_ACCESS_MODE" == "ip-allowlist" ]]; then
+    cat >> "$TMP_DIR/kustomization.yaml" <<YAML
+      - op: add
+        path: /metadata/annotations/nginx.ingress.kubernetes.io~1whitelist-source-range
+        value: "$PUBLIC_ALLOWED_CIDRS"
+      - op: add
+        path: /metadata/annotations/desk.ai~1allowed-cidrs
+        value: "$PUBLIC_ALLOWED_CIDRS"
+YAML
+  fi
+
+  if [[ -n "$PUBLIC_WAF_POLICY_ID" ]]; then
+    cat >> "$TMP_DIR/kustomization.yaml" <<YAML
+      - op: add
+        path: /metadata/annotations/desk.ai~1waf-policy-id
+        value: "$PUBLIC_WAF_POLICY_ID"
+YAML
+  fi
+
+  if [[ -n "$PUBLIC_DDOS_PROTECTION" ]]; then
+    cat >> "$TMP_DIR/kustomization.yaml" <<YAML
+      - op: add
+        path: /metadata/annotations/desk.ai~1ddos-protection
+        value: "$PUBLIC_DDOS_PROTECTION"
+YAML
+  fi
+
+  if [[ -n "$PUBLIC_IDENTITY_PROVIDER" ]]; then
+    cat >> "$TMP_DIR/kustomization.yaml" <<YAML
+      - op: add
+        path: /metadata/annotations/desk.ai~1identity-provider
+        value: "$PUBLIC_IDENTITY_PROVIDER"
+YAML
+  fi
 fi
 
 if [[ -n "$OUTPUT_FILE" ]]; then

@@ -134,6 +134,8 @@ Deployment model hosting is documented in `docs/deployment-model-hosting.md`. Th
 
 Deployment storage policy is documented in `docs/deployment-storage-policy.md`. Production Kubernetes releases should pin the selected PVC StorageClass with `STORAGE_CLASS_NAME`, verify it with `scripts/check-storage-policy.sh`, and use `scripts/render-volume-snapshot.sh` when provider CSI snapshots are part of the backup plan.
 
+Deployment public access controls are documented in `docs/deployment-public-access.md`. Production Kubernetes releases should use `REQUIRE_PUBLIC_ACCESS_CONTROL=true`, choose either `ip-allowlist` or `provider-gated`, and verify the deployed Ingress with `scripts/check-public-access.sh`.
+
 The default SQLite database path is `backend/data/deskclaw.db` when running from `backend/`. Local database files are ignored by git.
 
 ## Persistence and Audit
