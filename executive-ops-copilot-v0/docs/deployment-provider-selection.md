@@ -110,11 +110,11 @@ Decision date:
 2. Confirm NetworkPolicy enforcement is active before relying on backend/Ollama isolation.
 3. Create or configure image-pull access for GHCR using `docs/deployment-image-access.md`, unless the packages are public.
 4. Install or select the ingress controller/load-balancer path.
-5. Configure DNS and TLS.
+5. Configure DNS using `docs/deployment-domain-dns.md`, then configure TLS for the selected ingress path.
 6. Connect the secret manager to a Kubernetes Secret named `desk-ai-secrets`.
 7. Install the observability stack and confirm backend `/metrics` plus ingress errors are scraped.
-8. Run `./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml`.
-9. Apply the release and run `./scripts/smoke-deploy.sh https://<host>`.
+8. Run `PUBLIC_HOST=<host> TLS_SECRET_NAME=<secret> ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml`.
+9. Apply the release, run `./scripts/check-public-dns.sh <host>`, then run `./scripts/smoke-deploy.sh https://<host>`.
 
 ## References
 

@@ -281,6 +281,7 @@ ADK evals are not part of the default CI test gate.
 
 Container and Kubernetes deployment artifacts live in `infra/`.
 The tracked deployment readiness checklist lives in `docs/deployment-readiness.md`.
+Public domain and DNS setup lives in `docs/deployment-domain-dns.md`.
 
 Local container stack:
 
@@ -305,7 +306,7 @@ Install `kubeconform` locally to run the same offline schema validation that CI 
 Render immutable-image release manifests:
 
 ```bash
-./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
+PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
 ```
 
 Promote or roll back a Kubernetes release using the runbook:
@@ -317,6 +318,7 @@ docs/deployment-rollout-runbook.md
 Smoke test a deployed public ingress:
 
 ```bash
+./scripts/check-public-dns.sh desk-ai.example.com
 ./scripts/smoke-deploy.sh https://desk-ai.example.com
 ```
 
@@ -324,6 +326,7 @@ The services are split into frontend, backend, and Ollama pods. Backend readines
 Before public exposure, review `docs/deployment-resource-tuning.md` for Ollama/backend CPU, memory, GPU, and timeout sizing.
 Provider selection guidance lives in `docs/deployment-provider-selection.md`.
 Container image access guidance lives in `docs/deployment-image-access.md`.
+Domain and DNS guidance lives in `docs/deployment-domain-dns.md`.
 Network policy guidance lives in `docs/deployment-network-policy.md`.
 Database migration guidance lives in `docs/deployment-database-migration.md`; backend replicas must stay at one while SQLite is configured.
 Backup and restore guidance lives in `docs/deployment-backup-restore.md`.
@@ -373,6 +376,7 @@ Eval assertions cover meeting type, draft type, sensitivity, async candidacy, es
 - `docs/deployment-readiness.md`: public deployment readiness checklist, known issues, remaining repo work, and outside dependencies.
 - `docs/deployment-provider-selection.md`: EKS/GKE/AKS decision guide, required cluster capabilities, and first-cluster shape.
 - `docs/deployment-image-access.md`: public/private GHCR pull options and Kubernetes image-pull Secret setup.
+- `docs/deployment-domain-dns.md`: public hostname selection, release-time Ingress host rendering, DNS record setup, and verification.
 - `docs/deployment-resource-tuning.md`: Ollama/backend CPU, memory, GPU, and timeout sizing guidance.
 - `docs/deployment-rollout-runbook.md`: immutable commit-tag promotion, rollout verification, smoke checks, and rollback commands.
 - `docs/deployment-network-policy.md`: Kubernetes NetworkPolicy baseline, CNI requirements, and provider-specific hardening guidance.

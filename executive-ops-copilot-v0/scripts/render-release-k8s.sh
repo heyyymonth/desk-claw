@@ -8,6 +8,8 @@ Usage: render-release-k8s.sh <git-sha|git-<sha>> [output-file]
 Renders Kubernetes manifests with immutable backend and frontend image tags.
 The SHA must be a 7-40 character git hex SHA, with or without the git- prefix.
 Set K8S_BASE_DIR=infra/k8s-overlays/private-ghcr to render the private GHCR pull-secret overlay.
+Set PUBLIC_HOST=desk-ai.example.com to patch the frontend Ingress host and TLS host.
+Set TLS_SECRET_NAME=desk-ai-tls to patch the frontend Ingress TLS Secret name.
 USAGE
 }
 
@@ -24,6 +26,8 @@ fi
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 K8S_BASE_DIR="${K8S_BASE_DIR:-$ROOT_DIR/infra/k8s}"
 KUBECTL="${KUBECTL:-kubectl}"
+PUBLIC_HOST="${PUBLIC_HOST:-}"
+TLS_SECRET_NAME="${TLS_SECRET_NAME:-desk-ai-tls}"
 
 if [[ "$K8S_BASE_DIR" != /* ]]; then
   K8S_BASE_DIR="$ROOT_DIR/$K8S_BASE_DIR"
@@ -34,6 +38,22 @@ if [[ "$K8S_BASE_DIR" == "$ROOT_DIR/infra/"* ]]; then
 else
   echo "K8S_BASE_DIR must resolve under $ROOT_DIR/infra so the release overlay can reference it safely." >&2
   exit 1
+fi
+
+if [[ -n "$PUBLIC_HOST" ]]; then
+  PUBLIC_HOST="$(printf '%s' "${PUBLIC_HOST%.}" | tr '[:upper:]' '[:lower:]')"
+  if [[ "$PUBLIC_HOST" =~ ^https?:// || "$PUBLIC_HOST" == */* || "$PUBLIC_HOST" == *:* ]]; then
+    echo "PUBLIC_HOST must be a DNS hostname only, without scheme, path, or port." >&2
+    exit 1
+  fi
+  if ! [[ "$PUBLIC_HOST" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$ ]]; then
+    echo "PUBLIC_HOST must be a valid lower-case DNS hostname with at least one dot." >&2
+    exit 1
+  fi
+  if ! [[ "$TLS_SECRET_NAME" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]]; then
+    echo "TLS_SECRET_NAME must be a valid Kubernetes DNS label." >&2
+    exit 1
+  fi
 fi
 
 RAW_TAG="$1"
@@ -63,6 +83,26 @@ images:
     newName: ghcr.io/heyyymonth/desk-ai-frontend
     newTag: $RELEASE_TAG
 YAML
+
+if [[ -n "$PUBLIC_HOST" ]]; then
+  cat >> "$TMP_DIR/kustomization.yaml" <<YAML
+patches:
+  - target:
+      kind: Ingress
+      name: frontend
+      namespace: desk-ai
+    patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: $PUBLIC_HOST
+      - op: replace
+        path: /spec/tls/0/hosts/0
+        value: $PUBLIC_HOST
+      - op: replace
+        path: /spec/tls/0/secretName
+        value: $TLS_SECRET_NAME
+YAML
+fi
 
 if [[ -n "$OUTPUT_FILE" ]]; then
   "$KUBECTL" kustomize --load-restrictor LoadRestrictionsNone "$TMP_DIR" > "$OUTPUT_FILE"

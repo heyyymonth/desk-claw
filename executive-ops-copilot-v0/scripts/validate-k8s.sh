@@ -5,8 +5,10 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 K8S_DIR="$ROOT_DIR/infra/k8s"
 RENDERED_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-rendered.yaml"
 RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-release-rendered.yaml"
+DNS_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-dns-release-rendered.yaml"
 PRIVATE_GHCR_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-private-ghcr-rendered.yaml"
 PRIVATE_GHCR_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-private-ghcr-release-rendered.yaml"
+INVALID_PUBLIC_HOST_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-public-host.err"
 KUBECTL="${KUBECTL:-kubectl}"
 
 parse_yaml() {
@@ -120,11 +122,16 @@ validate_manifest() {
   check_sqlite_replica_policy "$manifest"
 }
 
+bash -n "$ROOT_DIR/scripts/check-public-dns.sh" "$ROOT_DIR/scripts/render-release-k8s.sh"
+
 "$KUBECTL" kustomize "$K8S_DIR" > "$RENDERED_MANIFEST"
 validate_manifest "$RENDERED_MANIFEST"
 
 "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee > "$RELEASE_MANIFEST"
 validate_manifest "$RELEASE_MANIFEST"
+
+PUBLIC_HOST=desk-ai.example.test TLS_SECRET_NAME=desk-ai-example-tls "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee > "$DNS_RELEASE_MANIFEST"
+validate_manifest "$DNS_RELEASE_MANIFEST"
 
 "$KUBECTL" kustomize "$ROOT_DIR/infra/k8s-overlays/private-ghcr" > "$PRIVATE_GHCR_MANIFEST"
 validate_manifest "$PRIVATE_GHCR_MANIFEST"
@@ -133,6 +140,16 @@ check_private_ghcr_invariants "$PRIVATE_GHCR_MANIFEST"
 K8S_BASE_DIR="infra/k8s-overlays/private-ghcr" "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee > "$PRIVATE_GHCR_RELEASE_MANIFEST"
 validate_manifest "$PRIVATE_GHCR_RELEASE_MANIFEST"
 check_private_ghcr_invariants "$PRIVATE_GHCR_RELEASE_MANIFEST"
+
+if PUBLIC_HOST=https://desk-ai.example.test "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee >/dev/null 2>"$INVALID_PUBLIC_HOST_ERROR"; then
+  echo "Release renderer accepted an invalid PUBLIC_HOST with scheme." >&2
+  exit 1
+fi
+
+grep -q "PUBLIC_HOST must be a DNS hostname only" "$INVALID_PUBLIC_HOST_ERROR" || {
+  echo "Release renderer did not explain invalid PUBLIC_HOST input." >&2
+  exit 1
+}
 
 grep -q "ghcr.io/heyyymonth/desk-ai-backend:git-deadbee" "$RELEASE_MANIFEST" || {
   echo "Release manifests do not use the requested immutable backend image tag." >&2
@@ -146,6 +163,21 @@ grep -q "ghcr.io/heyyymonth/desk-ai-frontend:git-deadbee" "$RELEASE_MANIFEST" ||
 
 if grep -q "ghcr.io/heyyymonth/desk-ai-.*:latest" "$RELEASE_MANIFEST"; then
   echo "Release manifests still contain mutable latest application image tags." >&2
+  exit 1
+fi
+
+grep -q "host: desk-ai.example.test" "$DNS_RELEASE_MANIFEST" || {
+  echo "DNS release manifests do not use the requested public host." >&2
+  exit 1
+}
+
+grep -q "secretName: desk-ai-example-tls" "$DNS_RELEASE_MANIFEST" || {
+  echo "DNS release manifests do not use the requested TLS Secret name." >&2
+  exit 1
+}
+
+if grep -q "desk-ai.example.com" "$DNS_RELEASE_MANIFEST"; then
+  echo "DNS release manifests still contain the placeholder ingress hostname." >&2
   exit 1
 fi
 

@@ -38,6 +38,7 @@ Kubernetes manifests live in `infra/k8s/`.
 Deployment readiness tracking lives in `../docs/deployment-readiness.md`.
 Provider selection guidance lives in `../docs/deployment-provider-selection.md`.
 Container image access guidance lives in `../docs/deployment-image-access.md`.
+Domain and DNS guidance lives in `../docs/deployment-domain-dns.md`.
 Resource and timeout tuning guidance lives in `../docs/deployment-resource-tuning.md`.
 Rollout and rollback commands live in `../docs/deployment-rollout-runbook.md`.
 Network policy guidance lives in `../docs/deployment-network-policy.md`.
@@ -99,17 +100,10 @@ kubectl apply -k infra/k8s
 
 The default Kubernetes path exposes only the frontend through an Ingress. The backend remains a private ClusterIP service and is reached through the frontend nginx `/api` proxy.
 
-Before a public deployment, update `infra/k8s/ingress.yaml` for your environment:
+The checked-in Ingress host is a placeholder. For production, set the public host and TLS Secret while rendering the immutable release manifest rather than editing the base Ingress file:
 
-```yaml
-spec:
-  ingressClassName: nginx
-  tls:
-    - hosts:
-        - desk-ai.example.com
-      secretName: desk-ai-tls
-  rules:
-    - host: desk-ai.example.com
+```bash
+PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
 ```
 
 Production dependencies outside this repo:
@@ -122,18 +116,18 @@ Production dependencies outside this repo:
 For production rollouts, prefer immutable commit tags over `latest`. Render a release manifest with the CI commit tag, then apply the rendered output:
 
 ```bash
-./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
+PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
 kubectl apply -f /tmp/desk-ai-release.yaml
 ```
 
 For private GHCR packages, render the private image-pull overlay:
 
 ```bash
-K8S_BASE_DIR=infra/k8s-overlays/private-ghcr ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
+K8S_BASE_DIR=infra/k8s-overlays/private-ghcr PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
 kubectl apply -f /tmp/desk-ai-release.yaml
 ```
 
-The release renderer creates a temporary kustomize overlay, sets backend and frontend images to the same immutable `git-<sha>` tag, and leaves the base manifests on `latest` for local/default use.
+The release renderer creates a temporary kustomize overlay, sets backend and frontend images to the same immutable `git-<sha>` tag, patches the public Ingress host when `PUBLIC_HOST` is set, and leaves the base manifests on `latest` plus the placeholder host for local/default use.
 Use `../docs/deployment-rollout-runbook.md` for the full promotion, `kubectl rollout status`, smoke-test, and rollback sequence.
 
 Recommended rollout order for first deployment:
@@ -145,10 +139,11 @@ kubectl apply -f infra/k8s/ollama.yaml
 kubectl -n desk-ai wait --for=condition=available deployment/ollama --timeout=300s
 kubectl apply -f infra/k8s/ollama-model-job.yaml
 kubectl -n desk-ai wait --for=condition=complete job/ollama-pull-gemma4 --timeout=1800s
-./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
+PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
 kubectl apply -f /tmp/desk-ai-release.yaml
 kubectl -n desk-ai rollout status deployment/backend --timeout=600s
 kubectl -n desk-ai rollout status deployment/frontend --timeout=300s
+./scripts/check-public-dns.sh desk-ai.example.com
 ./scripts/smoke-deploy.sh https://desk-ai.example.com
 ```
 
@@ -159,6 +154,7 @@ The backend readiness probe depends on `/api/health`, which only reports ready a
 After DNS and TLS are active, run the public smoke test against the real ingress host:
 
 ```bash
+./scripts/check-public-dns.sh desk-ai.example.com
 ./scripts/smoke-deploy.sh https://desk-ai.example.com
 ```
 
@@ -196,4 +192,4 @@ For public exposure, review `../docs/deployment-resource-tuning.md` before choos
 - Ollama model storage is mounted on a PVC so the model pull survives pod restarts. Treat `ollama-data` as recreatable model cache unless recovery time requires provider snapshots.
 - Do not ship `VITE_ADMIN_API_KEY` or `VITE_ACTOR_AUTH_TOKEN` in public frontend builds. CI validates this for the public frontend image. Those Vite variables are only for local V0 inspection until real login/session auth replaces the admin key path; see `../docs/deployment-auth-session.md`.
 - The frontend nginx proxy assumes the backend service name is `backend` in the same namespace.
-- The checked-in ingress host is a placeholder; replace `desk-ai.example.com` before public DNS cutover.
+- The checked-in ingress host is a placeholder; set `PUBLIC_HOST` during release rendering before public DNS cutover.

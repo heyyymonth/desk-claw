@@ -13,7 +13,8 @@ Before promoting a commit:
 - Image access is decided using `docs/deployment-image-access.md`: either packages are public, or `desk-ai/ghcr-pull-secret` exists and the private GHCR overlay is used.
 - `kubectl config current-context` points at the intended cluster.
 - The `desk-ai-secrets` Secret exists in the `desk-ai` namespace or is created by the configured secret-management controller.
-- Ingress host, TLS, DNS, and any cloud firewall/security-group rules are already configured.
+- Public hostname, TLS Secret name, DNS owner, and ingress target are decided using `docs/deployment-domain-dns.md`.
+- Any cloud firewall/security-group rules allow public HTTPS traffic to the ingress controller.
 - Ollama capacity and timeout values have been reviewed against `docs/deployment-resource-tuning.md`.
 
 Set these shell variables for the commands below:
@@ -22,7 +23,9 @@ Set these shell variables for the commands below:
 export RELEASE_SHA=<7-40-character-git-sha>
 export RELEASE_TAG="git-${RELEASE_SHA}"
 export RELEASE_FILE="/tmp/desk-ai-${RELEASE_TAG}.yaml"
-export PUBLIC_URL="https://desk-ai.example.com"
+export PUBLIC_HOST="desk-ai.example.com"
+export TLS_SECRET_NAME="desk-ai-tls"
+export PUBLIC_URL="https://${PUBLIC_HOST}"
 ```
 
 Confirm the target context before applying anything:
@@ -60,13 +63,16 @@ kubectl -n desk-ai wait --for=condition=complete job/ollama-pull-gemma4 --timeou
 Render the release manifest with the immutable commit tag:
 
 ```bash
-./scripts/render-release-k8s.sh "$RELEASE_TAG" "$RELEASE_FILE"
+PUBLIC_HOST="$PUBLIC_HOST" TLS_SECRET_NAME="$TLS_SECRET_NAME" ./scripts/render-release-k8s.sh "$RELEASE_TAG" "$RELEASE_FILE"
 ```
 
 If GHCR packages are private, render the image-pull-secret overlay instead:
 
 ```bash
-K8S_BASE_DIR=infra/k8s-overlays/private-ghcr ./scripts/render-release-k8s.sh "$RELEASE_TAG" "$RELEASE_FILE"
+K8S_BASE_DIR=infra/k8s-overlays/private-ghcr \
+  PUBLIC_HOST="$PUBLIC_HOST" \
+  TLS_SECRET_NAME="$TLS_SECRET_NAME" \
+  ./scripts/render-release-k8s.sh "$RELEASE_TAG" "$RELEASE_FILE"
 ```
 
 Review the application image tags before applying:
@@ -74,6 +80,7 @@ Review the application image tags before applying:
 ```bash
 grep -E "image: ghcr.io/heyyymonth/desk-ai-(backend|frontend):" "$RELEASE_FILE"
 grep -A2 "imagePullSecrets:" "$RELEASE_FILE" || true
+grep -E "host:|secretName:" "$RELEASE_FILE"
 ```
 
 Apply the release:
@@ -96,13 +103,19 @@ kubectl -n desk-ai get deployment backend -o jsonpath='{.spec.template.spec.cont
 kubectl -n desk-ai get deployment frontend -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
 ```
 
+Verify that public DNS points at the current ingress target:
+
+```bash
+./scripts/check-public-dns.sh "$PUBLIC_HOST"
+```
+
 Run the public smoke check:
 
 ```bash
 ./scripts/smoke-deploy.sh "$PUBLIC_URL"
 ```
 
-A release is complete only after both rollout status commands and the smoke test pass.
+A release is complete only after rollout status commands, DNS verification, and the smoke test pass.
 
 ## Preferred Rollback: Promote the Last Known Good Commit
 
@@ -113,10 +126,11 @@ export PREVIOUS_RELEASE_SHA=<last-known-good-git-sha>
 export PREVIOUS_RELEASE_TAG="git-${PREVIOUS_RELEASE_SHA}"
 export ROLLBACK_FILE="/tmp/desk-ai-${PREVIOUS_RELEASE_TAG}.yaml"
 
-./scripts/render-release-k8s.sh "$PREVIOUS_RELEASE_TAG" "$ROLLBACK_FILE"
+PUBLIC_HOST="$PUBLIC_HOST" TLS_SECRET_NAME="$TLS_SECRET_NAME" ./scripts/render-release-k8s.sh "$PREVIOUS_RELEASE_TAG" "$ROLLBACK_FILE"
 kubectl apply -f "$ROLLBACK_FILE"
 kubectl -n desk-ai rollout status deployment/backend --timeout=600s
 kubectl -n desk-ai rollout status deployment/frontend --timeout=300s
+./scripts/check-public-dns.sh "$PUBLIC_HOST"
 ./scripts/smoke-deploy.sh "$PUBLIC_URL"
 ```
 
@@ -174,6 +188,7 @@ Common responses:
 | Backend rollout waits until timeout. | Check `/api/health`, Ollama readiness, model warmup fields, and backend logs. |
 | Frontend rolls out but `/api` fails. | Check nginx proxy config, backend service endpoints, and same-origin ingress routing. |
 | Ollama is ready but model warmup fails. | Re-run or inspect `ollama-pull-gemma4`, then check model availability inside the Ollama pod. |
+| DNS check fails. | Confirm the DNS zone, record type, and Ingress load balancer target in `docs/deployment-domain-dns.md`. |
 | Smoke test fails after rollout succeeds. | Roll back first if public traffic is affected, then inspect ingress, backend logs, and telemetry. |
 | Pods are `OOMKilled` or unschedulable. | Apply the resource tuning guidance before another promotion attempt. |
 
