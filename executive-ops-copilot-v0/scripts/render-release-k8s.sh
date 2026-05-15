@@ -10,6 +10,8 @@ The SHA must be a 7-40 character git hex SHA, with or without the git- prefix.
 Set K8S_BASE_DIR=infra/k8s-overlays/private-ghcr to render the private GHCR pull-secret overlay.
 Set PUBLIC_HOST=desk-ai.example.com to patch the frontend Ingress host and TLS host.
 Set TLS_SECRET_NAME=desk-ai-tls to patch the frontend Ingress TLS Secret name.
+Set TLS_MODE=cert-manager|precreated-secret|provider-managed to choose how Ingress TLS is issued.
+Set TLS_CLUSTER_ISSUER=letsencrypt-prod when TLS_MODE=cert-manager.
 USAGE
 }
 
@@ -28,6 +30,8 @@ K8S_BASE_DIR="${K8S_BASE_DIR:-$ROOT_DIR/infra/k8s}"
 KUBECTL="${KUBECTL:-kubectl}"
 PUBLIC_HOST="${PUBLIC_HOST:-}"
 TLS_SECRET_NAME="${TLS_SECRET_NAME:-desk-ai-tls}"
+TLS_MODE="${TLS_MODE:-cert-manager}"
+TLS_CLUSTER_ISSUER="${TLS_CLUSTER_ISSUER:-letsencrypt-prod}"
 
 if [[ "$K8S_BASE_DIR" != /* ]]; then
   K8S_BASE_DIR="$ROOT_DIR/$K8S_BASE_DIR"
@@ -40,6 +44,24 @@ else
   exit 1
 fi
 
+case "$TLS_MODE" in
+  cert-manager | precreated-secret | provider-managed) ;;
+  *)
+    echo "TLS_MODE must be one of: cert-manager, precreated-secret, provider-managed." >&2
+    exit 1
+    ;;
+esac
+
+if ! [[ "$TLS_SECRET_NAME" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]]; then
+  echo "TLS_SECRET_NAME must be a valid Kubernetes DNS label." >&2
+  exit 1
+fi
+
+if [[ "$TLS_MODE" == "cert-manager" ]] && ! [[ "$TLS_CLUSTER_ISSUER" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$ ]]; then
+  echo "TLS_CLUSTER_ISSUER must be a valid Kubernetes DNS subdomain name." >&2
+  exit 1
+fi
+
 if [[ -n "$PUBLIC_HOST" ]]; then
   PUBLIC_HOST="$(printf '%s' "${PUBLIC_HOST%.}" | tr '[:upper:]' '[:lower:]')"
   if [[ "$PUBLIC_HOST" =~ ^https?:// || "$PUBLIC_HOST" == */* || "$PUBLIC_HOST" == *:* ]]; then
@@ -48,10 +70,6 @@ if [[ -n "$PUBLIC_HOST" ]]; then
   fi
   if ! [[ "$PUBLIC_HOST" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$ ]]; then
     echo "PUBLIC_HOST must be a valid lower-case DNS hostname with at least one dot." >&2
-    exit 1
-  fi
-  if ! [[ "$TLS_SECRET_NAME" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]]; then
-    echo "TLS_SECRET_NAME must be a valid Kubernetes DNS label." >&2
     exit 1
   fi
 fi
@@ -102,6 +120,19 @@ patches:
         path: /spec/tls/0/secretName
         value: $TLS_SECRET_NAME
 YAML
+
+  if [[ "$TLS_MODE" == "cert-manager" ]]; then
+    cat >> "$TMP_DIR/kustomization.yaml" <<YAML
+      - op: replace
+        path: /metadata/annotations/cert-manager.io~1cluster-issuer
+        value: $TLS_CLUSTER_ISSUER
+YAML
+  else
+    cat >> "$TMP_DIR/kustomization.yaml" <<YAML
+      - op: remove
+        path: /metadata/annotations/cert-manager.io~1cluster-issuer
+YAML
+  fi
 fi
 
 if [[ -n "$OUTPUT_FILE" ]]; then

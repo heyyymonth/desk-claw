@@ -25,6 +25,7 @@ This checklist tracks the repo-side and outside-infrastructure work needed befor
 | Runtime observability exports | Complete | `GET /metrics` exports backend health, model warmup, AI latency, ADK coverage, tool failure, and telemetry scrape-health metrics; `docs/deployment-observability.md` documents ingress-controller error monitoring. |
 | Provider selection guide | Complete | `docs/deployment-provider-selection.md` captures the EKS/GKE/AKS decision, required cluster capabilities, first-cluster shape, and follow-on deployment work. |
 | Domain and DNS release path | Complete | `docs/deployment-domain-dns.md` documents public host selection, release-time Ingress host rendering, DNS record setup, and `scripts/check-public-dns.sh` verification. |
+| TLS issuing path | Complete | `docs/deployment-tls.md` documents cert-manager, pre-created Secret, and provider-managed certificate modes; `scripts/render-cert-manager-issuer.sh` and `scripts/check-public-tls.sh` support issuance and verification. |
 | Local container stack | Present | Docker Compose starts Ollama, backend, and frontend for local validation. |
 
 ## Issues Found While Preparing Deployment
@@ -48,6 +49,7 @@ This checklist tracks the repo-side and outside-infrastructure work needed befor
 | Runtime telemetry was visible only through app endpoints and docs. | Operators lacked a scrapeable signal path for backend/model readiness, AI tool failures, latency, and ingress errors. | Added a sanitized Prometheus text export, backend scrape metadata, monitoring NetworkPolicy allowance, and ingress-controller metric guidance. |
 | Hyperscaler choice was an open owner decision with no decision record. | Deployment could drift into an under-specified cluster choice without checking NetworkPolicy, storage, model hosting, auth, or observability needs. | Added a provider selection guide with major-provider fit, required capabilities, a recommended first path, and a decision template. |
 | Ingress host replacement was a manual YAML edit. | A production release could accidentally keep the placeholder host or drift from the immutable release manifest. | Added `PUBLIC_HOST` and `TLS_SECRET_NAME` release-render inputs, DNS-specific manifest validation, and a live ingress DNS verification script. |
+| TLS was hardcoded to cert-manager without an issuer setup path. | Clusters using provider-managed certs or pre-created TLS Secrets could retain a stale cert-manager annotation, and cert-manager clusters had no repeatable ClusterIssuer render. | Added `TLS_MODE`, `TLS_CLUSTER_ISSUER`, cert-manager ClusterIssuer rendering, and public TLS verification. |
 
 ## Remaining Repo Work
 
@@ -60,7 +62,7 @@ No blocking repo-side deployment readiness items remain in this checklist. The r
 | Hyperscaler and Kubernetes flavor | Choose EKS, GKE, AKS, or another managed Kubernetes option using `docs/deployment-provider-selection.md`. |
 | Container image access | Choose public GHCR packages or private GHCR credentials using `docs/deployment-image-access.md`. |
 | Domain and DNS | Choose the public hostname and create the DNS record using `docs/deployment-domain-dns.md`; verify with `scripts/check-public-dns.sh`. |
-| TLS issuing path | Use cert-manager, provider-managed certificates, or a manually created TLS Secret. |
+| TLS issuing path | Choose cert-manager, provider-managed certificates, or a manually created TLS Secret using `docs/deployment-tls.md`; verify with `scripts/check-public-tls.sh`. |
 | Secret management | Use provider secret manager or External Secrets to create `desk-ai-secrets`. |
 | Model hosting shape | Decide whether Ollama runs in-cluster, on GPU nodes, or behind a separate private model endpoint. |
 | Persistent storage class | Choose the PVC storage class and backup policy for Ollama model data and backend data. |
@@ -81,6 +83,7 @@ Do not treat the system as public-production ready until these are true:
 - The selected GHCR access path is verified: public packages pull anonymously, or `desk-ai/ghcr-pull-secret` exists and the private overlay is used.
 - Rollout status and rollback commands are known to the operator before promotion.
 - The ingress hostname, TLS path, and DNS are real, not placeholders, and `scripts/check-public-dns.sh` passes.
+- The TLS mode is explicit in the release render and `scripts/check-public-tls.sh` passes against the public hostname.
 - Runtime secrets come from a secret manager or out-of-band Kubernetes Secret.
 - The cluster CNI is confirmed to enforce NetworkPolicy, or traffic isolation is handled by another provider control.
 - Admin dashboard access is protected by real login/session auth, not frontend-bundled keys, and production auth has passed the deployment auth/session gate.

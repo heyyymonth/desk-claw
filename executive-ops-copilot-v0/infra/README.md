@@ -39,6 +39,7 @@ Deployment readiness tracking lives in `../docs/deployment-readiness.md`.
 Provider selection guidance lives in `../docs/deployment-provider-selection.md`.
 Container image access guidance lives in `../docs/deployment-image-access.md`.
 Domain and DNS guidance lives in `../docs/deployment-domain-dns.md`.
+TLS issuing guidance lives in `../docs/deployment-tls.md`.
 Resource and timeout tuning guidance lives in `../docs/deployment-resource-tuning.md`.
 Rollout and rollback commands live in `../docs/deployment-rollout-runbook.md`.
 Network policy guidance lives in `../docs/deployment-network-policy.md`.
@@ -100,34 +101,34 @@ kubectl apply -k infra/k8s
 
 The default Kubernetes path exposes only the frontend through an Ingress. The backend remains a private ClusterIP service and is reached through the frontend nginx `/api` proxy.
 
-The checked-in Ingress host is a placeholder. For production, set the public host and TLS Secret while rendering the immutable release manifest rather than editing the base Ingress file:
+The checked-in Ingress host is a placeholder. For production, set the public host, TLS Secret, and TLS mode while rendering the immutable release manifest rather than editing the base Ingress file:
 
 ```bash
-PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
+TLS_MODE=cert-manager TLS_CLUSTER_ISSUER=letsencrypt-prod PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
 ```
 
 Production dependencies outside this repo:
 
 - an ingress controller installed in the cluster, such as nginx ingress or a hyperscaler-managed ingress controller;
 - DNS pointing the chosen host to the ingress controller load balancer;
-- TLS issued by cert-manager, provider-managed certificates, or a pre-created `desk-ai-tls` Secret;
+- TLS issued by cert-manager, provider-managed certificates, or a pre-created `desk-ai-tls` Secret using `../docs/deployment-tls.md`;
 - provider firewall/security-group rules allowing public HTTPS traffic to the ingress controller.
 
 For production rollouts, prefer immutable commit tags over `latest`. Render a release manifest with the CI commit tag, then apply the rendered output:
 
 ```bash
-PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
+TLS_MODE=cert-manager TLS_CLUSTER_ISSUER=letsencrypt-prod PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
 kubectl apply -f /tmp/desk-ai-release.yaml
 ```
 
 For private GHCR packages, render the private image-pull overlay:
 
 ```bash
-K8S_BASE_DIR=infra/k8s-overlays/private-ghcr PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
+K8S_BASE_DIR=infra/k8s-overlays/private-ghcr TLS_MODE=cert-manager TLS_CLUSTER_ISSUER=letsencrypt-prod PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
 kubectl apply -f /tmp/desk-ai-release.yaml
 ```
 
-The release renderer creates a temporary kustomize overlay, sets backend and frontend images to the same immutable `git-<sha>` tag, patches the public Ingress host when `PUBLIC_HOST` is set, and leaves the base manifests on `latest` plus the placeholder host for local/default use.
+The release renderer creates a temporary kustomize overlay, sets backend and frontend images to the same immutable `git-<sha>` tag, patches the public Ingress host when `PUBLIC_HOST` is set, applies the selected TLS mode, and leaves the base manifests on `latest` plus the placeholder host for local/default use.
 Use `../docs/deployment-rollout-runbook.md` for the full promotion, `kubectl rollout status`, smoke-test, and rollback sequence.
 
 Recommended rollout order for first deployment:
@@ -139,11 +140,12 @@ kubectl apply -f infra/k8s/ollama.yaml
 kubectl -n desk-ai wait --for=condition=available deployment/ollama --timeout=300s
 kubectl apply -f infra/k8s/ollama-model-job.yaml
 kubectl -n desk-ai wait --for=condition=complete job/ollama-pull-gemma4 --timeout=1800s
-PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
+TLS_MODE=cert-manager TLS_CLUSTER_ISSUER=letsencrypt-prod PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
 kubectl apply -f /tmp/desk-ai-release.yaml
 kubectl -n desk-ai rollout status deployment/backend --timeout=600s
 kubectl -n desk-ai rollout status deployment/frontend --timeout=300s
 ./scripts/check-public-dns.sh desk-ai.example.com
+./scripts/check-public-tls.sh desk-ai.example.com
 ./scripts/smoke-deploy.sh https://desk-ai.example.com
 ```
 
@@ -155,6 +157,7 @@ After DNS and TLS are active, run the public smoke test against the real ingress
 
 ```bash
 ./scripts/check-public-dns.sh desk-ai.example.com
+./scripts/check-public-tls.sh desk-ai.example.com
 ./scripts/smoke-deploy.sh https://desk-ai.example.com
 ```
 

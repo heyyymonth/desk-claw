@@ -88,6 +88,7 @@ Run the DNS check from this repo after the record exists:
 Then smoke test the public path through the same host users will hit:
 
 ```bash
+./scripts/check-public-tls.sh "$PUBLIC_HOST"
 ./scripts/smoke-deploy.sh "https://${PUBLIC_HOST}"
 ```
 

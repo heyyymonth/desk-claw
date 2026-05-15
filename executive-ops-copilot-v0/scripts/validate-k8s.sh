@@ -6,9 +6,14 @@ K8S_DIR="$ROOT_DIR/infra/k8s"
 RENDERED_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-rendered.yaml"
 RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-release-rendered.yaml"
 DNS_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-dns-release-rendered.yaml"
+TLS_PRECREATED_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-precreated-tls-release-rendered.yaml"
 PRIVATE_GHCR_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-private-ghcr-rendered.yaml"
 PRIVATE_GHCR_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-private-ghcr-release-rendered.yaml"
+CERT_MANAGER_ISSUER_MANIFEST="${TMPDIR:-/tmp}/desk-ai-cert-manager-issuer-rendered.yaml"
+TLS_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-public-tls-check.out"
 INVALID_PUBLIC_HOST_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-public-host.err"
+INVALID_TLS_MODE_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-tls-mode.err"
+INVALID_ACME_EMAIL_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-acme-email.err"
 KUBECTL="${KUBECTL:-kubectl}"
 
 parse_yaml() {
@@ -122,7 +127,13 @@ validate_manifest() {
   check_sqlite_replica_policy "$manifest"
 }
 
-bash -n "$ROOT_DIR/scripts/check-public-dns.sh" "$ROOT_DIR/scripts/render-release-k8s.sh"
+for script in \
+  "$ROOT_DIR/scripts/check-public-dns.sh" \
+  "$ROOT_DIR/scripts/check-public-tls.sh" \
+  "$ROOT_DIR/scripts/render-cert-manager-issuer.sh" \
+  "$ROOT_DIR/scripts/render-release-k8s.sh"; do
+  bash -n "$script"
+done
 
 "$KUBECTL" kustomize "$K8S_DIR" > "$RENDERED_MANIFEST"
 validate_manifest "$RENDERED_MANIFEST"
@@ -132,6 +143,9 @@ validate_manifest "$RELEASE_MANIFEST"
 
 PUBLIC_HOST=desk-ai.example.test TLS_SECRET_NAME=desk-ai-example-tls "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee > "$DNS_RELEASE_MANIFEST"
 validate_manifest "$DNS_RELEASE_MANIFEST"
+
+TLS_MODE=precreated-secret PUBLIC_HOST=desk-ai.example.test TLS_SECRET_NAME=desk-ai-manual-tls "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee > "$TLS_PRECREATED_RELEASE_MANIFEST"
+validate_manifest "$TLS_PRECREATED_RELEASE_MANIFEST"
 
 "$KUBECTL" kustomize "$ROOT_DIR/infra/k8s-overlays/private-ghcr" > "$PRIVATE_GHCR_MANIFEST"
 validate_manifest "$PRIVATE_GHCR_MANIFEST"
@@ -148,6 +162,85 @@ fi
 
 grep -q "PUBLIC_HOST must be a DNS hostname only" "$INVALID_PUBLIC_HOST_ERROR" || {
   echo "Release renderer did not explain invalid PUBLIC_HOST input." >&2
+  exit 1
+}
+
+if TLS_MODE=invalid PUBLIC_HOST=desk-ai.example.test "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee >/dev/null 2>"$INVALID_TLS_MODE_ERROR"; then
+  echo "Release renderer accepted an invalid TLS_MODE." >&2
+  exit 1
+fi
+
+grep -q "TLS_MODE must be one of" "$INVALID_TLS_MODE_ERROR" || {
+  echo "Release renderer did not explain invalid TLS_MODE input." >&2
+  exit 1
+}
+
+if ACME_ENV=staging "$ROOT_DIR/scripts/render-cert-manager-issuer.sh" letsencrypt-staging >/dev/null 2>"$INVALID_ACME_EMAIL_ERROR"; then
+  echo "ClusterIssuer renderer accepted missing ACME_EMAIL." >&2
+  exit 1
+fi
+
+grep -q "ACME_EMAIL must be set" "$INVALID_ACME_EMAIL_ERROR" || {
+  echo "ClusterIssuer renderer did not explain missing ACME_EMAIL input." >&2
+  exit 1
+}
+
+ACME_EMAIL=ops@example.com ACME_ENV=staging "$ROOT_DIR/scripts/render-cert-manager-issuer.sh" letsencrypt-staging > "$CERT_MANAGER_ISSUER_MANIFEST"
+parse_yaml "$CERT_MANAGER_ISSUER_MANIFEST"
+validate_schema "$CERT_MANAGER_ISSUER_MANIFEST"
+
+grep -q "kind: ClusterIssuer" "$CERT_MANAGER_ISSUER_MANIFEST" || {
+  echo "ClusterIssuer renderer did not render a ClusterIssuer." >&2
+  exit 1
+}
+
+grep -q "server: https://acme-staging-v02.api.letsencrypt.org/directory" "$CERT_MANAGER_ISSUER_MANIFEST" || {
+  echo "ClusterIssuer renderer did not use the Let's Encrypt staging server." >&2
+  exit 1
+}
+
+grep -q "ingressClassName: nginx" "$CERT_MANAGER_ISSUER_MANIFEST" || {
+  echo "ClusterIssuer renderer did not configure the nginx HTTP-01 ingress solver." >&2
+  exit 1
+}
+
+TLS_CHECK_FAKE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/desk-ai-tls-check.XXXXXX")"
+trap 'rm -rf "$TLS_CHECK_FAKE_DIR"' EXIT
+
+cat > "$TLS_CHECK_FAKE_DIR/kubectl" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+case "$*" in
+  *"get ingress frontend -o json"*)
+    cat <<'JSON'
+{"spec":{"tls":[{"hosts":["desk-ai.example.test"],"secretName":"desk-ai-example-tls"}]}}
+JSON
+    ;;
+  *"get secret desk-ai-example-tls -o json"*)
+    cat <<'JSON'
+{"type":"kubernetes.io/tls","data":{"tls.crt":"Y2VydA==","tls.key":"a2V5"}}
+JSON
+    ;;
+  *)
+    echo "unexpected kubectl args: $*" >&2
+    exit 1
+    ;;
+esac
+SH
+
+cat > "$TLS_CHECK_FAKE_DIR/openssl" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "Verify return code: 0 (ok)"
+SH
+
+chmod +x "$TLS_CHECK_FAKE_DIR/kubectl" "$TLS_CHECK_FAKE_DIR/openssl"
+
+KUBECTL="$TLS_CHECK_FAKE_DIR/kubectl" OPENSSL="$TLS_CHECK_FAKE_DIR/openssl" TLS_SECRET_NAME=desk-ai-example-tls "$ROOT_DIR/scripts/check-public-tls.sh" desk-ai.example.test > "$TLS_CHECK_OUTPUT"
+
+grep -q "Public HTTPS certificate validates for desk-ai.example.test" "$TLS_CHECK_OUTPUT" || {
+  echo "Public TLS check did not validate the fake HTTPS certificate." >&2
   exit 1
 }
 
@@ -178,6 +271,21 @@ grep -q "secretName: desk-ai-example-tls" "$DNS_RELEASE_MANIFEST" || {
 
 if grep -q "desk-ai.example.com" "$DNS_RELEASE_MANIFEST"; then
   echo "DNS release manifests still contain the placeholder ingress hostname." >&2
+  exit 1
+fi
+
+grep -q "cert-manager.io/cluster-issuer: letsencrypt-prod" "$DNS_RELEASE_MANIFEST" || {
+  echo "DNS release manifests do not keep the default cert-manager ClusterIssuer." >&2
+  exit 1
+}
+
+grep -q "secretName: desk-ai-manual-tls" "$TLS_PRECREATED_RELEASE_MANIFEST" || {
+  echo "Pre-created TLS release manifests do not use the requested TLS Secret name." >&2
+  exit 1
+}
+
+if grep -q "cert-manager.io/cluster-issuer" "$TLS_PRECREATED_RELEASE_MANIFEST"; then
+  echo "Pre-created TLS release manifests still include the cert-manager ClusterIssuer annotation." >&2
   exit 1
 fi
 
