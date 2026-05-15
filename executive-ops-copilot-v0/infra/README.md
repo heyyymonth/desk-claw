@@ -34,6 +34,7 @@ Resource and timeout tuning guidance lives in `../docs/deployment-resource-tunin
 Rollout and rollback commands live in `../docs/deployment-rollout-runbook.md`.
 Network policy guidance lives in `../docs/deployment-network-policy.md`.
 Database migration guidance lives in `../docs/deployment-database-migration.md`.
+Backup and restore guidance lives in `../docs/deployment-backup-restore.md`.
 
 ## Container Images
 
@@ -159,7 +160,8 @@ For public exposure, review `../docs/deployment-resource-tuning.md` before choos
 ## Operational Notes
 
 - SQLite is mounted on a `ReadWriteOnce` PVC and the backend defaults to one replica. Move to managed Postgres before scaling backend replicas horizontally; see `../docs/deployment-database-migration.md`.
-- Ollama model storage is mounted on a PVC so the model pull survives pod restarts.
+- Back up `backend-data` before releases, migrations, and storage changes. Use `../docs/deployment-backup-restore.md` until managed Postgres backup/PITR replaces SQLite backups.
+- Ollama model storage is mounted on a PVC so the model pull survives pod restarts. Treat `ollama-data` as recreatable model cache unless recovery time requires provider snapshots.
 - Do not ship `VITE_ADMIN_API_KEY` or `VITE_ACTOR_AUTH_TOKEN` in public frontend builds. Those Vite variables are only for local V0 inspection until real login/session auth replaces the admin key path.
 - The frontend nginx proxy assumes the backend service name is `backend` in the same namespace.
 - The checked-in ingress host is a placeholder; replace `desk-ai.example.com` before public DNS cutover.
