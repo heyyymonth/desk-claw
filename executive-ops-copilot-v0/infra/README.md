@@ -36,6 +36,7 @@ curl http://localhost:8000/metrics
 
 Kubernetes manifests live in `infra/k8s/`.
 Deployment readiness tracking lives in `../docs/deployment-readiness.md`.
+Provider selection guidance lives in `../docs/deployment-provider-selection.md`.
 Resource and timeout tuning guidance lives in `../docs/deployment-resource-tuning.md`.
 Rollout and rollback commands live in `../docs/deployment-rollout-runbook.md`.
 Network policy guidance lives in `../docs/deployment-network-policy.md`.

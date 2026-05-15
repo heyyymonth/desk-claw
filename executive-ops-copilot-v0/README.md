@@ -322,6 +322,7 @@ Smoke test a deployed public ingress:
 
 The services are split into frontend, backend, and Ollama pods. Backend readiness waits for model warmup, so a ready backend means the configured Ollama model has been loaded before user traffic is served.
 Before public exposure, review `docs/deployment-resource-tuning.md` for Ollama/backend CPU, memory, GPU, and timeout sizing.
+Provider selection guidance lives in `docs/deployment-provider-selection.md`.
 Network policy guidance lives in `docs/deployment-network-policy.md`.
 Database migration guidance lives in `docs/deployment-database-migration.md`; backend replicas must stay at one while SQLite is configured.
 Backup and restore guidance lives in `docs/deployment-backup-restore.md`.
@@ -369,6 +370,7 @@ Eval assertions cover meeting type, draft type, sensitivity, async candidacy, es
 - `docs/interface-contracts.md`: contract files, endpoints, enums, compatibility rules.
 - `docs/test-strategy.md`: unit, contract, integration, E2E, and eval strategy.
 - `docs/deployment-readiness.md`: public deployment readiness checklist, known issues, remaining repo work, and outside dependencies.
+- `docs/deployment-provider-selection.md`: EKS/GKE/AKS decision guide, required cluster capabilities, and first-cluster shape.
 - `docs/deployment-resource-tuning.md`: Ollama/backend CPU, memory, GPU, and timeout sizing guidance.
 - `docs/deployment-rollout-runbook.md`: immutable commit-tag promotion, rollout verification, smoke checks, and rollback commands.
 - `docs/deployment-network-policy.md`: Kubernetes NetworkPolicy baseline, CNI requirements, and provider-specific hardening guidance.

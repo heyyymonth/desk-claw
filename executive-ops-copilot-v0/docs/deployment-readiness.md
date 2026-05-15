@@ -22,6 +22,7 @@ This checklist tracks the repo-side and outside-infrastructure work needed befor
 | PVC backup and restore runbook | Complete | `docs/deployment-backup-restore.md` documents backend SQLite backups, restore flow, provider snapshots, and Ollama data recovery. |
 | Production auth/session design | Complete | `docs/deployment-auth-session.md` defines OIDC/session/RBAC target state and CI validates public frontend image builds do not bundle admin or actor secrets. |
 | Runtime observability exports | Complete | `GET /metrics` exports backend health, model warmup, AI latency, ADK coverage, tool failure, and telemetry scrape-health metrics; `docs/deployment-observability.md` documents ingress-controller error monitoring. |
+| Provider selection guide | Complete | `docs/deployment-provider-selection.md` captures the EKS/GKE/AKS decision, required cluster capabilities, first-cluster shape, and follow-on deployment work. |
 | Local container stack | Present | Docker Compose starts Ollama, backend, and frontend for local validation. |
 
 ## Issues Found While Preparing Deployment
@@ -42,6 +43,7 @@ This checklist tracks the repo-side and outside-infrastructure work needed befor
 | PVCs had no recovery procedure. | A disk, namespace, or cluster failure could lose SQLite audit/decision data or force slow model repulls. | Added backup/restore guidance for `backend-data` and `ollama-data`, including SQLite integrity checks and provider snapshot guidance. |
 | Admin access still used local V0 keys. | Browser-bundled admin keys or actor tokens would expose audit and telemetry access in a public deployment. | Added a production auth/session design and a CI guard against shipping `VITE_ADMIN_API_KEY` or `VITE_ACTOR_AUTH_TOKEN` in the public frontend image. |
 | Runtime telemetry was visible only through app endpoints and docs. | Operators lacked a scrapeable signal path for backend/model readiness, AI tool failures, latency, and ingress errors. | Added a sanitized Prometheus text export, backend scrape metadata, monitoring NetworkPolicy allowance, and ingress-controller metric guidance. |
+| Hyperscaler choice was an open owner decision with no decision record. | Deployment could drift into an under-specified cluster choice without checking NetworkPolicy, storage, model hosting, auth, or observability needs. | Added a provider selection guide with major-provider fit, required capabilities, a recommended first path, and a decision template. |
 
 ## Remaining Repo Work
 
@@ -51,7 +53,7 @@ No blocking repo-side deployment readiness items remain in this checklist. The r
 
 | Dependency | Owner Decision Needed |
 | --- | --- |
-| Hyperscaler and Kubernetes flavor | Choose EKS, GKE, AKS, or another managed Kubernetes option. |
+| Hyperscaler and Kubernetes flavor | Choose EKS, GKE, AKS, or another managed Kubernetes option using `docs/deployment-provider-selection.md`. |
 | Container image access | Make GHCR packages public or configure cluster image pull credentials. |
 | Domain and DNS | Choose the public hostname and point DNS to the ingress load balancer. |
 | TLS issuing path | Use cert-manager, provider-managed certificates, or a manually created TLS Secret. |
