@@ -76,7 +76,7 @@ For a pilot with an external private model endpoint:
 | --- | --- | --- |
 | system/general | ingress controller, frontend, backend, monitoring agents | 2 small-to-medium Linux nodes. |
 
-Keep backend replicas at `1` until the managed Postgres migration is implemented and cut over. The checked-in manifest validation intentionally fails if SQLite is configured with more than one backend replica.
+Keep backend replicas at `1` until `DATABASE_MODE=postgres` is rendered, `desk-ai-secrets/DATABASE_URL` points at managed Postgres, and the Postgres canary has passed. The checked-in manifest validation intentionally fails if SQLite is configured with more than one backend replica.
 
 ## Decision Record Template
 
@@ -117,10 +117,10 @@ Decision date:
 6. Choose public access controls using `docs/deployment-public-access.md`.
 7. Install or select the ingress controller/load-balancer path.
 8. Configure DNS using `docs/deployment-domain-dns.md`, then configure TLS using `docs/deployment-tls.md`.
-9. Connect the secret manager to a Kubernetes Secret named `desk-ai-secrets` using `docs/deployment-secret-management.md`.
+9. Connect the secret manager to a Kubernetes Secret named `desk-ai-secrets` using `docs/deployment-secret-management.md`; include `DATABASE_URL` when managed Postgres is selected.
 10. Install the observability stack and confirm backend `/metrics` plus ingress errors are scraped.
-11. Run `K8S_BASE_DIR=<selected-path> MODEL_ENDPOINT_URL=<external-url-if-needed> STORAGE_CLASS_NAME=<storage-class> REQUIRE_NETWORK_POLICY_ENFORCEMENT=true NETWORK_POLICY_PROVIDER=<provider> NETWORK_POLICY_ENFORCEMENT_CONFIRMED=true FRONTEND_INGRESS_POLICY=enabled INGRESS_CONTROLLER_NAMESPACE=<namespace> INGRESS_CONTROLLER_POD_SELECTOR=<selector> REQUIRE_PUBLIC_ACCESS_CONTROL=true PUBLIC_ACCESS_MODE=<access-mode> REQUIRE_RUNTIME_SECRET=true TLS_MODE=<tls-mode> PUBLIC_HOST=<host> TLS_SECRET_NAME=<secret> ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml`.
-12. Apply the release, run `./scripts/check-runtime-secret.sh desk-ai-secrets`, run `MODEL_HOSTING_MODE=<model-mode> ./scripts/check-model-runtime.sh https://<host>`, run `VOLUME_SNAPSHOT_CLASS_NAME=<snapshot-class> REQUIRE_VOLUME_SNAPSHOT_CLASS=true ./scripts/check-storage-policy.sh <storage-class>`, run `PUBLIC_ACCESS_MODE=<access-mode> ./scripts/check-public-access.sh <host>`, run `NETWORK_POLICY_PROVIDER=<provider> REQUIRE_FRONTEND_INGRESS_POLICY=true INGRESS_CONTROLLER_NAMESPACE=<namespace> INGRESS_CONTROLLER_POD_SELECTOR=<selector> ./scripts/check-network-policy.sh desk-ai`, run `./scripts/check-public-dns.sh <host>`, run `./scripts/check-public-tls.sh <host>`, then run `./scripts/smoke-deploy.sh https://<host>`.
+11. Run `K8S_BASE_DIR=<selected-path> MODEL_ENDPOINT_URL=<external-url-if-needed> STORAGE_CLASS_NAME=<storage-class> DATABASE_MODE=<sqlite-or-postgres> DATABASE_SECRET_NAME=desk-ai-secrets DATABASE_URL_SECRET_KEY=DATABASE_URL BACKEND_REPLICAS=<count> REQUIRE_NETWORK_POLICY_ENFORCEMENT=true NETWORK_POLICY_PROVIDER=<provider> NETWORK_POLICY_ENFORCEMENT_CONFIRMED=true FRONTEND_INGRESS_POLICY=enabled INGRESS_CONTROLLER_NAMESPACE=<namespace> INGRESS_CONTROLLER_POD_SELECTOR=<selector> REQUIRE_PUBLIC_ACCESS_CONTROL=true PUBLIC_ACCESS_MODE=<access-mode> REQUIRE_RUNTIME_SECRET=true TLS_MODE=<tls-mode> PUBLIC_HOST=<host> TLS_SECRET_NAME=<secret> ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml`.
+12. Apply the release, run `./scripts/check-runtime-secret.sh desk-ai-secrets`, run `DATABASE_MODE=<sqlite-or-postgres> ./scripts/check-database-runtime.sh https://<host>`, run `MODEL_HOSTING_MODE=<model-mode> ./scripts/check-model-runtime.sh https://<host>`, run `DATABASE_MODE=<sqlite-or-postgres> VOLUME_SNAPSHOT_CLASS_NAME=<snapshot-class> REQUIRE_VOLUME_SNAPSHOT_CLASS=true ./scripts/check-storage-policy.sh <storage-class>`, run `PUBLIC_ACCESS_MODE=<access-mode> ./scripts/check-public-access.sh <host>`, run `NETWORK_POLICY_PROVIDER=<provider> REQUIRE_FRONTEND_INGRESS_POLICY=true INGRESS_CONTROLLER_NAMESPACE=<namespace> INGRESS_CONTROLLER_POD_SELECTOR=<selector> ./scripts/check-network-policy.sh desk-ai`, run `./scripts/check-public-dns.sh <host>`, run `./scripts/check-public-tls.sh <host>`, then run `./scripts/smoke-deploy.sh https://<host>`.
 
 ## References
 

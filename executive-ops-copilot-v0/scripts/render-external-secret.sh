@@ -15,6 +15,8 @@ Environment:
   REMOTE_SECRET_KEY=<required provider secret key/name>
   ADMIN_API_KEY_PROPERTY=ADMIN_API_KEY
   ACTOR_AUTH_TOKEN_PROPERTY=ACTOR_AUTH_TOKEN
+  INCLUDE_DATABASE_URL=false
+  DATABASE_URL_PROPERTY=DATABASE_URL
   REFRESH_INTERVAL=1h
 USAGE
 }
@@ -37,6 +39,8 @@ SECRET_STORE_KIND="${SECRET_STORE_KIND:-ClusterSecretStore}"
 REMOTE_SECRET_KEY="${REMOTE_SECRET_KEY:-}"
 ADMIN_API_KEY_PROPERTY="${ADMIN_API_KEY_PROPERTY:-ADMIN_API_KEY}"
 ACTOR_AUTH_TOKEN_PROPERTY="${ACTOR_AUTH_TOKEN_PROPERTY:-ACTOR_AUTH_TOKEN}"
+INCLUDE_DATABASE_URL="${INCLUDE_DATABASE_URL:-false}"
+DATABASE_URL_PROPERTY="${DATABASE_URL_PROPERTY:-DATABASE_URL}"
 REFRESH_INTERVAL="${REFRESH_INTERVAL:-1h}"
 
 validate_dns_label() {
@@ -81,6 +85,15 @@ fi
 
 validate_secret_key "$ADMIN_API_KEY_PROPERTY" "ADMIN_API_KEY_PROPERTY"
 validate_secret_key "$ACTOR_AUTH_TOKEN_PROPERTY" "ACTOR_AUTH_TOKEN_PROPERTY"
+validate_secret_key "$DATABASE_URL_PROPERTY" "DATABASE_URL_PROPERTY"
+
+case "$INCLUDE_DATABASE_URL" in
+  true | false) ;;
+  *)
+    echo "INCLUDE_DATABASE_URL must be true or false." >&2
+    exit 1
+    ;;
+esac
 
 if ! [[ "$REFRESH_INTERVAL" =~ ^[0-9]+[smhd]$ ]]; then
   echo "REFRESH_INTERVAL must use a simple duration such as 15m, 1h, or 1d." >&2
@@ -114,6 +127,14 @@ spec:
         key: $REMOTE_SECRET_KEY
         property: $ACTOR_AUTH_TOKEN_PROPERTY
 YAML
+  if [[ "$INCLUDE_DATABASE_URL" == "true" ]]; then
+    cat <<YAML
+    - secretKey: DATABASE_URL
+      remoteRef:
+        key: $REMOTE_SECRET_KEY
+        property: $DATABASE_URL_PROPERTY
+YAML
+  fi
 }
 
 if [[ -n "$OUTPUT_FILE" ]]; then

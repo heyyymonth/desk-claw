@@ -96,13 +96,15 @@ class AuditRepository:
                     event.model_status,
                     event.status,
                     event.latency_ms,
-                    _to_json(_redact_payload(event.request_payload)),
-                    _to_json(_redact_payload(event.response_payload)) if event.response_payload is not None else None,
+                    _to_db_json(self.database, _redact_payload(event.request_payload)),
+                    _to_db_json(self.database, _redact_payload(event.response_payload))
+                    if event.response_payload is not None
+                    else None,
                     event.error_code,
-                    _to_json(_redact_text(event.error_message)) if event.error_message else None,
+                    _to_db_json(self.database, _redact_text(event.error_message)) if event.error_message else None,
                     event.runtime,
                     event.agent_name,
-                    _to_json(event.tool_calls or []),
+                    _to_db_json(self.database, event.tool_calls or []),
                 ),
             )
             connection.commit()
@@ -127,7 +129,7 @@ class AuditRepository:
         return [
             {
                 "id": row["id"],
-                "created_at": row["created_at"],
+                "created_at": _to_iso_string(row["created_at"]),
                 "actor_id": row["actor_id"],
                 "operation": row["operation"],
                 "endpoint": row["endpoint"],
@@ -135,13 +137,13 @@ class AuditRepository:
                 "model_status": row["model_status"],
                 "status": row["status"],
                 "latency_ms": row["latency_ms"],
-                "request_payload": json.loads(row["request_payload"]),
-                "response_payload": json.loads(row["response_payload"]) if row["response_payload"] else None,
+                "request_payload": _from_json_or_value(row["request_payload"]),
+                "response_payload": _from_json_or_value(row["response_payload"]) if row["response_payload"] else None,
                 "error_code": row["error_code"],
                 "error_message": _from_json_or_text(row["error_message"]),
                 "runtime": row["runtime"],
                 "agent_name": row["agent_name"],
-                "tool_calls": json.loads(row["tool_calls"] or "[]"),
+                "tool_calls": _from_json_or_value(row["tool_calls"] or []),
             }
             for row in rows
         ]
@@ -164,7 +166,7 @@ class AuditRepository:
         return [
             {
                 "id": row["id"],
-                "created_at": row["created_at"],
+                "created_at": _to_iso_string(row["created_at"]),
                 "actor_id": row["actor_id"],
                 "operation": row["operation"],
                 "endpoint": row["endpoint"],
@@ -176,7 +178,7 @@ class AuditRepository:
                 "error_message": _from_json_or_text(row["error_message"]),
                 "runtime": row["runtime"],
                 "agent_name": row["agent_name"],
-                "tool_calls": json.loads(row["tool_calls"] or "[]"),
+                "tool_calls": _from_json_or_value(row["tool_calls"] or []),
             }
             for row in rows
         ]
@@ -184,7 +186,15 @@ class AuditRepository:
 
 def _to_json(value: Any) -> str:
     if isinstance(value, BaseModel):
-        return value.model_dump_json()
+        return json.dumps(value.model_dump(mode="json"), default=str)
+    return json.dumps(value, default=str)
+
+
+def _to_db_json(database: Database, value: Any) -> Any:
+    if isinstance(value, BaseModel):
+        value = value.model_dump(mode="json")
+    if database.dialect == "postgres":
+        return database.json_value(value)
     return json.dumps(value, default=str)
 
 
@@ -195,10 +205,24 @@ def _bounded_limit(limit: int) -> int:
 def _from_json_or_text(value: str | None) -> Any:
     if value is None:
         return None
+    if not isinstance(value, str):
+        return value
     try:
         return json.loads(value)
     except json.JSONDecodeError:
         return value
+
+
+def _from_json_or_value(value: Any) -> Any:
+    if isinstance(value, str):
+        return json.loads(value)
+    return value
+
+
+def _to_iso_string(value: Any) -> str:
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)
 
 
 def _redact_payload(value: Any, field_name: str | None = None) -> Any:

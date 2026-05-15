@@ -9,7 +9,7 @@ This document defines how Desk AI selects Kubernetes storage for the current PVC
 | `backend-data` | Always, while SQLite is used | `deskclaw.db` with decisions, decision log, users, and redacted AI audit data. | SQLite online backup plus CSI snapshot when available. |
 | `ollama-data` | In-cluster CPU/GPU Ollama only | Pulled `gemma4:latest` model cache. | Recreate by model pull, or snapshot when pull time/network constraints make that too slow. |
 
-Both PVCs are `ReadWriteOnce`. The backend must remain at one replica while `DATABASE_URL` points at SQLite.
+Both PVCs are `ReadWriteOnce`. The backend must remain at one replica while `DATABASE_URL` points at SQLite. In `DATABASE_MODE=postgres`, the release renderer removes `backend-data`; `check-storage-policy.sh` should be run with `DATABASE_MODE=postgres` so it verifies only the remaining model-cache PVC when Ollama is in-cluster.
 
 ## StorageClass Decision
 

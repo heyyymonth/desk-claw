@@ -11,6 +11,7 @@ dependencies = [
   "fastapi>=0.110",
   "google-adk==0.4.0",
   "litellm>=1.65.5",
+  "psycopg[binary]>=3.2",
   "pydantic>=2.7",
   "pyyaml>=6.0",
   "tabulate>=0.9",
@@ -34,9 +35,10 @@ include = ["app*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-addopts = ["-m", "not evals"]
+addopts = ["-m", "not evals and not postgres"]
 markers = [
   "evals: tests that execute ADK eval flows and are excluded from the default test suite",
+  "postgres: tests that require a live PostgreSQL database",
 ]
 
 [tool.ruff]

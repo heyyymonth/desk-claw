@@ -19,6 +19,8 @@ Set RUNTIME_SECRET_NAME=desk-ai-secrets to choose the backend runtime Secret.
 Set REQUIRE_RUNTIME_SECRET=true for public releases that must fail if runtime secrets are missing.
 Set STORAGE_CLASS_NAME=<class> to pin backend-data and ollama-data PVCs to a provider StorageClass.
 Set BACKEND_STORAGE_CLASS_NAME or OLLAMA_STORAGE_CLASS_NAME to override one PVC separately.
+Set DATABASE_MODE=postgres with DATABASE_SECRET_NAME and DATABASE_URL_SECRET_KEY to read DATABASE_URL from a Secret and remove the backend SQLite PVC.
+Set BACKEND_REPLICAS=<count> after DATABASE_MODE=postgres to scale backend replicas horizontally.
 Set REQUIRE_PUBLIC_ACCESS_CONTROL=true for public releases that must declare an access mode.
 Set PUBLIC_ACCESS_MODE=ip-allowlist with PUBLIC_ALLOWED_CIDRS=<cidr,cidr> for nginx ingress CIDR allowlisting.
 Set PUBLIC_ACCESS_MODE=provider-gated with PUBLIC_WAF_POLICY_ID, PUBLIC_DDOS_PROTECTION=true, and PUBLIC_IDENTITY_PROVIDER for provider edge controls.
@@ -50,6 +52,10 @@ MODEL_ENDPOINT_URL="${MODEL_ENDPOINT_URL:-}"
 STORAGE_CLASS_NAME="${STORAGE_CLASS_NAME:-}"
 BACKEND_STORAGE_CLASS_NAME="${BACKEND_STORAGE_CLASS_NAME:-$STORAGE_CLASS_NAME}"
 OLLAMA_STORAGE_CLASS_NAME="${OLLAMA_STORAGE_CLASS_NAME:-$STORAGE_CLASS_NAME}"
+DATABASE_MODE="${DATABASE_MODE:-sqlite}"
+DATABASE_SECRET_NAME="${DATABASE_SECRET_NAME:-desk-ai-secrets}"
+DATABASE_URL_SECRET_KEY="${DATABASE_URL_SECRET_KEY:-DATABASE_URL}"
+BACKEND_REPLICAS="${BACKEND_REPLICAS:-}"
 REQUIRE_PUBLIC_ACCESS_CONTROL="${REQUIRE_PUBLIC_ACCESS_CONTROL:-false}"
 PUBLIC_ACCESS_MODE="${PUBLIC_ACCESS_MODE:-}"
 PUBLIC_ALLOWED_CIDRS="${PUBLIC_ALLOWED_CIDRS:-}"
@@ -178,12 +184,48 @@ if ! [[ "$RUNTIME_SECRET_NAME" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]]; then
   exit 1
 fi
 
-if [[ -n "$BACKEND_STORAGE_CLASS_NAME" ]]; then
+if [[ "$DATABASE_MODE" != "postgres" && -n "$BACKEND_STORAGE_CLASS_NAME" ]]; then
   validate_kubernetes_name "$BACKEND_STORAGE_CLASS_NAME" "BACKEND_STORAGE_CLASS_NAME"
 fi
 
 if [[ -n "$OLLAMA_STORAGE_CLASS_NAME" ]]; then
   validate_kubernetes_name "$OLLAMA_STORAGE_CLASS_NAME" "OLLAMA_STORAGE_CLASS_NAME"
+fi
+
+case "$DATABASE_MODE" in
+  sqlite | postgres) ;;
+  *)
+    echo "DATABASE_MODE must be sqlite or postgres." >&2
+    exit 1
+    ;;
+esac
+
+if ! [[ "$DATABASE_SECRET_NAME" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]]; then
+  echo "DATABASE_SECRET_NAME must be a valid Kubernetes DNS label." >&2
+  exit 1
+fi
+
+if ! [[ "$DATABASE_URL_SECRET_KEY" =~ ^[A-Za-z0-9._-]+$ ]]; then
+  echo "DATABASE_URL_SECRET_KEY must be a valid Kubernetes Secret key." >&2
+  exit 1
+fi
+
+if [[ -n "$BACKEND_REPLICAS" ]]; then
+  if ! [[ "$BACKEND_REPLICAS" =~ ^[1-9][0-9]*$ ]]; then
+    echo "BACKEND_REPLICAS must be a positive integer." >&2
+    exit 1
+  fi
+  if [[ "$DATABASE_MODE" != "postgres" && "$BACKEND_REPLICAS" != "1" ]]; then
+    echo "BACKEND_REPLICAS greater than 1 requires DATABASE_MODE=postgres." >&2
+    exit 1
+  fi
+fi
+
+if [[ "$DATABASE_MODE" == "postgres" ]]; then
+  if [[ -z "$DATABASE_SECRET_NAME" || -z "$DATABASE_URL_SECRET_KEY" ]]; then
+    echo "DATABASE_SECRET_NAME and DATABASE_URL_SECRET_KEY must be set when DATABASE_MODE=postgres." >&2
+    exit 1
+  fi
 fi
 
 case "$REQUIRE_RUNTIME_SECRET" in
@@ -391,6 +433,17 @@ YAML
   EXTRA_RESOURCES="  - frontend-ingress-network-policy.yaml"
 fi
 
+if [[ "$DATABASE_MODE" == "postgres" ]]; then
+  cat > "$TMP_DIR/remove-backend-data-pvc.yaml" <<YAML
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backend-data
+  namespace: desk-ai
+\$patch: delete
+YAML
+fi
+
 cat > "$TMP_DIR/kustomization.yaml" <<YAML
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
@@ -463,6 +516,52 @@ if [[ "$REQUIRE_RUNTIME_SECRET" == "true" || "$RUNTIME_SECRET_NAME" != "desk-ai-
       - op: replace
         path: /spec/template/spec/containers/0/envFrom/1/secretRef/optional
         value: $([[ "$REQUIRE_RUNTIME_SECRET" == "true" ]] && echo "false" || echo "true")
+YAML
+fi
+
+if [[ -n "$BACKEND_REPLICAS" ]]; then
+  append_patches_header
+  cat >> "$TMP_DIR/kustomization.yaml" <<YAML
+  - target:
+      kind: Deployment
+      name: backend
+      namespace: desk-ai
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: $BACKEND_REPLICAS
+YAML
+fi
+
+if [[ "$DATABASE_MODE" == "postgres" ]]; then
+  append_patches_header
+  cat >> "$TMP_DIR/kustomization.yaml" <<YAML
+  - path: remove-backend-data-pvc.yaml
+  - target:
+      kind: Deployment
+      name: backend
+      namespace: desk-ai
+    patch: |-
+      - op: add
+        path: /metadata/annotations
+        value:
+          desk.ai/database-mode: postgres
+      - op: add
+        path: /spec/template/metadata/annotations
+        value:
+          desk.ai/database-mode: postgres
+      - op: add
+        path: /spec/template/spec/containers/0/env
+        value:
+          - name: DATABASE_URL
+            valueFrom:
+              secretKeyRef:
+                name: $DATABASE_SECRET_NAME
+                key: $DATABASE_URL_SECRET_KEY
+      - op: remove
+        path: /spec/template/spec/containers/0/volumeMounts
+      - op: remove
+        path: /spec/template/spec/volumes
 YAML
 fi
 

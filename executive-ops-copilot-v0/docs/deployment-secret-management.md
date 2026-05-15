@@ -14,6 +14,7 @@ Type: Opaque
 Required keys:
   ADMIN_API_KEY
   ACTOR_AUTH_TOKEN
+  DATABASE_URL when DATABASE_MODE=postgres
 ```
 
 Current V0 meaning:
@@ -22,6 +23,7 @@ Current V0 meaning:
 | --- | --- | --- |
 | `ADMIN_API_KEY` | Allows private/admin reads for AI audit and telemetry endpoints. | Do not put this in frontend builds. It is not the final public admin auth model. |
 | `ACTOR_AUTH_TOKEN` | Lets trusted server-side callers attach actor identity headers. | Browser-supplied actor identity remains untrusted without this token. |
+| `DATABASE_URL` | Lets backend pods connect to managed Postgres when `DATABASE_MODE=postgres`. | Must be a `postgres://` or `postgresql://` URL from the provider secret manager, with TLS required by the provider. Do not put it in the ConfigMap. |
 
 Future OIDC/session secrets are documented in `docs/deployment-auth-session.md`; do not add them to the live Secret until the backend reads them.
 
@@ -30,7 +32,7 @@ Future OIDC/session secrets are documented in `docs/deployment-auth-session.md`;
 External prerequisites:
 
 - External Secrets Operator is installed in the cluster;
-- the provider secret manager contains one remote secret with `ADMIN_API_KEY` and `ACTOR_AUTH_TOKEN` properties;
+- the provider secret manager contains one remote secret with `ADMIN_API_KEY`, `ACTOR_AUTH_TOKEN`, and `DATABASE_URL` properties when Postgres mode is enabled;
 - the cluster operator has created a least-privilege `SecretStore` or `ClusterSecretStore`;
 - the provider access policy allows only the required remote secret key;
 - Kubernetes Secret encryption at rest and RBAC are enabled for the cluster.
@@ -45,6 +47,13 @@ export SECRET_STORE_KIND=ClusterSecretStore
 export REMOTE_SECRET_KEY=desk-ai/production/runtime
 
 ./scripts/render-external-secret.sh /tmp/desk-ai-external-secret.yaml
+kubectl apply -f /tmp/desk-ai-external-secret.yaml
+```
+
+For managed Postgres cutover, include the database URL key:
+
+```bash
+INCLUDE_DATABASE_URL=true ./scripts/render-external-secret.sh /tmp/desk-ai-external-secret.yaml
 kubectl apply -f /tmp/desk-ai-external-secret.yaml
 ```
 
@@ -71,6 +80,7 @@ After applying the release, verify the Secret and deployment wiring:
 
 ```bash
 ./scripts/check-runtime-secret.sh desk-ai-secrets
+DATABASE_MODE=postgres ./scripts/check-database-runtime.sh "$PUBLIC_URL"
 ```
 
 ## Manual Fallback
@@ -81,8 +91,11 @@ Use this only for a controlled pilot or while wiring the provider secret manager
 kubectl -n desk-ai create secret generic desk-ai-secrets \
   --from-literal=ADMIN_API_KEY="$(openssl rand -hex 32)" \
   --from-literal=ACTOR_AUTH_TOKEN="$(openssl rand -hex 32)" \
+  --from-literal=DATABASE_URL="postgresql://user:password@host:5432/deskai?sslmode=require" \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
+
+For SQLite mode, omit `DATABASE_URL`. For Postgres mode, replace it with the managed database URL from the provider.
 
 Then render the production release with `REQUIRE_RUNTIME_SECRET=true` and run:
 
@@ -123,6 +136,7 @@ For manual Secrets, apply the replacement Secret and run the same backend rollou
 | Secret exists but check fails for placeholder values. | `secrets.example.yaml` values were copied into production. | Rotate to generated values from the provider secret manager. |
 | Admin telemetry returns unauthorized. | `ADMIN_API_KEY` missing, changed without client update, or backend pods not restarted after rotation. | Check the Secret, update the private admin client, and restart backend pods. |
 | Actor headers are ignored. | `ACTOR_AUTH_TOKEN` missing or does not match caller header. | Check the Secret and trusted caller configuration. |
+| Postgres backend starts in SQLite mode. | `DATABASE_MODE=postgres` was not used during release rendering, or `DATABASE_URL` was not wired as an explicit Secret env var. | Re-render with `DATABASE_MODE=postgres DATABASE_SECRET_NAME=desk-ai-secrets DATABASE_URL_SECRET_KEY=DATABASE_URL`, apply, and run `scripts/check-database-runtime.sh`. |
 
 ## References
 

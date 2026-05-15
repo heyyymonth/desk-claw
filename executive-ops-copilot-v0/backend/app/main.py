@@ -60,6 +60,7 @@ def create_app() -> FastAPI:
             "ollama_model": settings.ollama_model,
             "model_runtime": "google-adk" if settings.agent_runtime == "adk" else settings.agent_runtime,
             "model_warmup": app.state.model_warmup,
+            "database": {"dialect": settings.database_dialect},
         }
 
     return app

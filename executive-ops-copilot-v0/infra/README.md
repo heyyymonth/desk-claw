@@ -77,9 +77,11 @@ export GHCR_TOKEN=<classic-pat-with-read-packages>
 For a public cluster, create `desk-ai-secrets` from a provider secret manager or External Secrets before applying a production release:
 
 ```bash
-SECRET_STORE_NAME=desk-ai-runtime-secrets REMOTE_SECRET_KEY=desk-ai/production/runtime ./scripts/render-external-secret.sh /tmp/desk-ai-external-secret.yaml
+SECRET_STORE_NAME=desk-ai-runtime-secrets REMOTE_SECRET_KEY=desk-ai/production/runtime INCLUDE_DATABASE_URL=true ./scripts/render-external-secret.sh /tmp/desk-ai-external-secret.yaml
 kubectl apply -f /tmp/desk-ai-external-secret.yaml
 ```
+
+Set `INCLUDE_DATABASE_URL=true` only after the provider secret contains the managed Postgres URL. SQLite-backed pilots can omit it.
 
 For a local/private manual fallback only, copy the example, replace every value, and apply the ignored file out of band:
 
@@ -88,7 +90,7 @@ cp infra/k8s/secrets.example.yaml infra/k8s/secrets.yaml
 kubectl apply -f infra/k8s/secrets.yaml
 ```
 
-The real `secrets.yaml` file is ignored by git. On a hyperscaler, prefer the provider secret manager or External Secrets and make it create a Kubernetes Secret named `desk-ai-secrets` in the `desk-ai` namespace. The backend reads `ADMIN_API_KEY` and `ACTOR_AUTH_TOKEN` from that Secret. Public releases should be rendered with `REQUIRE_RUNTIME_SECRET=true`; without that flag, the local/default manifest keeps the Secret optional and admin read endpoints fail closed when the key is absent.
+The real `secrets.yaml` file is ignored by git. On a hyperscaler, prefer the provider secret manager or External Secrets and make it create a Kubernetes Secret named `desk-ai-secrets` in the `desk-ai` namespace. The backend reads `ADMIN_API_KEY` and `ACTOR_AUTH_TOKEN` from that Secret. When `DATABASE_MODE=postgres`, it also reads `DATABASE_URL` from the Secret through an explicit environment variable. Public releases should be rendered with `REQUIRE_RUNTIME_SECRET=true`; without that flag, the local/default manifest keeps the Secret optional and admin read endpoints fail closed when the key is absent.
 
 The default kustomization maps the workload placeholders to the published GHCR images:
 
@@ -124,7 +126,7 @@ Production dependencies outside this repo:
 For production rollouts, prefer immutable commit tags over `latest`. Render a release manifest with the CI commit tag, then apply the rendered output. After the CNI and ingress-controller labels are confirmed, include the NetworkPolicy gate variables:
 
 ```bash
-STORAGE_CLASS_NAME=desk-ai-retain REQUIRE_NETWORK_POLICY_ENFORCEMENT=true NETWORK_POLICY_PROVIDER=cilium NETWORK_POLICY_ENFORCEMENT_CONFIRMED=true FRONTEND_INGRESS_POLICY=enabled INGRESS_CONTROLLER_NAMESPACE=ingress-nginx INGRESS_CONTROLLER_POD_SELECTOR=app.kubernetes.io/name=ingress-nginx,app.kubernetes.io/component=controller REQUIRE_PUBLIC_ACCESS_CONTROL=true PUBLIC_ACCESS_MODE=ip-allowlist PUBLIC_ALLOWED_CIDRS=203.0.113.10/32 REQUIRE_RUNTIME_SECRET=true RUNTIME_SECRET_NAME=desk-ai-secrets TLS_MODE=cert-manager TLS_CLUSTER_ISSUER=letsencrypt-prod PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
+STORAGE_CLASS_NAME=desk-ai-retain DATABASE_MODE=postgres DATABASE_SECRET_NAME=desk-ai-secrets DATABASE_URL_SECRET_KEY=DATABASE_URL BACKEND_REPLICAS=2 REQUIRE_NETWORK_POLICY_ENFORCEMENT=true NETWORK_POLICY_PROVIDER=cilium NETWORK_POLICY_ENFORCEMENT_CONFIRMED=true FRONTEND_INGRESS_POLICY=enabled INGRESS_CONTROLLER_NAMESPACE=ingress-nginx INGRESS_CONTROLLER_POD_SELECTOR=app.kubernetes.io/name=ingress-nginx,app.kubernetes.io/component=controller REQUIRE_PUBLIC_ACCESS_CONTROL=true PUBLIC_ACCESS_MODE=ip-allowlist PUBLIC_ALLOWED_CIDRS=203.0.113.10/32 REQUIRE_RUNTIME_SECRET=true RUNTIME_SECRET_NAME=desk-ai-secrets TLS_MODE=cert-manager TLS_CLUSTER_ISSUER=letsencrypt-prod PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
 kubectl apply -f /tmp/desk-ai-release.yaml
 ```
 
@@ -161,13 +163,14 @@ kubectl apply -f infra/k8s/ollama.yaml
 kubectl -n desk-ai wait --for=condition=available deployment/ollama --timeout=300s
 kubectl apply -f infra/k8s/ollama-model-job.yaml
 kubectl -n desk-ai wait --for=condition=complete job/ollama-pull-gemma4 --timeout=1800s
-STORAGE_CLASS_NAME=desk-ai-retain REQUIRE_NETWORK_POLICY_ENFORCEMENT=true NETWORK_POLICY_PROVIDER=cilium NETWORK_POLICY_ENFORCEMENT_CONFIRMED=true FRONTEND_INGRESS_POLICY=enabled INGRESS_CONTROLLER_NAMESPACE=ingress-nginx INGRESS_CONTROLLER_POD_SELECTOR=app.kubernetes.io/name=ingress-nginx,app.kubernetes.io/component=controller REQUIRE_PUBLIC_ACCESS_CONTROL=true PUBLIC_ACCESS_MODE=ip-allowlist PUBLIC_ALLOWED_CIDRS=203.0.113.10/32 REQUIRE_RUNTIME_SECRET=true RUNTIME_SECRET_NAME=desk-ai-secrets TLS_MODE=cert-manager TLS_CLUSTER_ISSUER=letsencrypt-prod PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
+STORAGE_CLASS_NAME=desk-ai-retain DATABASE_MODE=postgres DATABASE_SECRET_NAME=desk-ai-secrets DATABASE_URL_SECRET_KEY=DATABASE_URL BACKEND_REPLICAS=2 REQUIRE_NETWORK_POLICY_ENFORCEMENT=true NETWORK_POLICY_PROVIDER=cilium NETWORK_POLICY_ENFORCEMENT_CONFIRMED=true FRONTEND_INGRESS_POLICY=enabled INGRESS_CONTROLLER_NAMESPACE=ingress-nginx INGRESS_CONTROLLER_POD_SELECTOR=app.kubernetes.io/name=ingress-nginx,app.kubernetes.io/component=controller REQUIRE_PUBLIC_ACCESS_CONTROL=true PUBLIC_ACCESS_MODE=ip-allowlist PUBLIC_ALLOWED_CIDRS=203.0.113.10/32 REQUIRE_RUNTIME_SECRET=true RUNTIME_SECRET_NAME=desk-ai-secrets TLS_MODE=cert-manager TLS_CLUSTER_ISSUER=letsencrypt-prod PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
 kubectl apply -f /tmp/desk-ai-release.yaml
 kubectl -n desk-ai rollout status deployment/backend --timeout=600s
 kubectl -n desk-ai rollout status deployment/frontend --timeout=300s
 ./scripts/check-runtime-secret.sh desk-ai-secrets
+DATABASE_MODE=postgres DATABASE_SECRET_NAME=desk-ai-secrets DATABASE_URL_SECRET_KEY=DATABASE_URL ./scripts/check-database-runtime.sh https://desk-ai.example.com
 ./scripts/check-model-runtime.sh https://desk-ai.example.com
-VOLUME_SNAPSHOT_CLASS_NAME=desk-ai-snapshots REQUIRE_VOLUME_SNAPSHOT_CLASS=true ./scripts/check-storage-policy.sh desk-ai-retain
+DATABASE_MODE=postgres VOLUME_SNAPSHOT_CLASS_NAME=desk-ai-snapshots REQUIRE_VOLUME_SNAPSHOT_CLASS=true ./scripts/check-storage-policy.sh desk-ai-retain
 PUBLIC_ACCESS_MODE=ip-allowlist PUBLIC_ALLOWED_CIDRS=203.0.113.10/32 ./scripts/check-public-access.sh desk-ai.example.com
 NETWORK_POLICY_PROVIDER=cilium REQUIRE_FRONTEND_INGRESS_POLICY=true INGRESS_CONTROLLER_NAMESPACE=ingress-nginx INGRESS_CONTROLLER_POD_SELECTOR=app.kubernetes.io/name=ingress-nginx,app.kubernetes.io/component=controller ./scripts/check-network-policy.sh desk-ai
 ./scripts/check-public-dns.sh desk-ai.example.com
@@ -217,6 +220,7 @@ For public exposure, review `../docs/deployment-resource-tuning.md` before choos
 ## Operational Notes
 
 - SQLite is mounted on a `ReadWriteOnce` PVC and the backend defaults to one replica. Move to managed Postgres before scaling backend replicas horizontally; see `../docs/deployment-database-migration.md`.
+- For managed Postgres, render with `DATABASE_MODE=postgres` so the backend reads `DATABASE_URL` from `desk-ai-secrets`, removes the SQLite PVC mount, and can scale with `BACKEND_REPLICAS` after canary verification.
 - Pin production PVCs with `STORAGE_CLASS_NAME` during release rendering and verify with `./scripts/check-storage-policy.sh`; see `../docs/deployment-storage-policy.md`.
 - Render production public ingress with `REQUIRE_PUBLIC_ACCESS_CONTROL=true` and verify with `./scripts/check-public-access.sh`; see `../docs/deployment-public-access.md`.
 - Back up `backend-data` before releases, migrations, and storage changes. Use `../docs/deployment-backup-restore.md` until managed Postgres backup/PITR replaces SQLite backups.

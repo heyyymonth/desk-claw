@@ -9,7 +9,7 @@ This runbook covers the current PVC-backed deployment until managed Postgres and
 | `backend-data` | `/app/data` in the backend pod | `deskclaw.db`, including decisions, workflow decision log, app users, and redacted AI audit/telemetry source rows. | Critical. Back up before deploys, migrations, and on a regular schedule. |
 | `ollama-data` | `/root/.ollama` in the Ollama pod | Pulled local model artifacts, currently `gemma4:latest`. | Recreatable if Ollama registry access is available. Snapshot when pull time, network policy, or air-gapped operation makes redownload risky. |
 
-The backend is still SQLite-only. Keep backend replicas at one while `DATABASE_URL` points at SQLite.
+The backend can run on SQLite or managed Postgres. Keep backend replicas at one while `DATABASE_URL` points at SQLite; use the managed Postgres backup/PITR plan after `DATABASE_MODE=postgres` cutover.
 
 ## Backup Objectives
 

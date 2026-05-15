@@ -136,11 +136,13 @@ Deployment storage policy is documented in `docs/deployment-storage-policy.md`. 
 
 Deployment public access controls are documented in `docs/deployment-public-access.md`. Production Kubernetes releases should use `REQUIRE_PUBLIC_ACCESS_CONTROL=true`, choose either `ip-allowlist` or `provider-gated`, and verify the deployed Ingress with `scripts/check-public-access.sh`.
 
+Managed Postgres cutover is documented in `docs/deployment-database-migration.md`. Production Kubernetes releases can set `DATABASE_MODE=postgres` so the backend reads `DATABASE_URL` from `desk-ai-secrets`, removes the SQLite PVC mount, and can scale with `BACKEND_REPLICAS` after canary verification.
+
 The default SQLite database path is `backend/data/deskclaw.db` when running from `backend/`. Local database files are ignored by git.
 
 ## Persistence and Audit
 
-The backend uses SQLite for local durable storage. The default database is:
+The backend uses SQLite for local durable storage and supports Postgres for production. The default database is:
 
 ```text
 backend/data/deskclaw.db
@@ -150,6 +152,7 @@ Override it with:
 
 ```bash
 DATABASE_URL=sqlite:///./data/deskclaw.db
+# DATABASE_URL=postgresql://user:password@host:5432/deskai?sslmode=require
 ```
 
 Persisted tables include:
@@ -159,7 +162,7 @@ Persisted tables include:
 - `decisions`: simple feedback events from `POST /api/feedback`.
 - `decision_log`: full workflow decision records from `POST /api/decisions`.
 
-AI audit records include actor ID, endpoint, operation, configured model, model status, redacted request/response payload metadata, response/error status, timestamp, and latency. Free-form text fields such as request text, requester, attendees, draft subject/body, notes, and error messages are redacted before SQLite storage. Actor details are trusted only when `ACTOR_AUTH_TOKEN` is configured on the backend and the request includes the matching `X-DeskAI-Actor-Token`. Without that token boundary, supplied actor headers are ignored and audit rows use `local-user`.
+AI audit records include actor ID, endpoint, operation, configured model, model status, redacted request/response payload metadata, response/error status, timestamp, and latency. Free-form text fields such as request text, requester, attendees, draft subject/body, notes, and error messages are redacted before database storage. Actor details are trusted only when `ACTOR_AUTH_TOKEN` is configured on the backend and the request includes the matching `X-DeskAI-Actor-Token`. Without that token boundary, supplied actor headers are ignored and audit rows use `local-user`.
 
 ```text
 X-DeskAI-Actor-Token: $ACTOR_AUTH_TOKEN
@@ -314,7 +317,7 @@ Install `kubeconform` locally to run the same offline schema validation that CI 
 Render immutable-image release manifests:
 
 ```bash
-REQUIRE_RUNTIME_SECRET=true RUNTIME_SECRET_NAME=desk-ai-secrets REQUIRE_NETWORK_POLICY_ENFORCEMENT=true NETWORK_POLICY_PROVIDER=cilium NETWORK_POLICY_ENFORCEMENT_CONFIRMED=true FRONTEND_INGRESS_POLICY=enabled INGRESS_CONTROLLER_NAMESPACE=ingress-nginx INGRESS_CONTROLLER_POD_SELECTOR=app.kubernetes.io/name=ingress-nginx,app.kubernetes.io/component=controller TLS_MODE=cert-manager TLS_CLUSTER_ISSUER=letsencrypt-prod PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
+DATABASE_MODE=postgres DATABASE_SECRET_NAME=desk-ai-secrets DATABASE_URL_SECRET_KEY=DATABASE_URL BACKEND_REPLICAS=2 REQUIRE_RUNTIME_SECRET=true RUNTIME_SECRET_NAME=desk-ai-secrets REQUIRE_NETWORK_POLICY_ENFORCEMENT=true NETWORK_POLICY_PROVIDER=cilium NETWORK_POLICY_ENFORCEMENT_CONFIRMED=true FRONTEND_INGRESS_POLICY=enabled INGRESS_CONTROLLER_NAMESPACE=ingress-nginx INGRESS_CONTROLLER_POD_SELECTOR=app.kubernetes.io/name=ingress-nginx,app.kubernetes.io/component=controller TLS_MODE=cert-manager TLS_CLUSTER_ISSUER=letsencrypt-prod PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
 ```
 
 Promote or roll back a Kubernetes release using the runbook:
@@ -329,6 +332,7 @@ Smoke test a deployed public ingress:
 ./scripts/check-public-dns.sh desk-ai.example.com
 ./scripts/check-public-tls.sh desk-ai.example.com
 ./scripts/check-runtime-secret.sh desk-ai-secrets
+DATABASE_MODE=postgres DATABASE_SECRET_NAME=desk-ai-secrets DATABASE_URL_SECRET_KEY=DATABASE_URL ./scripts/check-database-runtime.sh https://desk-ai.example.com
 NETWORK_POLICY_PROVIDER=cilium REQUIRE_FRONTEND_INGRESS_POLICY=true INGRESS_CONTROLLER_NAMESPACE=ingress-nginx INGRESS_CONTROLLER_POD_SELECTOR=app.kubernetes.io/name=ingress-nginx,app.kubernetes.io/component=controller ./scripts/check-network-policy.sh desk-ai
 ./scripts/smoke-deploy.sh https://desk-ai.example.com
 ```
@@ -341,7 +345,7 @@ Domain and DNS guidance lives in `docs/deployment-domain-dns.md`.
 TLS issuing guidance lives in `docs/deployment-tls.md`.
 Secret management guidance lives in `docs/deployment-secret-management.md`.
 Network policy guidance lives in `docs/deployment-network-policy.md`.
-Database migration guidance lives in `docs/deployment-database-migration.md`; backend replicas must stay at one while SQLite is configured.
+Database migration guidance lives in `docs/deployment-database-migration.md`; backend replicas must stay at one while SQLite is configured and may scale only after `DATABASE_MODE=postgres` canary verification.
 Backup and restore guidance lives in `docs/deployment-backup-restore.md`.
 Production auth and session guidance lives in `docs/deployment-auth-session.md`.
 Runtime observability guidance lives in `docs/deployment-observability.md`.

@@ -26,6 +26,8 @@ Contract tests validate the FastAPI endpoints against the Pydantic models and Op
 
 Backend integration tests run FastAPI through `TestClient` with a test SQLite database. They verify that parse, recommendation, draft, telemetry, and decision logging work together without real Google, Microsoft, email, Slack, or Ollama services.
 
+Postgres repository tests use the `postgres` pytest marker and run in a separate CI job with a live Postgres service. They verify the managed database path for feedback, workflow decision log, users, and AI audit rows without widening the default backend test scope.
+
 Local integration runs should use deterministic test data and mocked ADK/model behavior. Ollama availability is treated as an external dependency and is not required for CI.
 
 ## E2E

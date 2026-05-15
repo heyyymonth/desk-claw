@@ -13,6 +13,7 @@ Before promoting a commit:
 - Image access is decided using `docs/deployment-image-access.md`: either packages are public, or `desk-ai/ghcr-pull-secret` exists and the private GHCR overlay is used.
 - `kubectl config current-context` points at the intended cluster.
 - Secret management is configured using `docs/deployment-secret-management.md`, and `desk-ai-secrets` exists in the `desk-ai` namespace or is created by the configured controller.
+- If `DATABASE_MODE=postgres`, managed Postgres is provisioned on private networking and `desk-ai-secrets` contains `DATABASE_URL`.
 - Public hostname, TLS Secret name, DNS owner, and ingress target are decided using `docs/deployment-domain-dns.md`.
 - TLS issuing mode and issuer setup are decided using `docs/deployment-tls.md`.
 - Model hosting mode is selected using `docs/deployment-model-hosting.md`.
@@ -38,6 +39,10 @@ export K8S_BASE_DIR="infra/k8s"
 export MODEL_ENDPOINT_URL=""
 export STORAGE_CLASS_NAME="desk-ai-retain"
 export VOLUME_SNAPSHOT_CLASS_NAME="desk-ai-snapshots"
+export DATABASE_MODE="sqlite"
+export DATABASE_SECRET_NAME="desk-ai-secrets"
+export DATABASE_URL_SECRET_KEY="DATABASE_URL"
+export BACKEND_REPLICAS="1"
 export PUBLIC_ACCESS_MODE="ip-allowlist"
 export PUBLIC_ALLOWED_CIDRS="203.0.113.10/32"
 export PUBLIC_WAF_POLICY_ID=""
@@ -51,7 +56,7 @@ export INGRESS_CONTROLLER_POD_SELECTOR="app.kubernetes.io/name=ingress-nginx,app
 export PUBLIC_URL="https://${PUBLIC_HOST}"
 ```
 
-Use `PUBLIC_ACCESS_MODE=provider-gated` with `PUBLIC_WAF_POLICY_ID`, `PUBLIC_DDOS_PROTECTION=true`, and `PUBLIC_IDENTITY_PROVIDER` after the provider edge controls and identity provider are configured. Keep `ip-allowlist` for private pilots or pre-auth validation.
+Use `DATABASE_MODE=postgres` with `BACKEND_REPLICAS=2` or higher only after the managed database canary has passed. Use `PUBLIC_ACCESS_MODE=provider-gated` with `PUBLIC_WAF_POLICY_ID`, `PUBLIC_DDOS_PROTECTION=true`, and `PUBLIC_IDENTITY_PROVIDER` after the provider edge controls and identity provider are configured. Keep `ip-allowlist` for private pilots or pre-auth validation.
 Use `FRONTEND_INGRESS_POLICY=disabled` only while discovering the ingress-controller namespace and labels. Public releases should set it to `enabled` after the CNI has been confirmed to enforce NetworkPolicy.
 
 Set `MODEL_HOSTING_MODE=gpu` and `K8S_BASE_DIR=infra/k8s-overlays/ollama-gpu-nvidia` for the NVIDIA GPU runtime. Set `MODEL_HOSTING_MODE=external`, `K8S_BASE_DIR=infra/k8s-overlays/external-model`, and `MODEL_ENDPOINT_URL=https://ollama.internal.example.com` for a private external Ollama-compatible endpoint. If GHCR packages are private, use `infra/k8s-overlays/private-ghcr`, `infra/k8s-overlays/private-ghcr-ollama-gpu-nvidia`, or `infra/k8s-overlays/private-ghcr-external-model` as the selected `K8S_BASE_DIR`.
@@ -111,9 +116,12 @@ If this is the first deployment in the cluster, apply the ExternalSecret or manu
 ```bash
 SECRET_STORE_NAME=desk-ai-runtime-secrets \
   REMOTE_SECRET_KEY=desk-ai/production/runtime \
+  INCLUDE_DATABASE_URL=true \
   ./scripts/render-external-secret.sh /tmp/desk-ai-external-secret.yaml
 kubectl apply -f /tmp/desk-ai-external-secret.yaml
 ```
+
+Use `INCLUDE_DATABASE_URL=true` only after the provider secret contains the managed Postgres URL. Keep it false for SQLite-backed pilots.
 
 Render the release manifest with the immutable commit tag and selected model-hosting path:
 
@@ -121,6 +129,10 @@ Render the release manifest with the immutable commit tag and selected model-hos
 K8S_BASE_DIR="$K8S_BASE_DIR" \
   MODEL_ENDPOINT_URL="$MODEL_ENDPOINT_URL" \
   STORAGE_CLASS_NAME="$STORAGE_CLASS_NAME" \
+  DATABASE_MODE="$DATABASE_MODE" \
+  DATABASE_SECRET_NAME="$DATABASE_SECRET_NAME" \
+  DATABASE_URL_SECRET_KEY="$DATABASE_URL_SECRET_KEY" \
+  BACKEND_REPLICAS="$BACKEND_REPLICAS" \
   REQUIRE_PUBLIC_ACCESS_CONTROL=true \
   PUBLIC_ACCESS_MODE="$PUBLIC_ACCESS_MODE" \
   PUBLIC_ALLOWED_CIDRS="$PUBLIC_ALLOWED_CIDRS" \
@@ -152,6 +164,10 @@ K8S_BASE_DIR=infra/k8s-overlays/private-ghcr \
   TLS_CLUSTER_ISSUER="$TLS_CLUSTER_ISSUER" \
   MODEL_ENDPOINT_URL="$MODEL_ENDPOINT_URL" \
   STORAGE_CLASS_NAME="$STORAGE_CLASS_NAME" \
+  DATABASE_MODE="$DATABASE_MODE" \
+  DATABASE_SECRET_NAME="$DATABASE_SECRET_NAME" \
+  DATABASE_URL_SECRET_KEY="$DATABASE_URL_SECRET_KEY" \
+  BACKEND_REPLICAS="$BACKEND_REPLICAS" \
   REQUIRE_PUBLIC_ACCESS_CONTROL=true \
   PUBLIC_ACCESS_MODE="$PUBLIC_ACCESS_MODE" \
   PUBLIC_ALLOWED_CIDRS="$PUBLIC_ALLOWED_CIDRS" \
@@ -184,6 +200,7 @@ grep -E "image: ghcr.io/heyyymonth/desk-ai-(backend|frontend):" "$RELEASE_FILE"
 grep -A2 "imagePullSecrets:" "$RELEASE_FILE" || true
 grep -E "host:|secretName:" "$RELEASE_FILE"
 grep -A4 "secretRef:" "$RELEASE_FILE"
+grep -A6 "name: DATABASE_URL" "$RELEASE_FILE" || true
 ```
 
 Apply the release:
@@ -212,6 +229,15 @@ Verify that runtime secrets exist and the backend requires them:
 ./scripts/check-runtime-secret.sh "$RUNTIME_SECRET_NAME"
 ```
 
+Verify database runtime mode and Postgres Secret wiring when applicable:
+
+```bash
+DATABASE_MODE="$DATABASE_MODE" \
+  DATABASE_SECRET_NAME="$DATABASE_SECRET_NAME" \
+  DATABASE_URL_SECRET_KEY="$DATABASE_URL_SECRET_KEY" \
+  ./scripts/check-database-runtime.sh "$PUBLIC_URL"
+```
+
 Verify that the selected model runtime is warm and wired through ADK:
 
 ```bash
@@ -222,6 +248,7 @@ Verify StorageClass, snapshot class, PVC binding, and backup annotations:
 
 ```bash
 MODEL_HOSTING_MODE="$MODEL_HOSTING_MODE" \
+  DATABASE_MODE="$DATABASE_MODE" \
   VOLUME_SNAPSHOT_CLASS_NAME="$VOLUME_SNAPSHOT_CLASS_NAME" \
   REQUIRE_VOLUME_SNAPSHOT_CLASS=true \
   ./scripts/check-storage-policy.sh "$STORAGE_CLASS_NAME"
@@ -267,7 +294,7 @@ Run the public smoke check:
 ./scripts/smoke-deploy.sh "$PUBLIC_URL"
 ```
 
-A release is complete only after rollout status commands, runtime-secret verification, model-runtime verification, storage-policy verification, public-access verification, NetworkPolicy verification, DNS verification, TLS verification, and the smoke test pass.
+A release is complete only after rollout status commands, runtime-secret verification, database-runtime verification, model-runtime verification, storage-policy verification, public-access verification, NetworkPolicy verification, DNS verification, TLS verification, and the smoke test pass.
 
 ## Preferred Rollback: Promote the Last Known Good Commit
 
@@ -278,13 +305,14 @@ export PREVIOUS_RELEASE_SHA=<last-known-good-git-sha>
 export PREVIOUS_RELEASE_TAG="git-${PREVIOUS_RELEASE_SHA}"
 export ROLLBACK_FILE="/tmp/desk-ai-${PREVIOUS_RELEASE_TAG}.yaml"
 
-K8S_BASE_DIR="$K8S_BASE_DIR" MODEL_ENDPOINT_URL="$MODEL_ENDPOINT_URL" STORAGE_CLASS_NAME="$STORAGE_CLASS_NAME" REQUIRE_PUBLIC_ACCESS_CONTROL=true PUBLIC_ACCESS_MODE="$PUBLIC_ACCESS_MODE" PUBLIC_ALLOWED_CIDRS="$PUBLIC_ALLOWED_CIDRS" PUBLIC_WAF_POLICY_ID="$PUBLIC_WAF_POLICY_ID" PUBLIC_DDOS_PROTECTION="$PUBLIC_DDOS_PROTECTION" PUBLIC_IDENTITY_PROVIDER="$PUBLIC_IDENTITY_PROVIDER" REQUIRE_NETWORK_POLICY_ENFORCEMENT=true NETWORK_POLICY_PROVIDER="$NETWORK_POLICY_PROVIDER" NETWORK_POLICY_ENFORCEMENT_CONFIRMED="$NETWORK_POLICY_ENFORCEMENT_CONFIRMED" FRONTEND_INGRESS_POLICY="$FRONTEND_INGRESS_POLICY" INGRESS_CONTROLLER_NAMESPACE="$INGRESS_CONTROLLER_NAMESPACE" INGRESS_CONTROLLER_POD_SELECTOR="$INGRESS_CONTROLLER_POD_SELECTOR" REQUIRE_RUNTIME_SECRET=true RUNTIME_SECRET_NAME="$RUNTIME_SECRET_NAME" TLS_MODE="$TLS_MODE" TLS_CLUSTER_ISSUER="$TLS_CLUSTER_ISSUER" PUBLIC_HOST="$PUBLIC_HOST" TLS_SECRET_NAME="$TLS_SECRET_NAME" ./scripts/render-release-k8s.sh "$PREVIOUS_RELEASE_TAG" "$ROLLBACK_FILE"
+K8S_BASE_DIR="$K8S_BASE_DIR" MODEL_ENDPOINT_URL="$MODEL_ENDPOINT_URL" STORAGE_CLASS_NAME="$STORAGE_CLASS_NAME" DATABASE_MODE="$DATABASE_MODE" DATABASE_SECRET_NAME="$DATABASE_SECRET_NAME" DATABASE_URL_SECRET_KEY="$DATABASE_URL_SECRET_KEY" BACKEND_REPLICAS="$BACKEND_REPLICAS" REQUIRE_PUBLIC_ACCESS_CONTROL=true PUBLIC_ACCESS_MODE="$PUBLIC_ACCESS_MODE" PUBLIC_ALLOWED_CIDRS="$PUBLIC_ALLOWED_CIDRS" PUBLIC_WAF_POLICY_ID="$PUBLIC_WAF_POLICY_ID" PUBLIC_DDOS_PROTECTION="$PUBLIC_DDOS_PROTECTION" PUBLIC_IDENTITY_PROVIDER="$PUBLIC_IDENTITY_PROVIDER" REQUIRE_NETWORK_POLICY_ENFORCEMENT=true NETWORK_POLICY_PROVIDER="$NETWORK_POLICY_PROVIDER" NETWORK_POLICY_ENFORCEMENT_CONFIRMED="$NETWORK_POLICY_ENFORCEMENT_CONFIRMED" FRONTEND_INGRESS_POLICY="$FRONTEND_INGRESS_POLICY" INGRESS_CONTROLLER_NAMESPACE="$INGRESS_CONTROLLER_NAMESPACE" INGRESS_CONTROLLER_POD_SELECTOR="$INGRESS_CONTROLLER_POD_SELECTOR" REQUIRE_RUNTIME_SECRET=true RUNTIME_SECRET_NAME="$RUNTIME_SECRET_NAME" TLS_MODE="$TLS_MODE" TLS_CLUSTER_ISSUER="$TLS_CLUSTER_ISSUER" PUBLIC_HOST="$PUBLIC_HOST" TLS_SECRET_NAME="$TLS_SECRET_NAME" ./scripts/render-release-k8s.sh "$PREVIOUS_RELEASE_TAG" "$ROLLBACK_FILE"
 kubectl apply -f "$ROLLBACK_FILE"
 kubectl -n desk-ai rollout status deployment/backend --timeout=600s
 kubectl -n desk-ai rollout status deployment/frontend --timeout=300s
 ./scripts/check-runtime-secret.sh "$RUNTIME_SECRET_NAME"
+DATABASE_MODE="$DATABASE_MODE" DATABASE_SECRET_NAME="$DATABASE_SECRET_NAME" DATABASE_URL_SECRET_KEY="$DATABASE_URL_SECRET_KEY" ./scripts/check-database-runtime.sh "$PUBLIC_URL"
 MODEL_HOSTING_MODE="$MODEL_HOSTING_MODE" ./scripts/check-model-runtime.sh "$PUBLIC_URL"
-MODEL_HOSTING_MODE="$MODEL_HOSTING_MODE" VOLUME_SNAPSHOT_CLASS_NAME="$VOLUME_SNAPSHOT_CLASS_NAME" REQUIRE_VOLUME_SNAPSHOT_CLASS=true ./scripts/check-storage-policy.sh "$STORAGE_CLASS_NAME"
+MODEL_HOSTING_MODE="$MODEL_HOSTING_MODE" DATABASE_MODE="$DATABASE_MODE" VOLUME_SNAPSHOT_CLASS_NAME="$VOLUME_SNAPSHOT_CLASS_NAME" REQUIRE_VOLUME_SNAPSHOT_CLASS=true ./scripts/check-storage-policy.sh "$STORAGE_CLASS_NAME"
 PUBLIC_ACCESS_MODE="$PUBLIC_ACCESS_MODE" PUBLIC_ALLOWED_CIDRS="$PUBLIC_ALLOWED_CIDRS" PUBLIC_WAF_POLICY_ID="$PUBLIC_WAF_POLICY_ID" PUBLIC_DDOS_PROTECTION="$PUBLIC_DDOS_PROTECTION" PUBLIC_IDENTITY_PROVIDER="$PUBLIC_IDENTITY_PROVIDER" ./scripts/check-public-access.sh "$PUBLIC_HOST"
 NETWORK_POLICY_PROVIDER="$NETWORK_POLICY_PROVIDER" NETWORK_POLICY_ENFORCEMENT_CONFIRMED="$NETWORK_POLICY_ENFORCEMENT_CONFIRMED" REQUIRE_FRONTEND_INGRESS_POLICY=true INGRESS_CONTROLLER_NAMESPACE="$INGRESS_CONTROLLER_NAMESPACE" INGRESS_CONTROLLER_POD_SELECTOR="$INGRESS_CONTROLLER_POD_SELECTOR" ./scripts/check-network-policy.sh desk-ai
 ./scripts/check-public-dns.sh "$PUBLIC_HOST"
@@ -351,6 +379,7 @@ Common responses:
 | Storage policy check fails. | Confirm the StorageClass exists, allows expansion, PVCs are `Bound`, and the selected VolumeSnapshotClass exists if snapshots are required. |
 | Public access check fails. | Confirm `PUBLIC_ACCESS_MODE`, nginx allowlist annotation, provider WAF/DDoS controls, and identity-provider decision in `docs/deployment-public-access.md`. |
 | NetworkPolicy check fails. | Confirm the CNI enforces NetworkPolicy, the baseline policies exist, and `INGRESS_CONTROLLER_NAMESPACE` plus `INGRESS_CONTROLLER_POD_SELECTOR` match the actual ingress-controller pods. Disable only `FRONTEND_INGRESS_POLICY` while correcting selector mismatches. |
+| Database runtime check fails. | Confirm `DATABASE_MODE`, `DATABASE_SECRET_NAME`, `DATABASE_URL_SECRET_KEY`, `desk-ai-secrets/DATABASE_URL`, private database reachability, and backend health `database.dialect`. |
 | Backend pod fails because `desk-ai-secrets` is missing. | Apply the ExternalSecret/manual Secret from `docs/deployment-secret-management.md`, then rerun rollout status. |
 | DNS check fails. | Confirm the DNS zone, record type, and Ingress load balancer target in `docs/deployment-domain-dns.md`. |
 | TLS check fails. | Confirm `TLS_MODE`, `TLS_CLUSTER_ISSUER`, `TLS_SECRET_NAME`, Certificate status, and provider-specific ingress TLS requirements in `docs/deployment-tls.md`. |
@@ -364,4 +393,5 @@ Common responses:
 - Do not treat frontend rollout success as backend success. Verify both deployments.
 - Do not enable frontend ingress isolation until the ingress-controller selector is confirmed against live pod labels.
 - Do not scale backend replicas during rollback while SQLite remains the runtime database.
+- Do not set `BACKEND_REPLICAS` above one unless `DATABASE_MODE=postgres` and the Postgres canary has passed.
 - Keep release manifests in `/tmp` or another operator-owned path; do not commit rendered environment-specific manifests.

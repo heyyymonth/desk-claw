@@ -10,6 +10,7 @@ Validates the selected production StorageClass and PVC wiring.
 Environment:
   NAMESPACE=desk-ai
   MODEL_HOSTING_MODE=in-cluster|gpu|external
+  DATABASE_MODE=sqlite|postgres
   REQUIRE_VOLUME_EXPANSION=true
   REQUIRE_VOLUME_SNAPSHOT_CLASS=false
   VOLUME_SNAPSHOT_CLASS_NAME=<provider-snapshot-class>
@@ -30,6 +31,7 @@ fi
 STORAGE_CLASS_NAME="$1"
 NAMESPACE="${NAMESPACE:-desk-ai}"
 MODEL_HOSTING_MODE="${MODEL_HOSTING_MODE:-in-cluster}"
+DATABASE_MODE="${DATABASE_MODE:-sqlite}"
 REQUIRE_VOLUME_EXPANSION="${REQUIRE_VOLUME_EXPANSION:-true}"
 REQUIRE_VOLUME_SNAPSHOT_CLASS="${REQUIRE_VOLUME_SNAPSHOT_CLASS:-false}"
 VOLUME_SNAPSHOT_CLASS_NAME="${VOLUME_SNAPSHOT_CLASS_NAME:-}"
@@ -64,6 +66,14 @@ case "$MODEL_HOSTING_MODE" in
   in-cluster | gpu | external) ;;
   *)
     echo "MODEL_HOSTING_MODE must be one of: in-cluster, gpu, external." >&2
+    exit 1
+    ;;
+esac
+
+case "$DATABASE_MODE" in
+  sqlite | postgres) ;;
+  *)
+    echo "DATABASE_MODE must be sqlite or postgres." >&2
     exit 1
     ;;
 esac
@@ -134,7 +144,15 @@ check_pvc() {
     '
 }
 
-check_pvc backend-data sqlite-state
+if [[ "$DATABASE_MODE" == "postgres" ]]; then
+  if "$KUBECTL" -n "$NAMESPACE" get pvc backend-data >/dev/null 2>&1; then
+    echo "Postgres database mode should not keep pvc/backend-data in namespace $NAMESPACE." >&2
+    exit 1
+  fi
+  echo "Postgres database mode has no backend-data PVC."
+else
+  check_pvc backend-data sqlite-state
+fi
 
 if [[ "$MODEL_HOSTING_MODE" != "external" ]]; then
   check_pvc ollama-data model-cache

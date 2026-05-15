@@ -11,6 +11,7 @@ RUNTIME_SECRET_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-runtime-secret-rele
 PUBLIC_ACCESS_ALLOWLIST_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-public-access-allowlist-release-rendered.yaml"
 PUBLIC_ACCESS_PROVIDER_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-public-access-provider-release-rendered.yaml"
 NETWORK_POLICY_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-network-policy-release-rendered.yaml"
+POSTGRES_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-postgres-release-rendered.yaml"
 STORAGE_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-storage-release-rendered.yaml"
 STORAGE_EXTERNAL_MODEL_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-storage-external-model-release-rendered.yaml"
 PRIVATE_GHCR_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-private-ghcr-rendered.yaml"
@@ -28,8 +29,10 @@ TLS_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-public-tls-check.out"
 RUNTIME_SECRET_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-runtime-secret-check.out"
 MODEL_RUNTIME_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-model-runtime-check.out"
 STORAGE_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-storage-check.out"
+STORAGE_POSTGRES_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-storage-postgres-check.out"
 PUBLIC_ACCESS_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-public-access-check.out"
 NETWORK_POLICY_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-network-policy-check.out"
+DATABASE_RUNTIME_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-database-runtime-check.out"
 INVALID_PUBLIC_HOST_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-public-host.err"
 INVALID_TLS_MODE_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-tls-mode.err"
 INVALID_PUBLIC_ACCESS_MODE_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-public-access-mode.err"
@@ -38,6 +41,9 @@ MISSING_PUBLIC_ALLOWED_CIDRS_ERROR="${TMPDIR:-/tmp}/desk-ai-missing-public-allow
 MISSING_NETWORK_POLICY_PROVIDER_ERROR="${TMPDIR:-/tmp}/desk-ai-missing-network-policy-provider.err"
 MISSING_NETWORK_POLICY_CONFIRMATION_ERROR="${TMPDIR:-/tmp}/desk-ai-missing-network-policy-confirmation.err"
 MISSING_FRONTEND_INGRESS_SELECTOR_ERROR="${TMPDIR:-/tmp}/desk-ai-missing-frontend-ingress-selector.err"
+INVALID_DATABASE_MODE_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-database-mode.err"
+INVALID_BACKEND_REPLICAS_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-backend-replicas.err"
+SQLITE_BACKEND_REPLICAS_ERROR="${TMPDIR:-/tmp}/desk-ai-sqlite-backend-replicas.err"
 INVALID_MODEL_ENDPOINT_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-model-endpoint.err"
 INVALID_STORAGE_CLASS_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-storage-class.err"
 INVALID_SNAPSHOT_CLASS_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-snapshot-class.err"
@@ -123,6 +129,7 @@ check_common_invariants() {
 
 check_sqlite_replica_policy() {
   local manifest="$1"
+  local database_mode="${2:-sqlite}"
   if ! command -v ruby >/dev/null 2>&1; then
     echo "Ruby is not installed; skipping SQLite replica policy validation." >&2
     return
@@ -132,16 +139,38 @@ check_sqlite_replica_policy() {
     require "yaml"
 
     docs = YAML.load_stream(File.read(ARGV.fetch(0))).compact
+    database_mode = ARGV.fetch(1)
     config = docs.find { |doc| doc["kind"] == "ConfigMap" && doc.dig("metadata", "name") == "desk-ai-config" }
     database_url = config&.dig("data", "DATABASE_URL").to_s
     backend = docs.find { |doc| doc["kind"] == "Deployment" && doc.dig("metadata", "name") == "backend" }
     replicas = backend&.dig("spec", "replicas")
+    errors = []
 
-    if database_url.start_with?("sqlite:") && replicas != 1
-      warn "Backend replicas must stay at 1 while DATABASE_URL uses SQLite."
+    if database_mode == "postgres"
+      annotations = backend&.dig("metadata", "annotations") || {}
+      pod_annotations = backend&.dig("spec", "template", "metadata", "annotations") || {}
+      container = (backend&.dig("spec", "template", "spec", "containers") || []).find { |entry| entry["name"] == "backend" } || {}
+      env = container["env"] || []
+      database_env = env.find { |entry| entry["name"] == "DATABASE_URL" }
+      volumes = backend&.dig("spec", "template", "spec", "volumes") || []
+      volume_mounts = container["volumeMounts"] || []
+      backend_pvc = docs.find { |doc| doc["kind"] == "PersistentVolumeClaim" && doc.dig("metadata", "name") == "backend-data" }
+
+      errors << "backend deployment must be annotated with desk.ai/database-mode=postgres" unless annotations["desk.ai/database-mode"] == "postgres"
+      errors << "backend pod template must be annotated with desk.ai/database-mode=postgres" unless pod_annotations["desk.ai/database-mode"] == "postgres"
+      errors << "postgres release must read DATABASE_URL from a Secret key" unless database_env&.dig("valueFrom", "secretKeyRef", "name") && database_env&.dig("valueFrom", "secretKeyRef", "key")
+      errors << "postgres release must remove backend-data volume" if volumes.any? { |entry| entry["name"] == "backend-data" }
+      errors << "postgres release must remove backend-data volumeMount" if volume_mounts.any? { |entry| entry["name"] == "backend-data" }
+      errors << "postgres release must not include PersistentVolumeClaim/backend-data" if backend_pvc
+    elsif database_url.start_with?("sqlite:") && replicas != 1
+      errors << "Backend replicas must stay at 1 while DATABASE_URL uses SQLite."
+    end
+
+    unless errors.empty?
+      warn errors.join("\n")
       exit 1
     end
-  ' "$manifest"
+  ' "$manifest" "$database_mode"
 }
 
 check_private_ghcr_invariants() {
@@ -245,6 +274,7 @@ check_storage_policy_invariants() {
   local model_mode="${2:-in-cluster}"
   local expected_backend_storage_class="${3:-}"
   local expected_ollama_storage_class="${4:-}"
+  local database_mode="${5:-sqlite}"
 
   if ! command -v ruby >/dev/null 2>&1; then
     echo "Ruby is not installed; skipping storage policy invariant validation." >&2
@@ -258,6 +288,7 @@ check_storage_policy_invariants() {
     mode = ARGV.fetch(1)
     expected_backend_storage_class = ARGV.fetch(2)
     expected_ollama_storage_class = ARGV.fetch(3)
+    database_mode = ARGV.fetch(4)
     docs = YAML.load_stream(File.read(manifest)).compact
     errors = []
 
@@ -287,7 +318,11 @@ check_storage_policy_invariants() {
       end
     end
 
-    check_pvc.call("backend-data", "sqlite-state", "sqlite-online-plus-csi-snapshot", "critical", expected_backend_storage_class)
+    if database_mode == "postgres"
+      errors << "postgres database mode should not include PersistentVolumeClaim/backend-data" if resource.call("PersistentVolumeClaim", "backend-data")
+    else
+      check_pvc.call("backend-data", "sqlite-state", "sqlite-online-plus-csi-snapshot", "critical", expected_backend_storage_class)
+    end
 
     if mode == "external"
       errors << "external model manifest should not include PersistentVolumeClaim/ollama-data" if resource.call("PersistentVolumeClaim", "ollama-data")
@@ -299,7 +334,7 @@ check_storage_policy_invariants() {
       warn errors.join("\n")
       exit 1
     end
-  ' "$manifest" "$model_mode" "$expected_backend_storage_class" "$expected_ollama_storage_class"
+  ' "$manifest" "$model_mode" "$expected_backend_storage_class" "$expected_ollama_storage_class" "$database_mode"
 }
 
 check_public_access_invariants() {
@@ -421,15 +456,17 @@ validate_manifest() {
   local model_mode="${2:-in-cluster}"
   local expected_backend_storage_class="${3:-}"
   local expected_ollama_storage_class="${4:-}"
+  local database_mode="${5:-sqlite}"
   parse_yaml "$manifest"
   validate_schema "$manifest"
   check_common_invariants "$manifest" "$model_mode"
-  check_sqlite_replica_policy "$manifest"
+  check_sqlite_replica_policy "$manifest" "$database_mode"
   check_model_hosting_invariants "$manifest" "$model_mode"
-  check_storage_policy_invariants "$manifest" "$model_mode" "$expected_backend_storage_class" "$expected_ollama_storage_class"
+  check_storage_policy_invariants "$manifest" "$model_mode" "$expected_backend_storage_class" "$expected_ollama_storage_class" "$database_mode"
 }
 
 for script in \
+  "$ROOT_DIR/scripts/check-database-runtime.sh" \
   "$ROOT_DIR/scripts/check-model-runtime.sh" \
   "$ROOT_DIR/scripts/check-network-policy.sh" \
   "$ROOT_DIR/scripts/check-public-access.sh" \
@@ -470,6 +507,9 @@ check_public_access_invariants "$PUBLIC_ACCESS_PROVIDER_RELEASE_MANIFEST" provid
 REQUIRE_NETWORK_POLICY_ENFORCEMENT=true NETWORK_POLICY_PROVIDER=cilium NETWORK_POLICY_ENFORCEMENT_CONFIRMED=true FRONTEND_INGRESS_POLICY=enabled INGRESS_CONTROLLER_NAMESPACE=ingress-nginx INGRESS_CONTROLLER_POD_SELECTOR=app.kubernetes.io/name=ingress-nginx,app.kubernetes.io/component=controller "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee > "$NETWORK_POLICY_RELEASE_MANIFEST"
 validate_manifest "$NETWORK_POLICY_RELEASE_MANIFEST"
 check_network_policy_release_invariants "$NETWORK_POLICY_RELEASE_MANIFEST" cilium ingress-nginx app.kubernetes.io/name=ingress-nginx,app.kubernetes.io/component=controller
+
+DATABASE_MODE=postgres DATABASE_SECRET_NAME=desk-ai-secrets DATABASE_URL_SECRET_KEY=DATABASE_URL BACKEND_REPLICAS=2 "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee > "$POSTGRES_RELEASE_MANIFEST"
+validate_manifest "$POSTGRES_RELEASE_MANIFEST" in-cluster "" "" postgres
 
 STORAGE_CLASS_NAME=desk-ai-retain "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee > "$STORAGE_RELEASE_MANIFEST"
 validate_manifest "$STORAGE_RELEASE_MANIFEST" in-cluster desk-ai-retain desk-ai-retain
@@ -577,6 +617,36 @@ grep -q "INGRESS_CONTROLLER_POD_SELECTOR must be set" "$MISSING_FRONTEND_INGRESS
   exit 1
 }
 
+if DATABASE_MODE=mysql "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee >/dev/null 2>"$INVALID_DATABASE_MODE_ERROR"; then
+  echo "Release renderer accepted an invalid DATABASE_MODE." >&2
+  exit 1
+fi
+
+grep -q "DATABASE_MODE must be sqlite or postgres" "$INVALID_DATABASE_MODE_ERROR" || {
+  echo "Release renderer did not explain invalid DATABASE_MODE input." >&2
+  exit 1
+}
+
+if BACKEND_REPLICAS=two "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee >/dev/null 2>"$INVALID_BACKEND_REPLICAS_ERROR"; then
+  echo "Release renderer accepted a non-numeric BACKEND_REPLICAS value." >&2
+  exit 1
+fi
+
+grep -q "BACKEND_REPLICAS must be a positive integer" "$INVALID_BACKEND_REPLICAS_ERROR" || {
+  echo "Release renderer did not explain invalid BACKEND_REPLICAS input." >&2
+  exit 1
+}
+
+if BACKEND_REPLICAS=2 "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee >/dev/null 2>"$SQLITE_BACKEND_REPLICAS_ERROR"; then
+  echo "Release renderer accepted multiple backend replicas while DATABASE_MODE=sqlite." >&2
+  exit 1
+fi
+
+grep -q "BACKEND_REPLICAS greater than 1 requires DATABASE_MODE=postgres" "$SQLITE_BACKEND_REPLICAS_ERROR" || {
+  echo "Release renderer did not explain SQLite replica scaling protection." >&2
+  exit 1
+}
+
 K8S_BASE_DIR="infra/k8s-overlays/private-ghcr-ollama-gpu-nvidia" "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee > "$PRIVATE_GHCR_GPU_RELEASE_MANIFEST"
 validate_manifest "$PRIVATE_GHCR_GPU_RELEASE_MANIFEST" gpu
 check_private_ghcr_invariants "$PRIVATE_GHCR_GPU_RELEASE_MANIFEST"
@@ -654,7 +724,7 @@ grep -q "SECRET_STORE_NAME must be set" "$INVALID_EXTERNAL_SECRET_ERROR" || {
   exit 1
 }
 
-SECRET_STORE_NAME=desk-ai-runtime-secrets REMOTE_SECRET_KEY=desk-ai/production/runtime "$ROOT_DIR/scripts/render-external-secret.sh" > "$EXTERNAL_SECRET_MANIFEST"
+SECRET_STORE_NAME=desk-ai-runtime-secrets REMOTE_SECRET_KEY=desk-ai/production/runtime INCLUDE_DATABASE_URL=true "$ROOT_DIR/scripts/render-external-secret.sh" > "$EXTERNAL_SECRET_MANIFEST"
 parse_yaml "$EXTERNAL_SECRET_MANIFEST"
 validate_schema "$EXTERNAL_SECRET_MANIFEST"
 
@@ -670,6 +740,11 @@ grep -q "name: desk-ai-runtime-secrets" "$EXTERNAL_SECRET_MANIFEST" || {
 
 grep -q "key: desk-ai/production/runtime" "$EXTERNAL_SECRET_MANIFEST" || {
   echo "ExternalSecret renderer did not use the requested remote secret key." >&2
+  exit 1
+}
+
+grep -q "secretKey: DATABASE_URL" "$EXTERNAL_SECRET_MANIFEST" || {
+  echo "ExternalSecret renderer did not include the optional DATABASE_URL key." >&2
   exit 1
 }
 
@@ -852,8 +927,45 @@ grep -q "Storage policy check passed" "$STORAGE_CHECK_OUTPUT" || {
   exit 1
 }
 
+STORAGE_POSTGRES_CHECK_FAKE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/desk-ai-storage-postgres-check.XXXXXX")"
+trap 'rm -rf "$TLS_CHECK_FAKE_DIR" "$RUNTIME_SECRET_FAKE_DIR" "$MODEL_RUNTIME_FAKE_DIR" "$STORAGE_CHECK_FAKE_DIR" "$STORAGE_POSTGRES_CHECK_FAKE_DIR"' EXIT
+
+cat > "$STORAGE_POSTGRES_CHECK_FAKE_DIR/kubectl" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+case "$*" in
+  "get storageclass desk-ai-retain -o json")
+    cat <<'JSON'
+{"metadata":{"name":"desk-ai-retain"},"provisioner":"csi.example.com","reclaimPolicy":"Retain","allowVolumeExpansion":true}
+JSON
+    ;;
+  "-n desk-ai get pvc backend-data")
+    exit 1
+    ;;
+  "-n desk-ai get pvc ollama-data -o json")
+    cat <<'JSON'
+{"metadata":{"name":"ollama-data","annotations":{"desk.ai/storage-role":"model-cache","desk.ai/backup-policy":"recreate-or-csi-snapshot","desk.ai/recovery-priority":"rebuildable"}},"spec":{"storageClassName":"desk-ai-retain"},"status":{"phase":"Bound"}}
+JSON
+    ;;
+  *)
+    echo "unexpected kubectl args: $*" >&2
+    exit 1
+    ;;
+esac
+SH
+
+chmod +x "$STORAGE_POSTGRES_CHECK_FAKE_DIR/kubectl"
+
+KUBECTL="$STORAGE_POSTGRES_CHECK_FAKE_DIR/kubectl" DATABASE_MODE=postgres "$ROOT_DIR/scripts/check-storage-policy.sh" desk-ai-retain > "$STORAGE_POSTGRES_CHECK_OUTPUT"
+
+grep -q "Postgres database mode has no backend-data PVC" "$STORAGE_POSTGRES_CHECK_OUTPUT" || {
+  echo "Postgres storage policy check did not validate backend-data removal." >&2
+  exit 1
+}
+
 PUBLIC_ACCESS_CHECK_FAKE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/desk-ai-public-access-check.XXXXXX")"
-trap 'rm -rf "$TLS_CHECK_FAKE_DIR" "$RUNTIME_SECRET_FAKE_DIR" "$MODEL_RUNTIME_FAKE_DIR" "$STORAGE_CHECK_FAKE_DIR" "$PUBLIC_ACCESS_CHECK_FAKE_DIR"' EXIT
+trap 'rm -rf "$TLS_CHECK_FAKE_DIR" "$RUNTIME_SECRET_FAKE_DIR" "$MODEL_RUNTIME_FAKE_DIR" "$STORAGE_CHECK_FAKE_DIR" "$STORAGE_POSTGRES_CHECK_FAKE_DIR" "$PUBLIC_ACCESS_CHECK_FAKE_DIR"' EXIT
 
 cat > "$PUBLIC_ACCESS_CHECK_FAKE_DIR/kubectl" <<'SH'
 #!/usr/bin/env bash
@@ -882,7 +994,7 @@ grep -q "Public access check passed" "$PUBLIC_ACCESS_CHECK_OUTPUT" || {
 }
 
 NETWORK_POLICY_CHECK_FAKE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/desk-ai-network-policy-check.XXXXXX")"
-trap 'rm -rf "$TLS_CHECK_FAKE_DIR" "$RUNTIME_SECRET_FAKE_DIR" "$MODEL_RUNTIME_FAKE_DIR" "$STORAGE_CHECK_FAKE_DIR" "$PUBLIC_ACCESS_CHECK_FAKE_DIR" "$NETWORK_POLICY_CHECK_FAKE_DIR"' EXIT
+trap 'rm -rf "$TLS_CHECK_FAKE_DIR" "$RUNTIME_SECRET_FAKE_DIR" "$MODEL_RUNTIME_FAKE_DIR" "$STORAGE_CHECK_FAKE_DIR" "$STORAGE_POSTGRES_CHECK_FAKE_DIR" "$PUBLIC_ACCESS_CHECK_FAKE_DIR" "$NETWORK_POLICY_CHECK_FAKE_DIR"' EXIT
 
 cat > "$NETWORK_POLICY_CHECK_FAKE_DIR/kubectl" <<'SH'
 #!/usr/bin/env bash
@@ -925,6 +1037,57 @@ KUBECTL="$NETWORK_POLICY_CHECK_FAKE_DIR/kubectl" REQUIRE_FRONTEND_INGRESS_POLICY
 
 grep -q "NetworkPolicy check passed" "$NETWORK_POLICY_CHECK_OUTPUT" || {
   echo "NetworkPolicy check did not validate the fake CNI and policy state." >&2
+  exit 1
+}
+
+DATABASE_RUNTIME_CHECK_FAKE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/desk-ai-database-runtime-check.XXXXXX")"
+trap 'rm -rf "$TLS_CHECK_FAKE_DIR" "$RUNTIME_SECRET_FAKE_DIR" "$MODEL_RUNTIME_FAKE_DIR" "$STORAGE_CHECK_FAKE_DIR" "$STORAGE_POSTGRES_CHECK_FAKE_DIR" "$PUBLIC_ACCESS_CHECK_FAKE_DIR" "$NETWORK_POLICY_CHECK_FAKE_DIR" "$DATABASE_RUNTIME_CHECK_FAKE_DIR"' EXIT
+
+cat > "$DATABASE_RUNTIME_CHECK_FAKE_DIR/curl" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+case "$*" in
+  *"/api/health"*)
+    cat <<'JSON'
+{"status":"ok","database":{"dialect":"postgres"}}
+JSON
+    ;;
+  *)
+    echo "unexpected curl args: $*" >&2
+    exit 1
+    ;;
+esac
+SH
+
+cat > "$DATABASE_RUNTIME_CHECK_FAKE_DIR/kubectl" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+case "$*" in
+  "-n desk-ai get secret desk-ai-secrets -o json")
+    cat <<'JSON'
+{"metadata":{"name":"desk-ai-secrets"},"data":{"DATABASE_URL":"cG9zdGdyZXNxbDovL3VzZXI6cGFzc0BkYi9kZXNrYWk="}}
+JSON
+    ;;
+  "-n desk-ai get deployment backend -o json")
+    cat <<'JSON'
+{"spec":{"template":{"spec":{"containers":[{"name":"backend","env":[{"name":"DATABASE_URL","valueFrom":{"secretKeyRef":{"name":"desk-ai-secrets","key":"DATABASE_URL"}}}]}]}}}}
+JSON
+    ;;
+  *)
+    echo "unexpected kubectl args: $*" >&2
+    exit 1
+    ;;
+esac
+SH
+
+chmod +x "$DATABASE_RUNTIME_CHECK_FAKE_DIR/curl" "$DATABASE_RUNTIME_CHECK_FAKE_DIR/kubectl"
+
+CURL="$DATABASE_RUNTIME_CHECK_FAKE_DIR/curl" KUBECTL="$DATABASE_RUNTIME_CHECK_FAKE_DIR/kubectl" DATABASE_MODE=postgres "$ROOT_DIR/scripts/check-database-runtime.sh" https://desk-ai.example.test > "$DATABASE_RUNTIME_CHECK_OUTPUT"
+
+grep -q "Database runtime check passed" "$DATABASE_RUNTIME_CHECK_OUTPUT" || {
+  echo "Database runtime check did not validate the fake Postgres runtime state." >&2
   exit 1
 }
 
@@ -1052,6 +1215,31 @@ grep -q "desk.ai/network-policy-enforcement: \"true\"" "$NETWORK_POLICY_RELEASE_
   echo "NetworkPolicy release does not record enforcement confirmation." >&2
   exit 1
 }
+
+grep -q "desk.ai/database-mode: postgres" "$POSTGRES_RELEASE_MANIFEST" || {
+  echo "Postgres release does not declare database mode metadata." >&2
+  exit 1
+}
+
+grep -q "name: DATABASE_URL" "$POSTGRES_RELEASE_MANIFEST" || {
+  echo "Postgres release does not define an explicit DATABASE_URL env var." >&2
+  exit 1
+}
+
+grep -q "secretKeyRef:" "$POSTGRES_RELEASE_MANIFEST" || {
+  echo "Postgres release does not read DATABASE_URL from a Secret." >&2
+  exit 1
+}
+
+grep -q "replicas: 2" "$POSTGRES_RELEASE_MANIFEST" || {
+  echo "Postgres release does not apply the requested backend replica count." >&2
+  exit 1
+}
+
+if grep -q "name: backend-data\\|claimName: backend-data\\|mountPath: /app/data" "$POSTGRES_RELEASE_MANIFEST"; then
+  echo "Postgres release still includes backend SQLite PVC wiring." >&2
+  exit 1
+fi
 
 grep -q "nvidia.com/gpu: \"1\"" "$GPU_RELEASE_MANIFEST" || {
   echo "GPU release manifests do not request one NVIDIA GPU." >&2

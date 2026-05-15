@@ -92,4 +92,4 @@ def get_decision_log_service() -> DecisionLogService:
 
 
 def get_workflow_decision_log_service() -> WorkflowDecisionLogService:
-    return WorkflowDecisionLogService(DecisionLogRepository(get_settings().sqlite_path))
+    return WorkflowDecisionLogService(DecisionLogRepository(get_database()))
