@@ -40,4 +40,18 @@ describe('RequestIntakePanel', () => {
     expect(screen.getByText('Jordan Lee')).toBeInTheDocument();
     expect(screen.getByText('Requester timezone')).toBeInTheDocument();
   });
+
+  it('shows the request parsing loading state in the active panel', () => {
+    render(
+      <RequestIntakePanel
+        rawText={meetingRequest.raw_text}
+        onRawTextChange={vi.fn()}
+        onParse={vi.fn()}
+        isParsing={true}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: /parsing request/i })).toBeDisabled();
+    expect(screen.getByRole('status')).toHaveTextContent('Request parsing is waiting on the model response.');
+  });
 });

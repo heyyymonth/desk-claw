@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { Loader2 } from 'lucide-react';
 
 export function Panel({
   title,
@@ -30,6 +31,23 @@ export function ErrorState({ message }: { message: string }) {
 
 export function EmptyState({ children }: { children: ReactNode }) {
   return <div className="rounded-md border border-dashed border-line bg-white/45 px-3 py-4 text-sm text-steel">{children}</div>;
+}
+
+export function InlineSpinner({ className = '' }: { className?: string }) {
+  return <Loader2 className={`shrink-0 animate-spin ${className}`} size={16} aria-hidden="true" />;
+}
+
+export function LoadingNotice({ children }: { children: ReactNode }) {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="flex items-center gap-2 rounded-md border border-white/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.78),rgba(238,240,244,0.72))] px-3 py-2 text-sm font-semibold text-brandDark shadow-[inset_0_1px_0_rgba(255,255,255,0.72),0_8px_20px_rgba(31,38,50,0.06)]"
+    >
+      <InlineSpinner className="text-brandDark" />
+      <span>{children}</span>
+    </div>
+  );
 }
 
 export function FieldLabel({ children }: { children: ReactNode }) {

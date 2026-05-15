@@ -34,4 +34,18 @@ describe('DraftResponsePanel', () => {
 
     expect(onDraftChange).toHaveBeenLastCalledWith(expect.objectContaining({ body: 'Updated response' }));
   });
+
+  it('shows the draft loading state in the active panel', () => {
+    render(
+      <DraftResponsePanel
+        onDraftChange={vi.fn()}
+        onGenerate={vi.fn()}
+        disabled={false}
+        isLoading={true}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: /generating draft/i })).toBeDisabled();
+    expect(screen.getByRole('status')).toHaveTextContent('Draft generation is waiting on the model response.');
+  });
 });

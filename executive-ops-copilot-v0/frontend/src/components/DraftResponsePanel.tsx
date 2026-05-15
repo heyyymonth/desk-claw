@@ -1,6 +1,6 @@
 import { MailPlus } from 'lucide-react';
 import type { DraftResponse } from '../types';
-import { EmptyState, FieldLabel, Panel, PrimaryButton } from './ui';
+import { EmptyState, FieldLabel, InlineSpinner, LoadingNotice, Panel, PrimaryButton } from './ui';
 
 export function DraftResponsePanel({
   draft,
@@ -20,13 +20,14 @@ export function DraftResponsePanel({
       title="Draft Response Panel"
       aside={
         <PrimaryButton type="button" onClick={onGenerate} disabled={disabled || isLoading}>
-          <MailPlus className="mr-2" size={16} aria-hidden="true" />
-          {isLoading ? 'Generating...' : 'Generate Draft'}
+          {isLoading ? <InlineSpinner className="mr-2" /> : <MailPlus className="mr-2" size={16} aria-hidden="true" />}
+          {isLoading ? 'Generating draft...' : 'Generate Draft'}
         </PrimaryButton>
       }
     >
       {draft ? (
         <div className="space-y-3">
+          {isLoading ? <LoadingNotice>Draft generation is waiting on the model response.</LoadingNotice> : null}
           <div className="grid gap-3 md:grid-cols-[1fr_160px]">
             <div className="space-y-1">
               <FieldLabel>Subject</FieldLabel>
@@ -63,7 +64,14 @@ export function DraftResponsePanel({
           <div className="text-sm text-steel">Model: {draft.model_status}. This draft is not sent automatically.</div>
         </div>
       ) : (
-        <EmptyState>Draft response will appear here after the recommendation is generated.</EmptyState>
+        <div className="space-y-3">
+          {isLoading ? <LoadingNotice>Draft generation is waiting on the model response.</LoadingNotice> : null}
+          <EmptyState>
+            {isLoading
+              ? 'Draft response will appear here when the model response returns.'
+              : 'Draft response will appear here after the recommendation is generated.'}
+          </EmptyState>
+        </div>
       )}
     </Panel>
   );

@@ -1,7 +1,7 @@
 import { CalendarCheck } from 'lucide-react';
 import type { ExecutiveRules, Recommendation } from '../types';
 import { RiskLabel } from './RiskLabel';
-import { EmptyState, Panel, PrimaryButton } from './ui';
+import { EmptyState, InlineSpinner, LoadingNotice, Panel, PrimaryButton } from './ui';
 
 export function RecommendationCard({
   recommendation,
@@ -27,13 +27,14 @@ export function RecommendationCard({
       title="Recommendation Card"
       aside={
         <PrimaryButton type="button" onClick={onGenerate} disabled={disabled || isLoading}>
-          <CalendarCheck className="mr-2" size={16} aria-hidden="true" />
-          {isLoading ? 'Generating...' : 'Generate Recommendation'}
+          {isLoading ? <InlineSpinner className="mr-2" /> : <CalendarCheck className="mr-2" size={16} aria-hidden="true" />}
+          {isLoading ? 'Generating recommendation...' : 'Generate Recommendation'}
         </PrimaryButton>
       }
     >
       {recommendation ? (
         <div className="space-y-4 text-sm">
+          {isLoading ? <LoadingNotice>Recommendation generation is waiting on the model response.</LoadingNotice> : null}
           <div className="flex flex-wrap items-center gap-3">
             <div className="text-2xl font-bold capitalize text-ink">{recommendation.decision}</div>
             <RiskLabel level={highestRisk} />
@@ -91,7 +92,14 @@ export function RecommendationCard({
           </div>
         </div>
       ) : (
-        <EmptyState>Generate a recommendation after parsed intent, rules, and calendar context are visible.</EmptyState>
+        <div className="space-y-3">
+          {isLoading ? <LoadingNotice>Recommendation generation is waiting on the model response.</LoadingNotice> : null}
+          <EmptyState>
+            {isLoading
+              ? 'Recommendation details will appear here when the model response returns.'
+              : 'Generate a recommendation after parsed intent, rules, and calendar context are visible.'}
+          </EmptyState>
+        </div>
       )}
     </Panel>
   );

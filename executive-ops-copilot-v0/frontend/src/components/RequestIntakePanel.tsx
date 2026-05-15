@@ -1,6 +1,6 @@
 import { ClipboardList } from 'lucide-react';
 import type { MeetingRequest } from '../types';
-import { EmptyState, ErrorState, FieldLabel, Panel, PrimaryButton } from './ui';
+import { EmptyState, ErrorState, FieldLabel, InlineSpinner, LoadingNotice, Panel, PrimaryButton } from './ui';
 
 export function RequestIntakePanel({
   rawText,
@@ -35,9 +35,10 @@ export function RequestIntakePanel({
         {validationError ? <ErrorState message={validationError} /> : null}
         {error ? <ErrorState message={error} /> : null}
         <PrimaryButton type="button" onClick={onParse} disabled={isParsing}>
-          <ClipboardList className="mr-2" size={16} aria-hidden="true" />
-          {isParsing ? 'Parsing...' : 'Parse Request'}
+          {isParsing ? <InlineSpinner className="mr-2" /> : <ClipboardList className="mr-2" size={16} aria-hidden="true" />}
+          {isParsing ? 'Parsing request...' : 'Parse Request'}
         </PrimaryButton>
+        {isParsing ? <LoadingNotice>Request parsing is waiting on the model response.</LoadingNotice> : null}
         {intent ? (
           <div className="grid gap-3 rounded-md border border-line bg-panel p-3 text-sm md:grid-cols-2">
             <div>
@@ -104,7 +105,11 @@ export function RequestIntakePanel({
             </div>
           </div>
         ) : (
-          <EmptyState>Parsed intent will appear here before any recommendation is generated.</EmptyState>
+          <EmptyState>
+            {isParsing
+              ? 'Parsed intent will appear here when the model response returns.'
+              : 'Parsed intent will appear here before any recommendation is generated.'}
+          </EmptyState>
         )}
       </div>
     </Panel>

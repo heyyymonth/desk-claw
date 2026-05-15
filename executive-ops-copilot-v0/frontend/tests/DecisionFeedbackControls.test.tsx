@@ -20,4 +20,11 @@ describe('DecisionFeedbackControls', () => {
 
     expect(screen.getByRole('button', { name: 'Accept' })).toBeDisabled();
   });
+
+  it('shows the decision logging loading state in the active panel', () => {
+    render(<DecisionFeedbackControls onSubmit={vi.fn()} disabled={false} isLogging={true} />);
+
+    expect(screen.getByRole('button', { name: 'Accept' })).toBeDisabled();
+    expect(screen.getByRole('status')).toHaveTextContent('Saving the decision feedback to the audit log.');
+  });
 });

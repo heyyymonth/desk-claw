@@ -1,6 +1,6 @@
 import { Check, Pencil, ThumbsDown, X } from 'lucide-react';
 import type { FeedbackDecision } from '../types';
-import { Panel, SecondaryButton } from './ui';
+import { InlineSpinner, LoadingNotice, Panel, SecondaryButton } from './ui';
 
 const options: Array<{ value: FeedbackDecision; label: string; icon: typeof Check }> = [
   { value: 'accepted', label: 'Accept', icon: Check },
@@ -33,12 +33,13 @@ export function DecisionFeedbackControls({
               disabled={disabled || isLogging}
               aria-label={option.label}
             >
-              <Icon className="mr-2" size={16} aria-hidden="true" />
+              {isLogging ? <InlineSpinner className="mr-2" /> : <Icon className="mr-2" size={16} aria-hidden="true" />}
               {option.label}
             </SecondaryButton>
           );
         })}
       </div>
+      {isLogging ? <div className="mt-3"><LoadingNotice>Saving the decision feedback to the audit log.</LoadingNotice></div> : null}
       <p className="mt-3 text-sm text-steel">Feedback logs the decision only. V0 does not write back to a calendar or send email.</p>
     </Panel>
   );
