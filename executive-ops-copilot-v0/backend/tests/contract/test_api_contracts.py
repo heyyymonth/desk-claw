@@ -216,6 +216,22 @@ def test_ai_metrics_endpoint_exposes_backend_quality_dashboard_data():
     assert "recent_failures" in body
 
 
+def test_prometheus_metrics_endpoint_exposes_sanitized_runtime_telemetry():
+    client.post("/api/requests/parse", json={"raw_text": "Need 30 min with Legal"})
+
+    response = client.get("/metrics")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/plain")
+    body = response.text
+    assert 'desk_ai_backend_health_status{status="ok"} 1.0' in body
+    assert 'desk_ai_telemetry_scrape_error{error_type="none"} 0.0' in body
+    assert "desk_ai_ai_events_observed" in body
+    assert 'desk_ai_ai_operation_events{operation="parse_request"}' in body
+    assert "desk_ai_ai_latency_ms" in body
+    assert "Need 30 min with Legal" not in body
+
+
 def test_ai_audit_endpoint_requires_admin_access():
     response = client.get("/api/audit/ai?limit=5")
 

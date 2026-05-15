@@ -1,7 +1,7 @@
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import audit, calendar, deps, drafts, evals, feedback, recommendations, requests, rules, telemetry
+from app.api import audit, calendar, deps, drafts, evals, feedback, metrics, recommendations, requests, rules, telemetry
 from app.core.errors import ServiceError, service_error_handler
 from app.core.settings import get_settings
 from app.db.audit import ActorContext
@@ -41,6 +41,7 @@ def create_app() -> FastAPI:
     app.include_router(evals.router)
     app.include_router(audit.router)
     app.include_router(telemetry.router)
+    app.include_router(metrics.router)
     _add_compat_routes(app)
     app.state.model_warmup = {"status": "not_started"}
 

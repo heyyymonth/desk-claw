@@ -57,6 +57,16 @@ check_common_invariants() {
     exit 1
   }
 
+  grep -q "prometheus.io/path: /metrics" "$manifest" || {
+    echo "Rendered manifests do not include backend Prometheus scrape metadata." >&2
+    exit 1
+  }
+
+  grep -q "kubernetes.io/metadata.name: monitoring" "$manifest" || {
+    echo "Rendered manifests do not allow the monitoring namespace to scrape backend metrics." >&2
+    exit 1
+  }
+
   grep -q "name: ollama-ingress" "$manifest" || {
     echo "Rendered manifests do not include the Ollama ingress policy." >&2
     exit 1

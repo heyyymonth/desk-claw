@@ -21,6 +21,7 @@ This checklist tracks the repo-side and outside-infrastructure work needed befor
 | Database migration path | Complete | `docs/deployment-database-migration.md` documents the SQLite-to-managed-Postgres path and CI enforces one backend replica while SQLite is configured. |
 | PVC backup and restore runbook | Complete | `docs/deployment-backup-restore.md` documents backend SQLite backups, restore flow, provider snapshots, and Ollama data recovery. |
 | Production auth/session design | Complete | `docs/deployment-auth-session.md` defines OIDC/session/RBAC target state and CI validates public frontend image builds do not bundle admin or actor secrets. |
+| Runtime observability exports | Complete | `GET /metrics` exports backend health, model warmup, AI latency, ADK coverage, tool failure, and telemetry scrape-health metrics; `docs/deployment-observability.md` documents ingress-controller error monitoring. |
 | Local container stack | Present | Docker Compose starts Ollama, backend, and frontend for local validation. |
 
 ## Issues Found While Preparing Deployment
@@ -40,10 +41,11 @@ This checklist tracks the repo-side and outside-infrastructure work needed befor
 | SQLite scaling risk was documented only as a note. | Backend replicas could be raised against a `ReadWriteOnce` SQLite PVC, risking write contention and data corruption. | Added a managed Postgres migration path and a manifest validation guard that fails when SQLite is configured with more than one backend replica. |
 | PVCs had no recovery procedure. | A disk, namespace, or cluster failure could lose SQLite audit/decision data or force slow model repulls. | Added backup/restore guidance for `backend-data` and `ollama-data`, including SQLite integrity checks and provider snapshot guidance. |
 | Admin access still used local V0 keys. | Browser-bundled admin keys or actor tokens would expose audit and telemetry access in a public deployment. | Added a production auth/session design and a CI guard against shipping `VITE_ADMIN_API_KEY` or `VITE_ACTOR_AUTH_TOKEN` in the public frontend image. |
+| Runtime telemetry was visible only through app endpoints and docs. | Operators lacked a scrapeable signal path for backend/model readiness, AI tool failures, latency, and ingress errors. | Added a sanitized Prometheus text export, backend scrape metadata, monitoring NetworkPolicy allowance, and ingress-controller metric guidance. |
 
 ## Remaining Repo Work
 
-1. Add runtime observability exports for backend health, AI telemetry, tool failures, model latency, and ingress errors.
+No blocking repo-side deployment readiness items remain in this checklist. The remaining work is environment-specific and listed under outside-repo dependencies.
 
 ## Outside-Repo Dependencies
 
@@ -61,6 +63,7 @@ This checklist tracks the repo-side and outside-infrastructure work needed befor
 | Managed Postgres | Choose provider, region, network path, backup/PITR policy, and secret-management integration before backend horizontal scaling. |
 | Storage backup mechanism | Choose CSI snapshots, provider disk snapshots, or an external backup tool and confirm restore support for the selected storage class. |
 | Identity provider | Choose OIDC/SAML provider, required claims, role mapping, session store, and signout behavior before public admin access. |
+| Observability stack | Choose Prometheus/Grafana, managed Prometheus, or another metrics backend; confirm ingress-controller metrics are enabled and map alerts to the selected ingress implementation. |
 
 ## Deployment Gate
 
@@ -73,6 +76,7 @@ Do not treat the system as public-production ready until these are true:
 - Runtime secrets come from a secret manager or out-of-band Kubernetes Secret.
 - The cluster CNI is confirmed to enforce NetworkPolicy, or traffic isolation is handled by another provider control.
 - Admin dashboard access is protected by real login/session auth, not frontend-bundled keys, and production auth has passed the deployment auth/session gate.
+- Backend `/metrics` and ingress-controller metrics are scraped by the selected observability stack, with alerts for backend/model readiness, AI latency, tool failures, telemetry scrape errors, and ingress 4xx/5xx rates.
 - Backend persistence remains one replica on SQLite, or Postgres support has been implemented and cut over through the database migration runbook.
 - PVC backups and at least one restore drill have succeeded, or managed storage backup/PITR has replaced the PVC recovery path.
 - Ollama capacity is sized and model warmup succeeds before backend readiness.

@@ -26,6 +26,12 @@ Backend health:
 curl http://localhost:8000/api/health
 ```
 
+Backend Prometheus metrics:
+
+```bash
+curl http://localhost:8000/metrics
+```
+
 ## Kubernetes
 
 Kubernetes manifests live in `infra/k8s/`.
@@ -36,6 +42,7 @@ Network policy guidance lives in `../docs/deployment-network-policy.md`.
 Database migration guidance lives in `../docs/deployment-database-migration.md`.
 Backup and restore guidance lives in `../docs/deployment-backup-restore.md`.
 Production auth/session guidance lives in `../docs/deployment-auth-session.md`.
+Runtime observability guidance lives in `../docs/deployment-observability.md`.
 
 ## Container Images
 
@@ -145,8 +152,15 @@ Rollback options are documented in `../docs/deployment-rollout-runbook.md`. Pref
 ## Network Policy
 
 The base Kubernetes manifests include `infra/k8s/network-policy.yaml`. The baseline allows only frontend pods to reach backend on port `8000`, and only backend plus the model-pull job to reach Ollama on port `11434`.
+It also allows Prometheus pods in a `monitoring` namespace with label `app.kubernetes.io/name=prometheus` to scrape backend metrics on port `8000`.
 
 The frontend is not ingress-isolated in the base manifest because ingress-controller namespace and pod labels are provider-specific. Review `../docs/deployment-network-policy.md` before adding frontend ingress restrictions or egress default-deny rules.
+
+## Observability
+
+The backend Service is annotated for Prometheus-compatible scraping at `/metrics`. The metrics export covers backend health, model warmup readiness, AI success and ADK coverage, model latency, tool failures, and telemetry scrape errors.
+
+Ingress errors are observed from the ingress controller metrics, not from the backend pod. Review `../docs/deployment-observability.md` before production cutover so 4xx/5xx rate and ingress latency alerts match the selected ingress controller or hyperscaler load balancer.
 
 ## Resource Tuning
 

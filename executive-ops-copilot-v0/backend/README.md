@@ -29,3 +29,7 @@ Actor headers are trusted only when `ACTOR_AUTH_TOKEN` is configured and request
 Free-form AI audit payload fields are redacted before SQLite storage, including request text, requester, attendees, draft subject/body, notes, and error messages.
 
 AI audit and telemetry read endpoints require `ADMIN_API_KEY` on the backend plus the `X-DeskAI-Admin-Key` request header. If `ADMIN_API_KEY` is not configured, those admin read endpoints fail closed.
+
+## Metrics
+
+`GET /metrics` exposes sanitized Prometheus text metrics for backend health, model warmup, AI latency, ADK coverage, tool failures, and telemetry scrape errors. It does not include raw audit payloads or meeting text. Production scrape and ingress-error guidance lives in `../docs/deployment-observability.md`.

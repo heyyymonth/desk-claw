@@ -222,6 +222,7 @@ Primary contract endpoints:
 - `GET /api/decisions`
 - `GET /api/audit/ai`
 - `GET /api/telemetry/ai/dashboard`
+- `GET /metrics`
 - `POST /api/evals/run`
 
 Legacy compatibility endpoints retained for older local clients:
@@ -325,6 +326,7 @@ Network policy guidance lives in `docs/deployment-network-policy.md`.
 Database migration guidance lives in `docs/deployment-database-migration.md`; backend replicas must stay at one while SQLite is configured.
 Backup and restore guidance lives in `docs/deployment-backup-restore.md`.
 Production auth and session guidance lives in `docs/deployment-auth-session.md`.
+Runtime observability guidance lives in `docs/deployment-observability.md`.
 
 ## Evals
 
@@ -373,6 +375,7 @@ Eval assertions cover meeting type, draft type, sensitivity, async candidacy, es
 - `docs/deployment-database-migration.md`: SQLite-to-managed-Postgres migration path and backend scaling gate.
 - `docs/deployment-backup-restore.md`: backend SQLite backup/restore, provider snapshots, and Ollama data recovery guidance.
 - `docs/deployment-auth-session.md`: OIDC/session/RBAC target design before public admin dashboard exposure.
+- `docs/deployment-observability.md`: Prometheus backend metrics, ingress-controller error metrics, and alert guidance.
 - `docs/assumptions.md`: product, enterprise, and eval assumptions.
 - `docs/adr/0001-local-web-app.md`: local web app and FastAPI-owned orchestration.
 - `docs/adr/0002-ai-boundaries.md`: AI boundaries and enterprise safety.
