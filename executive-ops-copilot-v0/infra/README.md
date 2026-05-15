@@ -44,17 +44,29 @@ ghcr.io/heyyymonth/desk-ai-frontend:git-<sha>
 
 For a public cluster, make those GHCR packages public or configure Kubernetes image pull credentials.
 
-Before applying them to a real cluster, replace the placeholder images:
+The default kustomization maps the workload placeholders to the published GHCR images:
 
 ```text
-ghcr.io/OWNER/desk-ai-backend:latest
-ghcr.io/OWNER/desk-ai-frontend:latest
+ghcr.io/heyyymonth/desk-ai-backend:latest
+ghcr.io/heyyymonth/desk-ai-frontend:latest
 ```
 
 Apply the stack:
 
 ```bash
 kubectl apply -k infra/k8s
+```
+
+For production rollouts, prefer immutable commit tags over `latest`. Update the `newTag` values in `infra/k8s/kustomization.yaml` to the CI commit tag before applying:
+
+```yaml
+images:
+  - name: ghcr.io/OWNER/desk-ai-backend
+    newName: ghcr.io/heyyymonth/desk-ai-backend
+    newTag: git-<sha>
+  - name: ghcr.io/OWNER/desk-ai-frontend
+    newName: ghcr.io/heyyymonth/desk-ai-frontend
+    newTag: git-<sha>
 ```
 
 Recommended rollout order for first deployment:

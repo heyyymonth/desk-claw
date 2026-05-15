@@ -7,3 +7,10 @@ resources:
   - ollama-model-job.yaml
   - backend.yaml
   - frontend.yaml
+images:
+  - name: ghcr.io/OWNER/desk-ai-backend
+    newName: ghcr.io/heyyymonth/desk-ai-backend
+    newTag: latest
+  - name: ghcr.io/OWNER/desk-ai-frontend
+    newName: ghcr.io/heyyymonth/desk-ai-frontend
+    newTag: latest

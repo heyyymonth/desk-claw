@@ -28,7 +28,7 @@ spec:
       containers:
         - name: backend
           image: ghcr.io/OWNER/desk-ai-backend:latest
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           envFrom:
             - configMapRef:
                 name: desk-ai-config
