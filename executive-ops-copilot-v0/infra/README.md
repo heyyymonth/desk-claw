@@ -32,7 +32,7 @@ Kubernetes manifests live in `infra/k8s/`.
 
 ## Container Images
 
-The CI workflow builds backend and frontend container images after lint, tests, build, and E2E pass.
+The CI workflow builds backend and frontend container images in separate parallel jobs after lint, tests, build, and E2E pass.
 Pull requests build the images without publishing them. Pushes to `main` publish:
 
 ```text
