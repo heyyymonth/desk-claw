@@ -4,6 +4,8 @@ This runbook turns the public hostname decision into a repeatable release step. 
 
 Kubernetes Ingress requires an ingress controller before the resource has any effect, and host rules route HTTP(S) requests only when the request host and path match the Ingress spec. ExternalDNS can automate this later from Ingress hosts or annotations, but the first production path keeps DNS ownership explicit.
 
+GitHub Pages can host only the static React frontend. It cannot run FastAPI, ADK, Ollama, database storage, or the nginx `/api` proxy used by the Kubernetes frontend image. If Pages is used, treat it as the optional split-origin preview described in `docs/deployment-github-pages.md`; it still requires a separate public HTTPS backend API.
+
 ## Required Decisions
 
 Record these before public cutover:
@@ -101,6 +103,7 @@ The DNS check compares the current `desk-ai/frontend` Ingress load balancer targ
 | Ingress has no hostname or IP. | Ingress controller or cloud load balancer is not ready. | Inspect ingress-controller pods, service, events, and cloud load balancer provisioning. |
 | DNS check points to the wrong target. | DNS record was created against an old load balancer or the wrong zone. | Update the record to the current Ingress target and wait for propagation. |
 | CNAME cannot be created. | The requested hostname is an apex/root domain. | Use a subdomain or provider Alias/ANAME support. |
+| GitHub Pages app loads but actions fail. | Pages is serving only static files and has no backend `/api` proxy. | Deploy a separate public HTTPS backend, rebuild Pages with `VITE_API_BASE_URL` pointing at that backend, and confirm backend CORS/auth. |
 | Smoke test fails after DNS passes. | TLS, firewall, ingress rule, or frontend/backend route issue. | Check TLS Secret readiness, provider firewall/security groups, ingress controller logs, and backend service endpoints. |
 | DNS intermittently resolves old values. | Resolver cache or high TTL. | Lower TTL before cutover when possible and wait for previous records to expire. |
 

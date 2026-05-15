@@ -1,0 +1,96 @@
+name: Desk AI Pages Preview
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: "Public HTTPS backend origin used by the Pages frontend, for example https://api.desk-ai.example.com"
+        required: true
+        type: string
+      base_path:
+        description: "GitHub Pages base path. Use /desk-claw/ for the default project site or / for a custom domain."
+        required: false
+        default: /desk-claw/
+        type: string
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-pages:
+    name: Build static frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: executive-ops-copilot-v0/frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: executive-ops-copilot-v0/frontend/package-lock.json
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v6
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Validate Pages inputs
+        env:
+          DESK_AI_PAGES_API_BASE_URL: ${{ inputs.api_base_url }}
+          DESK_AI_PAGES_BASE_PATH: ${{ inputs.base_path }}
+        run: |
+          case "$DESK_AI_PAGES_API_BASE_URL" in
+            https://*) ;;
+            *)
+              echo "api_base_url must be a public https:// backend origin for GitHub Pages." >&2
+              exit 1
+              ;;
+          esac
+
+          case "$DESK_AI_PAGES_BASE_PATH" in
+            /*/) ;;
+            *)
+              echo "base_path must start and end with /, for example /desk-claw/ or /." >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Run frontend tests
+        run: npm test
+
+      - name: Build Pages frontend
+        env:
+          VITE_API_BASE_URL: ${{ inputs.api_base_url }}
+        run: npm run build -- --base "${{ inputs.base_path }}"
+
+      - name: Disable Jekyll processing
+        run: touch dist/.nojekyll
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: executive-ops-copilot-v0/frontend/dist
+
+  deploy-pages:
+    name: Deploy Pages preview
+    needs: build-pages
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
