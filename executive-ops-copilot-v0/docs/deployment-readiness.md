@@ -16,6 +16,7 @@ This checklist tracks the repo-side and outside-infrastructure work needed befor
 | Immutable release render path | Complete | `scripts/render-release-k8s.sh` renders production manifests with backend and frontend pinned to the same `git-<sha>` image tag. |
 | Deployed smoke test | Complete | `scripts/smoke-deploy.sh` checks the public frontend root, `/api/health`, default rules, and mock calendar through ingress. |
 | Resource tuning guidance | Complete | `docs/deployment-resource-tuning.md` documents Ollama/backend CPU, memory, GPU, and timeout sizing guidance. |
+| Rollout and rollback runbook | Complete | `docs/deployment-rollout-runbook.md` documents commit-tag promotion, `kubectl rollout status`, smoke verification, and rollback paths. |
 | Local container stack | Present | Docker Compose starts Ollama, backend, and frontend for local validation. |
 
 ## Issues Found While Preparing Deployment
@@ -30,15 +31,15 @@ This checklist tracks the repo-side and outside-infrastructure work needed befor
 | `kubectl apply --dry-run=client` tried API discovery in CI. | A runner without a cluster failed against `localhost:8080`, even for client dry-run. | CI now renders manifests with `kubectl kustomize`, parses the YAML stream, validates schemas with kubeconform, and checks repo-specific invariants offline. |
 | Local Docker credential helper may be missing. | Local image build can fail before reaching Dockerfile logic. | CI build is authoritative; local workaround is to use a clean `DOCKER_CONFIG` or repair Docker Desktop credentials. |
 | Ollama resource expectations were implicit. | Clusters could be under-sized, causing cold-start delays, request timeouts, or `OOMKilled` pods. | Added resource tuning guidance and raised the checked-in Ollama memory baseline for `gemma4:latest`. |
+| Rollout and rollback steps were spread across docs. | Operators could apply a release without waiting for readiness or could roll back inconsistently. | Added a dedicated rollout runbook with commit-tag promotion, status checks, smoke tests, and rollback guidance. |
 
 ## Remaining Repo Work
 
-1. Add rollout and rollback commands using `kubectl rollout status`, `kubectl rollout undo`, and commit-tag image promotion.
-2. Add network policy manifests after the target ingress controller and cluster CNI are known.
-3. Add database migration path from single-replica SQLite PVC to managed Postgres before horizontal backend scaling.
-4. Add backup/restore guidance for persistent volumes until managed storage replaces them.
-5. Add production auth/session design before exposing admin dashboards to real users.
-6. Add runtime observability exports for backend health, AI telemetry, tool failures, model latency, and ingress errors.
+1. Add network policy manifests after the target ingress controller and cluster CNI are known.
+2. Add database migration path from single-replica SQLite PVC to managed Postgres before horizontal backend scaling.
+3. Add backup/restore guidance for persistent volumes until managed storage replaces them.
+4. Add production auth/session design before exposing admin dashboards to real users.
+5. Add runtime observability exports for backend health, AI telemetry, tool failures, model latency, and ingress errors.
 
 ## Outside-Repo Dependencies
 
@@ -59,6 +60,7 @@ Do not treat the system as public-production ready until these are true:
 
 - CI is green on the commit being deployed.
 - The deployed images use immutable `git-<sha>` tags.
+- Rollout status and rollback commands are known to the operator before promotion.
 - The ingress hostname, TLS path, and DNS are real, not placeholders.
 - Runtime secrets come from a secret manager or out-of-band Kubernetes Secret.
 - Admin dashboard access is protected by real login/session auth, not frontend-bundled keys.

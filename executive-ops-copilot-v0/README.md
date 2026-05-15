@@ -307,6 +307,12 @@ Render immutable-image release manifests:
 ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
 ```
 
+Promote or roll back a Kubernetes release using the runbook:
+
+```text
+docs/deployment-rollout-runbook.md
+```
+
 Smoke test a deployed public ingress:
 
 ```bash
@@ -358,6 +364,7 @@ Eval assertions cover meeting type, draft type, sensitivity, async candidacy, es
 - `docs/test-strategy.md`: unit, contract, integration, E2E, and eval strategy.
 - `docs/deployment-readiness.md`: public deployment readiness checklist, known issues, remaining repo work, and outside dependencies.
 - `docs/deployment-resource-tuning.md`: Ollama/backend CPU, memory, GPU, and timeout sizing guidance.
+- `docs/deployment-rollout-runbook.md`: immutable commit-tag promotion, rollout verification, smoke checks, and rollback commands.
 - `docs/assumptions.md`: product, enterprise, and eval assumptions.
 - `docs/adr/0001-local-web-app.md`: local web app and FastAPI-owned orchestration.
 - `docs/adr/0002-ai-boundaries.md`: AI boundaries and enterprise safety.

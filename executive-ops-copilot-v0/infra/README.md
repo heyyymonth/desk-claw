@@ -31,6 +31,7 @@ curl http://localhost:8000/api/health
 Kubernetes manifests live in `infra/k8s/`.
 Deployment readiness tracking lives in `../docs/deployment-readiness.md`.
 Resource and timeout tuning guidance lives in `../docs/deployment-resource-tuning.md`.
+Rollout and rollback commands live in `../docs/deployment-rollout-runbook.md`.
 
 ## Container Images
 
@@ -105,6 +106,7 @@ kubectl apply -f /tmp/desk-ai-release.yaml
 ```
 
 The release renderer creates a temporary kustomize overlay, sets backend and frontend images to the same immutable `git-<sha>` tag, and leaves the base manifests on `latest` for local/default use.
+Use `../docs/deployment-rollout-runbook.md` for the full promotion, `kubectl rollout status`, smoke-test, and rollback sequence.
 
 Recommended rollout order for first deployment:
 
@@ -133,6 +135,8 @@ After DNS and TLS are active, run the public smoke test against the real ingress
 ```
 
 The smoke test calls the frontend root and deterministic backend endpoints through the same public origin. It does not call live LLM generation paths.
+
+Rollback options are documented in `../docs/deployment-rollout-runbook.md`. Prefer promoting the last known good `git-<sha>` tag. Use `kubectl rollout undo deployment/backend` and `kubectl rollout undo deployment/frontend` only for emergency rollback.
 
 ## Resource Tuning
 
