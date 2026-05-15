@@ -18,6 +18,7 @@ This checklist tracks the repo-side and outside-infrastructure work needed befor
 | Resource tuning guidance | Complete | `docs/deployment-resource-tuning.md` documents Ollama/backend CPU, memory, GPU, and timeout sizing guidance. |
 | Rollout and rollback runbook | Complete | `docs/deployment-rollout-runbook.md` documents commit-tag promotion, `kubectl rollout status`, smoke verification, and rollback paths. |
 | Network policy baseline | Complete | `infra/k8s/network-policy.yaml` isolates backend and Ollama ingress while `docs/deployment-network-policy.md` captures CNI and ingress-controller hardening steps. |
+| Database migration path | Complete | `docs/deployment-database-migration.md` documents the SQLite-to-managed-Postgres path and CI enforces one backend replica while SQLite is configured. |
 | Local container stack | Present | Docker Compose starts Ollama, backend, and frontend for local validation. |
 
 ## Issues Found While Preparing Deployment
@@ -34,13 +35,13 @@ This checklist tracks the repo-side and outside-infrastructure work needed befor
 | Ollama resource expectations were implicit. | Clusters could be under-sized, causing cold-start delays, request timeouts, or `OOMKilled` pods. | Added resource tuning guidance and raised the checked-in Ollama memory baseline for `gemma4:latest`. |
 | Rollout and rollback steps were spread across docs. | Operators could apply a release without waiting for readiness or could roll back inconsistently. | Added a dedicated rollout runbook with commit-tag promotion, status checks, smoke tests, and rollback guidance. |
 | Internal service traffic was not isolated in Kubernetes. | Any pod in an enforcing cluster could attempt direct backend or Ollama access. | Added baseline NetworkPolicies for backend and Ollama ingress and documented provider-specific frontend/egress hardening. |
+| SQLite scaling risk was documented only as a note. | Backend replicas could be raised against a `ReadWriteOnce` SQLite PVC, risking write contention and data corruption. | Added a managed Postgres migration path and a manifest validation guard that fails when SQLite is configured with more than one backend replica. |
 
 ## Remaining Repo Work
 
-1. Add database migration path from single-replica SQLite PVC to managed Postgres before horizontal backend scaling.
-2. Add backup/restore guidance for persistent volumes until managed storage replaces them.
-3. Add production auth/session design before exposing admin dashboards to real users.
-4. Add runtime observability exports for backend health, AI telemetry, tool failures, model latency, and ingress errors.
+1. Add backup/restore guidance for persistent volumes until managed storage replaces them.
+2. Add production auth/session design before exposing admin dashboards to real users.
+3. Add runtime observability exports for backend health, AI telemetry, tool failures, model latency, and ingress errors.
 
 ## Outside-Repo Dependencies
 
@@ -55,6 +56,7 @@ This checklist tracks the repo-side and outside-infrastructure work needed befor
 | Persistent storage class | Choose the PVC storage class and backup policy for Ollama model data and backend data. |
 | Public access controls | Decide IP allowlists, WAF, DDoS protection, and identity provider before broad exposure. |
 | NetworkPolicy enforcement | Confirm the cluster CNI enforces NetworkPolicy and identify ingress-controller namespace/pod labels before frontend ingress isolation. |
+| Managed Postgres | Choose provider, region, network path, backup/PITR policy, and secret-management integration before backend horizontal scaling. |
 
 ## Deployment Gate
 
@@ -67,6 +69,6 @@ Do not treat the system as public-production ready until these are true:
 - Runtime secrets come from a secret manager or out-of-band Kubernetes Secret.
 - The cluster CNI is confirmed to enforce NetworkPolicy, or traffic isolation is handled by another provider control.
 - Admin dashboard access is protected by real login/session auth, not frontend-bundled keys.
-- Backend persistence has a production plan, either managed Postgres or an explicit single-replica SQLite limitation.
+- Backend persistence remains one replica on SQLite, or Postgres support has been implemented and cut over through the database migration runbook.
 - Ollama capacity is sized and model warmup succeeds before backend readiness.
 - A post-deploy smoke test passes through the public ingress.

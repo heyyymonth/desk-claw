@@ -20,6 +20,7 @@ pytest -m evals
 ## Persistence
 
 The backend supports `sqlite:///` URLs only in V0. The default is `sqlite:///./data/deskclaw.db`.
+Managed Postgres is the production scaling target, but it is not implemented yet. Do not set a Postgres `DATABASE_URL` until the migration work in `../docs/deployment-database-migration.md` is complete.
 
 AI parse, recommendation, and draft calls are logged to `ai_audit_log`; actor details are captured from `X-Actor-Id`, `X-Actor-Email`, and `X-Actor-Name` when provided.
 

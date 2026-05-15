@@ -63,11 +63,35 @@ check_common_invariants() {
   }
 }
 
+check_sqlite_replica_policy() {
+  local manifest="$1"
+  if ! command -v ruby >/dev/null 2>&1; then
+    echo "Ruby is not installed; skipping SQLite replica policy validation." >&2
+    return
+  fi
+
+  ruby -e '
+    require "yaml"
+
+    docs = YAML.load_stream(File.read(ARGV.fetch(0))).compact
+    config = docs.find { |doc| doc["kind"] == "ConfigMap" && doc.dig("metadata", "name") == "desk-ai-config" }
+    database_url = config&.dig("data", "DATABASE_URL").to_s
+    backend = docs.find { |doc| doc["kind"] == "Deployment" && doc.dig("metadata", "name") == "backend" }
+    replicas = backend&.dig("spec", "replicas")
+
+    if database_url.start_with?("sqlite:") && replicas != 1
+      warn "Backend replicas must stay at 1 while DATABASE_URL uses SQLite."
+      exit 1
+    end
+  ' "$manifest"
+}
+
 validate_manifest() {
   local manifest="$1"
   parse_yaml "$manifest"
   validate_schema "$manifest"
   check_common_invariants "$manifest"
+  check_sqlite_replica_policy "$manifest"
 }
 
 "$KUBECTL" kustomize "$K8S_DIR" > "$RENDERED_MANIFEST"
