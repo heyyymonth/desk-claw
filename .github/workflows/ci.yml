@@ -156,6 +156,28 @@ jobs:
           path: executive-ops-copilot-v0/e2e/playwright-report
           if-no-files-found: ignore
 
+  kubernetes:
+    name: Kubernetes manifests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install kubectl
+        env:
+          KUBECTL_VERSION: v1.36.1
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl --retry 3 --retry-delay 2 -fsSLo "$RUNNER_TEMP/bin/kubectl" "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+          chmod +x "$RUNNER_TEMP/bin/kubectl"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Check kubectl client
+        run: kubectl version --client=true
+
+      - name: Validate Kubernetes manifests
+        run: ./executive-ops-copilot-v0/scripts/validate-k8s.sh
+
   backend-container-image:
     name: Backend container image
     runs-on: ubuntu-latest
@@ -165,6 +187,7 @@ jobs:
       - frontend-lint
       - frontend
       - e2e
+      - kubernetes
     permissions:
       contents: read
       packages: write
@@ -212,6 +235,7 @@ jobs:
       - frontend-lint
       - frontend
       - e2e
+      - kubernetes
     permissions:
       contents: read
       packages: write

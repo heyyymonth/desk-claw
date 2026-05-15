@@ -12,6 +12,7 @@ This checklist tracks the repo-side and outside-infrastructure work needed befor
 | Kubernetes image wiring | Complete | `infra/k8s/kustomization.yaml` maps workload placeholders to published GHCR images. |
 | Runtime secret contract | Complete | `desk-ai-secrets` is documented and wired into backend pods without committing real values. |
 | Public entry point | Complete | Frontend is exposed through Ingress; backend remains private behind the frontend `/api` proxy. |
+| Kubernetes manifest validation | Complete | CI runs `scripts/validate-k8s.sh` to render kustomize, run a client dry-run, and check deployment invariants. |
 | Local container stack | Present | Docker Compose starts Ollama, backend, and frontend for local validation. |
 
 ## Issues Found While Preparing Deployment
@@ -28,15 +29,14 @@ This checklist tracks the repo-side and outside-infrastructure work needed befor
 ## Remaining Repo Work
 
 1. Add a production overlay or release patch path for immutable image tags so deploys can use `git-<sha>` without editing the base manually.
-2. Add a Kubernetes validation job in CI that runs `kubectl kustomize` and `kubectl apply --dry-run=client --validate=false -k infra/k8s`.
-3. Add a smoke-test script for a deployed environment: health, frontend root, `/api/health` through ingress, and one deterministic backend workflow call.
-4. Add resource tuning documentation for Ollama and backend timeouts, including expected CPU, memory, and GPU needs.
-5. Add rollout and rollback commands using `kubectl rollout status`, `kubectl rollout undo`, and commit-tag image promotion.
-6. Add network policy manifests after the target ingress controller and cluster CNI are known.
-7. Add database migration path from single-replica SQLite PVC to managed Postgres before horizontal backend scaling.
-8. Add backup/restore guidance for persistent volumes until managed storage replaces them.
-9. Add production auth/session design before exposing admin dashboards to real users.
-10. Add runtime observability exports for backend health, AI telemetry, tool failures, model latency, and ingress errors.
+2. Add a smoke-test script for a deployed environment: health, frontend root, `/api/health` through ingress, and one deterministic backend workflow call.
+3. Add resource tuning documentation for Ollama and backend timeouts, including expected CPU, memory, and GPU needs.
+4. Add rollout and rollback commands using `kubectl rollout status`, `kubectl rollout undo`, and commit-tag image promotion.
+5. Add network policy manifests after the target ingress controller and cluster CNI are known.
+6. Add database migration path from single-replica SQLite PVC to managed Postgres before horizontal backend scaling.
+7. Add backup/restore guidance for persistent volumes until managed storage replaces them.
+8. Add production auth/session design before exposing admin dashboards to real users.
+9. Add runtime observability exports for backend health, AI telemetry, tool failures, model latency, and ingress errors.
 
 ## Outside-Repo Dependencies
 

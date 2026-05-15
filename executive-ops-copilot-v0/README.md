@@ -293,6 +293,12 @@ Kubernetes manifests:
 kubectl apply -k infra/k8s
 ```
 
+Validate the rendered manifests locally:
+
+```bash
+./scripts/validate-k8s.sh
+```
+
 The services are split into frontend, backend, and Ollama pods. Backend readiness waits for model warmup, so a ready backend means the configured Ollama model has been loaded before user traffic is served.
 
 ## Evals
