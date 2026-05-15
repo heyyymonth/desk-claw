@@ -6,6 +6,9 @@ metadata:
 spec:
   backoffLimit: 3
   template:
+    metadata:
+      labels:
+        app: ollama-model-pull
     spec:
       restartPolicy: OnFailure
       containers:

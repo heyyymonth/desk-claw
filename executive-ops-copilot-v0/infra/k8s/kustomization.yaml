@@ -8,6 +8,7 @@ resources:
   - backend.yaml
   - frontend.yaml
   - ingress.yaml
+  - network-policy.yaml
 images:
   - name: ghcr.io/OWNER/desk-ai-backend
     newName: ghcr.io/heyyymonth/desk-ai-backend

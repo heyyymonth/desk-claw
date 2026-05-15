@@ -46,6 +46,21 @@ check_common_invariants() {
     echo "Rendered manifests do not reference the runtime secret contract." >&2
     exit 1
   }
+
+  grep -q "kind: NetworkPolicy" "$manifest" || {
+    echo "Rendered manifests do not include NetworkPolicy resources." >&2
+    exit 1
+  }
+
+  grep -q "name: backend-ingress" "$manifest" || {
+    echo "Rendered manifests do not include the backend ingress policy." >&2
+    exit 1
+  }
+
+  grep -q "name: ollama-ingress" "$manifest" || {
+    echo "Rendered manifests do not include the Ollama ingress policy." >&2
+    exit 1
+  }
 }
 
 validate_manifest() {

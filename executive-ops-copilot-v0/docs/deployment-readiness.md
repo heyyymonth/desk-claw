@@ -17,6 +17,7 @@ This checklist tracks the repo-side and outside-infrastructure work needed befor
 | Deployed smoke test | Complete | `scripts/smoke-deploy.sh` checks the public frontend root, `/api/health`, default rules, and mock calendar through ingress. |
 | Resource tuning guidance | Complete | `docs/deployment-resource-tuning.md` documents Ollama/backend CPU, memory, GPU, and timeout sizing guidance. |
 | Rollout and rollback runbook | Complete | `docs/deployment-rollout-runbook.md` documents commit-tag promotion, `kubectl rollout status`, smoke verification, and rollback paths. |
+| Network policy baseline | Complete | `infra/k8s/network-policy.yaml` isolates backend and Ollama ingress while `docs/deployment-network-policy.md` captures CNI and ingress-controller hardening steps. |
 | Local container stack | Present | Docker Compose starts Ollama, backend, and frontend for local validation. |
 
 ## Issues Found While Preparing Deployment
@@ -32,14 +33,14 @@ This checklist tracks the repo-side and outside-infrastructure work needed befor
 | Local Docker credential helper may be missing. | Local image build can fail before reaching Dockerfile logic. | CI build is authoritative; local workaround is to use a clean `DOCKER_CONFIG` or repair Docker Desktop credentials. |
 | Ollama resource expectations were implicit. | Clusters could be under-sized, causing cold-start delays, request timeouts, or `OOMKilled` pods. | Added resource tuning guidance and raised the checked-in Ollama memory baseline for `gemma4:latest`. |
 | Rollout and rollback steps were spread across docs. | Operators could apply a release without waiting for readiness or could roll back inconsistently. | Added a dedicated rollout runbook with commit-tag promotion, status checks, smoke tests, and rollback guidance. |
+| Internal service traffic was not isolated in Kubernetes. | Any pod in an enforcing cluster could attempt direct backend or Ollama access. | Added baseline NetworkPolicies for backend and Ollama ingress and documented provider-specific frontend/egress hardening. |
 
 ## Remaining Repo Work
 
-1. Add network policy manifests after the target ingress controller and cluster CNI are known.
-2. Add database migration path from single-replica SQLite PVC to managed Postgres before horizontal backend scaling.
-3. Add backup/restore guidance for persistent volumes until managed storage replaces them.
-4. Add production auth/session design before exposing admin dashboards to real users.
-5. Add runtime observability exports for backend health, AI telemetry, tool failures, model latency, and ingress errors.
+1. Add database migration path from single-replica SQLite PVC to managed Postgres before horizontal backend scaling.
+2. Add backup/restore guidance for persistent volumes until managed storage replaces them.
+3. Add production auth/session design before exposing admin dashboards to real users.
+4. Add runtime observability exports for backend health, AI telemetry, tool failures, model latency, and ingress errors.
 
 ## Outside-Repo Dependencies
 
@@ -53,6 +54,7 @@ This checklist tracks the repo-side and outside-infrastructure work needed befor
 | Model hosting shape | Decide whether Ollama runs in-cluster, on GPU nodes, or behind a separate private model endpoint. |
 | Persistent storage class | Choose the PVC storage class and backup policy for Ollama model data and backend data. |
 | Public access controls | Decide IP allowlists, WAF, DDoS protection, and identity provider before broad exposure. |
+| NetworkPolicy enforcement | Confirm the cluster CNI enforces NetworkPolicy and identify ingress-controller namespace/pod labels before frontend ingress isolation. |
 
 ## Deployment Gate
 
@@ -63,6 +65,7 @@ Do not treat the system as public-production ready until these are true:
 - Rollout status and rollback commands are known to the operator before promotion.
 - The ingress hostname, TLS path, and DNS are real, not placeholders.
 - Runtime secrets come from a secret manager or out-of-band Kubernetes Secret.
+- The cluster CNI is confirmed to enforce NetworkPolicy, or traffic isolation is handled by another provider control.
 - Admin dashboard access is protected by real login/session auth, not frontend-bundled keys.
 - Backend persistence has a production plan, either managed Postgres or an explicit single-replica SQLite limitation.
 - Ollama capacity is sized and model warmup succeeds before backend readiness.

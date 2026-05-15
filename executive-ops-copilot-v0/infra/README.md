@@ -32,6 +32,7 @@ Kubernetes manifests live in `infra/k8s/`.
 Deployment readiness tracking lives in `../docs/deployment-readiness.md`.
 Resource and timeout tuning guidance lives in `../docs/deployment-resource-tuning.md`.
 Rollout and rollback commands live in `../docs/deployment-rollout-runbook.md`.
+Network policy guidance lives in `../docs/deployment-network-policy.md`.
 
 ## Container Images
 
@@ -137,6 +138,12 @@ After DNS and TLS are active, run the public smoke test against the real ingress
 The smoke test calls the frontend root and deterministic backend endpoints through the same public origin. It does not call live LLM generation paths.
 
 Rollback options are documented in `../docs/deployment-rollout-runbook.md`. Prefer promoting the last known good `git-<sha>` tag. Use `kubectl rollout undo deployment/backend` and `kubectl rollout undo deployment/frontend` only for emergency rollback.
+
+## Network Policy
+
+The base Kubernetes manifests include `infra/k8s/network-policy.yaml`. The baseline allows only frontend pods to reach backend on port `8000`, and only backend plus the model-pull job to reach Ollama on port `11434`.
+
+The frontend is not ingress-isolated in the base manifest because ingress-controller namespace and pod labels are provider-specific. Review `../docs/deployment-network-policy.md` before adding frontend ingress restrictions or egress default-deny rules.
 
 ## Resource Tuning
 
