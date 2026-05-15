@@ -29,6 +29,7 @@ curl http://localhost:8000/api/health
 ## Kubernetes
 
 Kubernetes manifests live in `infra/k8s/`.
+Deployment readiness tracking lives in `../docs/deployment-readiness.md`.
 
 ## Container Images
 

@@ -279,6 +279,7 @@ ADK evals are not part of the default CI test gate.
 ## Deployment Prep
 
 Container and Kubernetes deployment artifacts live in `infra/`.
+The tracked deployment readiness checklist lives in `docs/deployment-readiness.md`.
 
 Local container stack:
 
@@ -334,6 +335,7 @@ Eval assertions cover meeting type, draft type, sensitivity, async candidacy, es
 - `docs/architecture.md`: system shape, ownership, request flow, failure states.
 - `docs/interface-contracts.md`: contract files, endpoints, enums, compatibility rules.
 - `docs/test-strategy.md`: unit, contract, integration, E2E, and eval strategy.
+- `docs/deployment-readiness.md`: public deployment readiness checklist, known issues, remaining repo work, and outside dependencies.
 - `docs/assumptions.md`: product, enterprise, and eval assumptions.
 - `docs/adr/0001-local-web-app.md`: local web app and FastAPI-owned orchestration.
 - `docs/adr/0002-ai-boundaries.md`: AI boundaries and enterprise safety.
