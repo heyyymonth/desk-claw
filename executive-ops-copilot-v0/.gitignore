@@ -18,5 +18,6 @@ __pycache__/
 backups/
 backend/data/
 infra/k8s/secrets.yaml
+infra/k8s-overlays/private-ghcr/pull-secret.yaml
 infra/.release.*
 .venv/

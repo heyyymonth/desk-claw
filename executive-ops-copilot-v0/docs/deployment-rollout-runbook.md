@@ -10,6 +10,7 @@ Before promoting a commit:
 - GHCR contains both application images:
   - `ghcr.io/heyyymonth/desk-ai-backend:git-<sha>`
   - `ghcr.io/heyyymonth/desk-ai-frontend:git-<sha>`
+- Image access is decided using `docs/deployment-image-access.md`: either packages are public, or `desk-ai/ghcr-pull-secret` exists and the private GHCR overlay is used.
 - `kubectl config current-context` points at the intended cluster.
 - The `desk-ai-secrets` Secret exists in the `desk-ai` namespace or is created by the configured secret-management controller.
 - Ingress host, TLS, DNS, and any cloud firewall/security-group rules are already configured.
@@ -62,10 +63,17 @@ Render the release manifest with the immutable commit tag:
 ./scripts/render-release-k8s.sh "$RELEASE_TAG" "$RELEASE_FILE"
 ```
 
+If GHCR packages are private, render the image-pull-secret overlay instead:
+
+```bash
+K8S_BASE_DIR=infra/k8s-overlays/private-ghcr ./scripts/render-release-k8s.sh "$RELEASE_TAG" "$RELEASE_FILE"
+```
+
 Review the application image tags before applying:
 
 ```bash
 grep -E "image: ghcr.io/heyyymonth/desk-ai-(backend|frontend):" "$RELEASE_FILE"
+grep -A2 "imagePullSecrets:" "$RELEASE_FILE" || true
 ```
 
 Apply the release:

@@ -7,6 +7,7 @@ Usage: render-release-k8s.sh <git-sha|git-<sha>> [output-file]
 
 Renders Kubernetes manifests with immutable backend and frontend image tags.
 The SHA must be a 7-40 character git hex SHA, with or without the git- prefix.
+Set K8S_BASE_DIR=infra/k8s-overlays/private-ghcr to render the private GHCR pull-secret overlay.
 USAGE
 }
 
@@ -21,8 +22,19 @@ if [[ $# -lt 1 || $# -gt 2 ]]; then
 fi
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-K8S_DIR="$ROOT_DIR/infra/k8s"
+K8S_BASE_DIR="${K8S_BASE_DIR:-$ROOT_DIR/infra/k8s}"
 KUBECTL="${KUBECTL:-kubectl}"
+
+if [[ "$K8S_BASE_DIR" != /* ]]; then
+  K8S_BASE_DIR="$ROOT_DIR/$K8S_BASE_DIR"
+fi
+
+if [[ "$K8S_BASE_DIR" == "$ROOT_DIR/infra/"* ]]; then
+  K8S_RESOURCE_PATH="../${K8S_BASE_DIR#"$ROOT_DIR/infra/"}"
+else
+  echo "K8S_BASE_DIR must resolve under $ROOT_DIR/infra so the release overlay can reference it safely." >&2
+  exit 1
+fi
 
 RAW_TAG="$1"
 OUTPUT_FILE="${2:-}"
@@ -42,7 +54,7 @@ cat > "$TMP_DIR/kustomization.yaml" <<YAML
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - ../k8s
+  - $K8S_RESOURCE_PATH
 images:
   - name: ghcr.io/heyyymonth/desk-ai-backend
     newName: ghcr.io/heyyymonth/desk-ai-backend

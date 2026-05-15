@@ -10,6 +10,7 @@ This checklist tracks the repo-side and outside-infrastructure work needed befor
 | Container publishing | Complete | CI publishes backend and frontend images to GHCR with `latest` and `git-<sha>` tags. |
 | Parallel image builds | Complete | Backend and frontend image builds run as separate CI jobs after the shared gates pass. |
 | Kubernetes image wiring | Complete | `infra/k8s/kustomization.yaml` maps workload placeholders to published GHCR images. |
+| Container image access | Complete | `docs/deployment-image-access.md` documents public vs private GHCR access; `infra/k8s-overlays/private-ghcr` and `scripts/create-ghcr-pull-secret.sh` support private package pulls. |
 | Runtime secret contract | Complete | `desk-ai-secrets` is documented and wired into backend pods without committing real values. |
 | Public entry point | Complete | Frontend is exposed through Ingress; backend remains private behind the frontend `/api` proxy. |
 | Kubernetes manifest validation | Complete | CI runs `scripts/validate-k8s.sh` to render kustomize, run offline schema validation, and check deployment invariants. |
@@ -31,6 +32,7 @@ This checklist tracks the repo-side and outside-infrastructure work needed befor
 | --- | --- | --- |
 | Image builds were serialized in one CI job. | Slow deploy feedback and no independent image build visibility. | Split into `Backend container image` and `Frontend container image` jobs. |
 | Kubernetes manifests used `ghcr.io/OWNER/...` placeholders. | Applying manifests directly would fail to pull application images. | Added kustomize image mappings to the published `heyyymonth` GHCR images. |
+| Private GHCR image pulls had no repo-supported deployment path. | A production cluster could stall in `ImagePullBackOff` or require undocumented manual patches. | Added a private GHCR overlay, pull-secret helper, release-renderer support, and validation for both public and private image-pull paths. |
 | Backend admin/actor secrets had no Kubernetes contract. | Operators could enable unsafe ad hoc secrets or accidentally commit values. | Added `secrets.example.yaml`, ignored real `secrets.yaml`, and wired optional `desk-ai-secrets`. |
 | Frontend was exposed directly as `LoadBalancer`. | Public access was tied to a service-level load balancer and left no TLS/host routing shape. | Moved public access to Ingress and kept frontend/backend services internal. |
 | Production frontend must use same-origin `/api`. | A public browser cannot call `hostname:8000` directly. | CI builds the frontend with empty `VITE_API_BASE_URL`, so nginx proxies `/api` to the backend service. Do not set `VITE_API_BASE_URL` for public builds unless intentionally routing to a separate API origin. |
@@ -54,7 +56,7 @@ No blocking repo-side deployment readiness items remain in this checklist. The r
 | Dependency | Owner Decision Needed |
 | --- | --- |
 | Hyperscaler and Kubernetes flavor | Choose EKS, GKE, AKS, or another managed Kubernetes option using `docs/deployment-provider-selection.md`. |
-| Container image access | Make GHCR packages public or configure cluster image pull credentials. |
+| Container image access | Choose public GHCR packages or private GHCR credentials using `docs/deployment-image-access.md`. |
 | Domain and DNS | Choose the public hostname and point DNS to the ingress load balancer. |
 | TLS issuing path | Use cert-manager, provider-managed certificates, or a manually created TLS Secret. |
 | Secret management | Use provider secret manager or External Secrets to create `desk-ai-secrets`. |
@@ -73,6 +75,7 @@ Do not treat the system as public-production ready until these are true:
 
 - CI is green on the commit being deployed.
 - The deployed images use immutable `git-<sha>` tags.
+- The selected GHCR access path is verified: public packages pull anonymously, or `desk-ai/ghcr-pull-secret` exists and the private overlay is used.
 - Rollout status and rollback commands are known to the operator before promotion.
 - The ingress hostname, TLS path, and DNS are real, not placeholders.
 - Runtime secrets come from a secret manager or out-of-band Kubernetes Secret.

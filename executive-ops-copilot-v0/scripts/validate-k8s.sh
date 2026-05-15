@@ -5,6 +5,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 K8S_DIR="$ROOT_DIR/infra/k8s"
 RENDERED_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-rendered.yaml"
 RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-release-rendered.yaml"
+PRIVATE_GHCR_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-private-ghcr-rendered.yaml"
+PRIVATE_GHCR_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-private-ghcr-release-rendered.yaml"
 KUBECTL="${KUBECTL:-kubectl}"
 
 parse_yaml() {
@@ -96,6 +98,20 @@ check_sqlite_replica_policy() {
   ' "$manifest"
 }
 
+check_private_ghcr_invariants() {
+  local manifest="$1"
+
+  grep -q "imagePullSecrets:" "$manifest" || {
+    echo "Private GHCR manifests do not include imagePullSecrets." >&2
+    exit 1
+  }
+
+  grep -q "name: ghcr-pull-secret" "$manifest" || {
+    echo "Private GHCR manifests do not reference ghcr-pull-secret." >&2
+    exit 1
+  }
+}
+
 validate_manifest() {
   local manifest="$1"
   parse_yaml "$manifest"
@@ -110,6 +126,14 @@ validate_manifest "$RENDERED_MANIFEST"
 "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee > "$RELEASE_MANIFEST"
 validate_manifest "$RELEASE_MANIFEST"
 
+"$KUBECTL" kustomize "$ROOT_DIR/infra/k8s-overlays/private-ghcr" > "$PRIVATE_GHCR_MANIFEST"
+validate_manifest "$PRIVATE_GHCR_MANIFEST"
+check_private_ghcr_invariants "$PRIVATE_GHCR_MANIFEST"
+
+K8S_BASE_DIR="infra/k8s-overlays/private-ghcr" "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee > "$PRIVATE_GHCR_RELEASE_MANIFEST"
+validate_manifest "$PRIVATE_GHCR_RELEASE_MANIFEST"
+check_private_ghcr_invariants "$PRIVATE_GHCR_RELEASE_MANIFEST"
+
 grep -q "ghcr.io/heyyymonth/desk-ai-backend:git-deadbee" "$RELEASE_MANIFEST" || {
   echo "Release manifests do not use the requested immutable backend image tag." >&2
   exit 1
@@ -122,6 +146,21 @@ grep -q "ghcr.io/heyyymonth/desk-ai-frontend:git-deadbee" "$RELEASE_MANIFEST" ||
 
 if grep -q "ghcr.io/heyyymonth/desk-ai-.*:latest" "$RELEASE_MANIFEST"; then
   echo "Release manifests still contain mutable latest application image tags." >&2
+  exit 1
+fi
+
+grep -q "ghcr.io/heyyymonth/desk-ai-backend:git-deadbee" "$PRIVATE_GHCR_RELEASE_MANIFEST" || {
+  echo "Private GHCR release manifests do not use the requested immutable backend image tag." >&2
+  exit 1
+}
+
+grep -q "ghcr.io/heyyymonth/desk-ai-frontend:git-deadbee" "$PRIVATE_GHCR_RELEASE_MANIFEST" || {
+  echo "Private GHCR release manifests do not use the requested immutable frontend image tag." >&2
+  exit 1
+}
+
+if grep -q "ghcr.io/heyyymonth/desk-ai-.*:latest" "$PRIVATE_GHCR_RELEASE_MANIFEST"; then
+  echo "Private GHCR release manifests still contain mutable latest application image tags." >&2
   exit 1
 fi
 

@@ -108,7 +108,7 @@ Decision date:
 
 1. Create the managed Kubernetes cluster and verify `kubectl` access.
 2. Confirm NetworkPolicy enforcement is active before relying on backend/Ollama isolation.
-3. Create or configure image-pull access for GHCR, unless the packages are public.
+3. Create or configure image-pull access for GHCR using `docs/deployment-image-access.md`, unless the packages are public.
 4. Install or select the ingress controller/load-balancer path.
 5. Configure DNS and TLS.
 6. Connect the secret manager to a Kubernetes Secret named `desk-ai-secrets`.

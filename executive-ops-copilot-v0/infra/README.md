@@ -37,6 +37,7 @@ curl http://localhost:8000/metrics
 Kubernetes manifests live in `infra/k8s/`.
 Deployment readiness tracking lives in `../docs/deployment-readiness.md`.
 Provider selection guidance lives in `../docs/deployment-provider-selection.md`.
+Container image access guidance lives in `../docs/deployment-image-access.md`.
 Resource and timeout tuning guidance lives in `../docs/deployment-resource-tuning.md`.
 Rollout and rollback commands live in `../docs/deployment-rollout-runbook.md`.
 Network policy guidance lives in `../docs/deployment-network-policy.md`.
@@ -57,7 +58,15 @@ ghcr.io/heyyymonth/desk-ai-frontend:latest
 ghcr.io/heyyymonth/desk-ai-frontend:git-<sha>
 ```
 
-For a public cluster, make those GHCR packages public or configure Kubernetes image pull credentials.
+For a public cluster, make those GHCR packages public or configure Kubernetes image pull credentials. The private package path uses the `infra/k8s-overlays/private-ghcr` overlay and a pull Secret named `ghcr-pull-secret`; see `../docs/deployment-image-access.md`.
+
+Create private GHCR pull credentials when packages are private:
+
+```bash
+export GHCR_USERNAME=<github-username>
+export GHCR_TOKEN=<classic-pat-with-read-packages>
+./scripts/create-ghcr-pull-secret.sh
+```
 
 Create the backend runtime secret before enabling admin telemetry or trusted actor attribution:
 
@@ -114,6 +123,13 @@ For production rollouts, prefer immutable commit tags over `latest`. Render a re
 
 ```bash
 ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
+kubectl apply -f /tmp/desk-ai-release.yaml
+```
+
+For private GHCR packages, render the private image-pull overlay:
+
+```bash
+K8S_BASE_DIR=infra/k8s-overlays/private-ghcr ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
 kubectl apply -f /tmp/desk-ai-release.yaml
 ```
 
