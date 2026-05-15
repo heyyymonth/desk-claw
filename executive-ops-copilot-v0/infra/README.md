@@ -96,17 +96,14 @@ Production dependencies outside this repo:
 - TLS issued by cert-manager, provider-managed certificates, or a pre-created `desk-ai-tls` Secret;
 - provider firewall/security-group rules allowing public HTTPS traffic to the ingress controller.
 
-For production rollouts, prefer immutable commit tags over `latest`. Update the `newTag` values in `infra/k8s/kustomization.yaml` to the CI commit tag before applying:
+For production rollouts, prefer immutable commit tags over `latest`. Render a release manifest with the CI commit tag, then apply the rendered output:
 
-```yaml
-images:
-  - name: ghcr.io/OWNER/desk-ai-backend
-    newName: ghcr.io/heyyymonth/desk-ai-backend
-    newTag: git-<sha>
-  - name: ghcr.io/OWNER/desk-ai-frontend
-    newName: ghcr.io/heyyymonth/desk-ai-frontend
-    newTag: git-<sha>
+```bash
+./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
+kubectl apply -f /tmp/desk-ai-release.yaml
 ```
+
+The release renderer creates a temporary kustomize overlay, sets backend and frontend images to the same immutable `git-<sha>` tag, and leaves the base manifests on `latest` for local/default use.
 
 Recommended rollout order for first deployment:
 
@@ -117,9 +114,13 @@ kubectl apply -f infra/k8s/ollama.yaml
 kubectl -n desk-ai wait --for=condition=available deployment/ollama --timeout=300s
 kubectl apply -f infra/k8s/ollama-model-job.yaml
 kubectl -n desk-ai wait --for=condition=complete job/ollama-pull-gemma4 --timeout=1800s
-kubectl apply -f infra/k8s/backend.yaml
-kubectl apply -f infra/k8s/frontend.yaml
+./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
+kubectl apply -f /tmp/desk-ai-release.yaml
+kubectl -n desk-ai rollout status deployment/backend --timeout=600s
+kubectl -n desk-ai rollout status deployment/frontend --timeout=300s
 ```
+
+Do not apply raw `backend.yaml` or `frontend.yaml` directly for production releases; the published image tags are applied through kustomize and the release renderer.
 
 The backend readiness probe depends on `/api/health`, which only reports ready after startup model warmup succeeds.
 

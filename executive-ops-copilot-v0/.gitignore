@@ -16,4 +16,5 @@ __pycache__/
 *.db
 backend/data/
 infra/k8s/secrets.yaml
+infra/.release.*
 .venv/
