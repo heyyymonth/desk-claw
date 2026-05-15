@@ -109,12 +109,13 @@ Decision date:
 1. Create the managed Kubernetes cluster and verify `kubectl` access.
 2. Confirm NetworkPolicy enforcement is active before relying on backend/Ollama isolation.
 3. Create or configure image-pull access for GHCR using `docs/deployment-image-access.md`, unless the packages are public.
-4. Install or select the ingress controller/load-balancer path.
-5. Configure DNS using `docs/deployment-domain-dns.md`, then configure TLS using `docs/deployment-tls.md`.
-6. Connect the secret manager to a Kubernetes Secret named `desk-ai-secrets` using `docs/deployment-secret-management.md`.
-7. Install the observability stack and confirm backend `/metrics` plus ingress errors are scraped.
-8. Run `REQUIRE_RUNTIME_SECRET=true TLS_MODE=<mode> PUBLIC_HOST=<host> TLS_SECRET_NAME=<secret> ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml`.
-9. Apply the release, run `./scripts/check-runtime-secret.sh desk-ai-secrets`, run `./scripts/check-public-dns.sh <host>`, run `./scripts/check-public-tls.sh <host>`, then run `./scripts/smoke-deploy.sh https://<host>`.
+4. Choose the model-hosting path using `docs/deployment-model-hosting.md`; install GPU dependencies or create the private model endpoint before the first release if needed.
+5. Install or select the ingress controller/load-balancer path.
+6. Configure DNS using `docs/deployment-domain-dns.md`, then configure TLS using `docs/deployment-tls.md`.
+7. Connect the secret manager to a Kubernetes Secret named `desk-ai-secrets` using `docs/deployment-secret-management.md`.
+8. Install the observability stack and confirm backend `/metrics` plus ingress errors are scraped.
+9. Run `K8S_BASE_DIR=<selected-path> MODEL_ENDPOINT_URL=<external-url-if-needed> REQUIRE_RUNTIME_SECRET=true TLS_MODE=<mode> PUBLIC_HOST=<host> TLS_SECRET_NAME=<secret> ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml`.
+10. Apply the release, run `./scripts/check-runtime-secret.sh desk-ai-secrets`, run `MODEL_HOSTING_MODE=<mode> ./scripts/check-model-runtime.sh https://<host>`, run `./scripts/check-public-dns.sh <host>`, run `./scripts/check-public-tls.sh <host>`, then run `./scripts/smoke-deploy.sh https://<host>`.
 
 ## References
 

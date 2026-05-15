@@ -8,6 +8,9 @@ Usage: render-release-k8s.sh <git-sha|git-<sha>> [output-file]
 Renders Kubernetes manifests with immutable backend and frontend image tags.
 The SHA must be a 7-40 character git hex SHA, with or without the git- prefix.
 Set K8S_BASE_DIR=infra/k8s-overlays/private-ghcr to render the private GHCR pull-secret overlay.
+Set K8S_BASE_DIR=infra/k8s-overlays/ollama-gpu-nvidia for an in-cluster NVIDIA GPU Ollama runtime.
+Set K8S_BASE_DIR=infra/k8s-overlays/external-model and MODEL_ENDPOINT_URL=https://ollama.internal.example.com for a private external Ollama-compatible endpoint.
+Use infra/k8s-overlays/private-ghcr-ollama-gpu-nvidia or infra/k8s-overlays/private-ghcr-external-model when packages are private and model hosting also needs an overlay.
 Set PUBLIC_HOST=desk-ai.example.com to patch the frontend Ingress host and TLS host.
 Set TLS_SECRET_NAME=desk-ai-tls to patch the frontend Ingress TLS Secret name.
 Set TLS_MODE=cert-manager|precreated-secret|provider-managed to choose how Ingress TLS is issued.
@@ -36,6 +39,7 @@ TLS_MODE="${TLS_MODE:-cert-manager}"
 TLS_CLUSTER_ISSUER="${TLS_CLUSTER_ISSUER:-letsencrypt-prod}"
 RUNTIME_SECRET_NAME="${RUNTIME_SECRET_NAME:-desk-ai-secrets}"
 REQUIRE_RUNTIME_SECRET="${REQUIRE_RUNTIME_SECRET:-false}"
+MODEL_ENDPOINT_URL="${MODEL_ENDPOINT_URL:-}"
 
 if [[ "$K8S_BASE_DIR" != /* ]]; then
   K8S_BASE_DIR="$ROOT_DIR/$K8S_BASE_DIR"
@@ -46,6 +50,14 @@ if [[ "$K8S_BASE_DIR" == "$ROOT_DIR/infra/"* ]]; then
 else
   echo "K8S_BASE_DIR must resolve under $ROOT_DIR/infra so the release overlay can reference it safely." >&2
   exit 1
+fi
+
+EXTERNAL_MODEL_OVERLAY=false
+if [[ "$K8S_BASE_DIR" == "$ROOT_DIR/infra/k8s-overlays/external-model" ]]; then
+  EXTERNAL_MODEL_OVERLAY=true
+fi
+if [[ "$K8S_BASE_DIR" == "$ROOT_DIR/infra/k8s-overlays/private-ghcr-external-model" ]]; then
+  EXTERNAL_MODEL_OVERLAY=true
 fi
 
 case "$TLS_MODE" in
@@ -89,6 +101,18 @@ if [[ -n "$PUBLIC_HOST" ]]; then
     echo "PUBLIC_HOST must be a valid lower-case DNS hostname with at least one dot." >&2
     exit 1
   fi
+fi
+
+if [[ -n "$MODEL_ENDPOINT_URL" ]]; then
+  if ! [[ "$MODEL_ENDPOINT_URL" =~ ^https?://[^[:space:]]+$ ]]; then
+    echo "MODEL_ENDPOINT_URL must be an http(s) URL without whitespace." >&2
+    exit 1
+  fi
+fi
+
+if [[ "$EXTERNAL_MODEL_OVERLAY" == "true" && -z "$MODEL_ENDPOINT_URL" ]]; then
+  echo "MODEL_ENDPOINT_URL must be set when rendering an external model overlay." >&2
+  exit 1
 fi
 
 RAW_TAG="$1"
@@ -176,6 +200,20 @@ if [[ "$REQUIRE_RUNTIME_SECRET" == "true" || "$RUNTIME_SECRET_NAME" != "desk-ai-
       - op: replace
         path: /spec/template/spec/containers/0/envFrom/1/secretRef/optional
         value: $([[ "$REQUIRE_RUNTIME_SECRET" == "true" ]] && echo "false" || echo "true")
+YAML
+fi
+
+if [[ -n "$MODEL_ENDPOINT_URL" ]]; then
+  append_patches_header
+  cat >> "$TMP_DIR/kustomization.yaml" <<YAML
+  - target:
+      kind: ConfigMap
+      name: desk-ai-config
+      namespace: desk-ai
+    patch: |-
+      - op: replace
+        path: /data/OLLAMA_BASE_URL
+        value: "$MODEL_ENDPOINT_URL"
 YAML
 fi
 

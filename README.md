@@ -32,6 +32,7 @@ The intended local model runtime is Ollama with `gemma4:latest`. The frontend ne
 - `executive-ops-copilot-v0/`: runnable V0 app, tests, contracts, evals, and detailed README.
 - `.github/workflows/ci.yml`: GitHub Actions CI for backend, frontend, build, and E2E tests on `main`.
 - `executive-ops-copilot-v0/infra/`: Docker Compose and Kubernetes deployment prep for separate frontend, backend, and Ollama services.
+- `executive-ops-copilot-v0/docs/deployment-model-hosting.md`: Kubernetes model-hosting choices for in-cluster CPU, in-cluster NVIDIA GPU, and private external Ollama-compatible endpoints.
 - `LICENSE`: project license.
 
 Start with:

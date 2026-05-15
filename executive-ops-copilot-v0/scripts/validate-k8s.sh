@@ -10,12 +10,20 @@ TLS_PRECREATED_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-precreated-tls-rele
 RUNTIME_SECRET_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-runtime-secret-release-rendered.yaml"
 PRIVATE_GHCR_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-private-ghcr-rendered.yaml"
 PRIVATE_GHCR_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-private-ghcr-release-rendered.yaml"
+GPU_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-ollama-gpu-rendered.yaml"
+GPU_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-ollama-gpu-release-rendered.yaml"
+EXTERNAL_MODEL_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-external-model-rendered.yaml"
+EXTERNAL_MODEL_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-external-model-release-rendered.yaml"
+PRIVATE_GHCR_GPU_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-private-ghcr-ollama-gpu-release-rendered.yaml"
+PRIVATE_GHCR_EXTERNAL_MODEL_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-private-ghcr-external-model-release-rendered.yaml"
 CERT_MANAGER_ISSUER_MANIFEST="${TMPDIR:-/tmp}/desk-ai-cert-manager-issuer-rendered.yaml"
 EXTERNAL_SECRET_MANIFEST="${TMPDIR:-/tmp}/desk-ai-external-secret-rendered.yaml"
 TLS_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-public-tls-check.out"
 RUNTIME_SECRET_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-runtime-secret-check.out"
+MODEL_RUNTIME_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-model-runtime-check.out"
 INVALID_PUBLIC_HOST_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-public-host.err"
 INVALID_TLS_MODE_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-tls-mode.err"
+INVALID_MODEL_ENDPOINT_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-model-endpoint.err"
 INVALID_ACME_EMAIL_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-acme-email.err"
 INVALID_EXTERNAL_SECRET_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-external-secret.err"
 INVALID_REQUIRE_RUNTIME_SECRET_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-require-runtime-secret.err"
@@ -41,6 +49,8 @@ validate_schema() {
 
 check_common_invariants() {
   local manifest="$1"
+  local model_mode="${2:-in-cluster}"
+
   if grep -q "ghcr.io/OWNER" "$manifest"; then
     echo "Rendered manifests still contain placeholder GHCR image names." >&2
     exit 1
@@ -81,10 +91,17 @@ check_common_invariants() {
     exit 1
   }
 
-  grep -q "name: ollama-ingress" "$manifest" || {
-    echo "Rendered manifests do not include the Ollama ingress policy." >&2
-    exit 1
-  }
+  if [[ "$model_mode" == "external" ]]; then
+    if grep -q "name: ollama-ingress" "$manifest"; then
+      echo "External model manifests should not include the in-cluster Ollama ingress policy." >&2
+      exit 1
+    fi
+  else
+    grep -q "name: ollama-ingress" "$manifest" || {
+      echo "Rendered manifests do not include the Ollama ingress policy." >&2
+      exit 1
+    }
+  fi
 }
 
 check_sqlite_replica_policy() {
@@ -124,15 +141,100 @@ check_private_ghcr_invariants() {
   }
 }
 
+check_model_hosting_invariants() {
+  local manifest="$1"
+  local model_mode="${2:-in-cluster}"
+
+  if ! command -v ruby >/dev/null 2>&1; then
+    echo "Ruby is not installed; skipping model hosting invariant validation." >&2
+    return
+  fi
+
+  ruby -e '
+    require "yaml"
+
+    manifest = ARGV.fetch(0)
+    mode = ARGV.fetch(1)
+    docs = YAML.load_stream(File.read(manifest)).compact
+    errors = []
+
+    resource = lambda do |kind, name|
+      docs.find { |doc| doc["kind"] == kind && doc.dig("metadata", "name") == name }
+    end
+
+    config = resource.call("ConfigMap", "desk-ai-config")
+    model_url = config&.dig("data", "OLLAMA_BASE_URL").to_s
+    ollama_deployment = resource.call("Deployment", "ollama")
+    ollama_service = resource.call("Service", "ollama")
+    ollama_pvc = resource.call("PersistentVolumeClaim", "ollama-data")
+    ollama_job = resource.call("Job", "ollama-pull-gemma4")
+    ollama_policy = resource.call("NetworkPolicy", "ollama-ingress")
+
+    case mode
+    when "external"
+      present = [
+        ["Deployment/ollama", ollama_deployment],
+        ["Service/ollama", ollama_service],
+        ["PersistentVolumeClaim/ollama-data", ollama_pvc],
+        ["Job/ollama-pull-gemma4", ollama_job],
+        ["NetworkPolicy/ollama-ingress", ollama_policy],
+      ].select { |_name, value| value }.map(&:first)
+      errors << "external model manifest still includes #{present.join(", ")}" unless present.empty?
+      errors << "external model manifest still points at in-cluster Ollama" if model_url == "http://ollama:11434"
+      errors << "external model endpoint must be http(s), got #{model_url.inspect}" unless model_url.match?(/\Ahttps?:\/\/\S+\z/)
+    when "gpu"
+      errors << "GPU model manifest is missing Deployment/ollama" unless ollama_deployment
+      errors << "GPU model manifest is missing Service/ollama" unless ollama_service
+      errors << "GPU model manifest is missing PersistentVolumeClaim/ollama-data" unless ollama_pvc
+      errors << "GPU model manifest is missing Job/ollama-pull-gemma4" unless ollama_job
+      errors << "GPU model manifest is missing NetworkPolicy/ollama-ingress" unless ollama_policy
+      errors << "GPU model manifest should keep in-cluster Ollama URL, got #{model_url.inspect}" unless model_url == "http://ollama:11434"
+
+      if ollama_deployment
+        template = ollama_deployment.dig("spec", "template", "spec") || {}
+        container = (template["containers"] || []).find { |entry| entry["name"] == "ollama" } || {}
+        limits = container.dig("resources", "limits") || {}
+        node_selector = template["nodeSelector"] || {}
+        tolerations = template["tolerations"] || []
+
+        errors << "GPU model manifest must request one NVIDIA GPU limit" unless limits["nvidia.com/gpu"].to_s == "1"
+        errors << "GPU model manifest must pin Ollama to desk-ai/model-runtime=ollama-gpu nodes" unless node_selector["desk-ai/model-runtime"] == "ollama-gpu"
+        has_toleration = tolerations.any? do |entry|
+          entry["key"] == "desk-ai/model-runtime" &&
+            entry["operator"] == "Equal" &&
+            entry["value"] == "ollama-gpu" &&
+            entry["effect"] == "NoSchedule"
+        end
+        errors << "GPU model manifest must tolerate the ollama-gpu taint" unless has_toleration
+      end
+    else
+      errors << "model manifest is missing Deployment/ollama" unless ollama_deployment
+      errors << "model manifest is missing Service/ollama" unless ollama_service
+      errors << "model manifest is missing PersistentVolumeClaim/ollama-data" unless ollama_pvc
+      errors << "model manifest is missing Job/ollama-pull-gemma4" unless ollama_job
+      errors << "model manifest is missing NetworkPolicy/ollama-ingress" unless ollama_policy
+      errors << "model manifest should keep in-cluster Ollama URL, got #{model_url.inspect}" unless model_url == "http://ollama:11434"
+    end
+
+    unless errors.empty?
+      warn errors.join("\n")
+      exit 1
+    end
+  ' "$manifest" "$model_mode"
+}
+
 validate_manifest() {
   local manifest="$1"
+  local model_mode="${2:-in-cluster}"
   parse_yaml "$manifest"
   validate_schema "$manifest"
-  check_common_invariants "$manifest"
+  check_common_invariants "$manifest" "$model_mode"
   check_sqlite_replica_policy "$manifest"
+  check_model_hosting_invariants "$manifest" "$model_mode"
 }
 
 for script in \
+  "$ROOT_DIR/scripts/check-model-runtime.sh" \
   "$ROOT_DIR/scripts/check-public-dns.sh" \
   "$ROOT_DIR/scripts/check-public-tls.sh" \
   "$ROOT_DIR/scripts/check-runtime-secret.sh" \
@@ -164,6 +266,36 @@ check_private_ghcr_invariants "$PRIVATE_GHCR_MANIFEST"
 K8S_BASE_DIR="infra/k8s-overlays/private-ghcr" "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee > "$PRIVATE_GHCR_RELEASE_MANIFEST"
 validate_manifest "$PRIVATE_GHCR_RELEASE_MANIFEST"
 check_private_ghcr_invariants "$PRIVATE_GHCR_RELEASE_MANIFEST"
+
+"$KUBECTL" kustomize "$ROOT_DIR/infra/k8s-overlays/ollama-gpu-nvidia" > "$GPU_MANIFEST"
+validate_manifest "$GPU_MANIFEST" gpu
+
+K8S_BASE_DIR="infra/k8s-overlays/ollama-gpu-nvidia" "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee > "$GPU_RELEASE_MANIFEST"
+validate_manifest "$GPU_RELEASE_MANIFEST" gpu
+
+"$KUBECTL" kustomize "$ROOT_DIR/infra/k8s-overlays/external-model" > "$EXTERNAL_MODEL_MANIFEST"
+validate_manifest "$EXTERNAL_MODEL_MANIFEST" external
+
+MODEL_ENDPOINT_URL=https://ollama.internal.example.test K8S_BASE_DIR="infra/k8s-overlays/external-model" "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee > "$EXTERNAL_MODEL_RELEASE_MANIFEST"
+validate_manifest "$EXTERNAL_MODEL_RELEASE_MANIFEST" external
+
+if K8S_BASE_DIR="infra/k8s-overlays/external-model" "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee >/dev/null 2>"$INVALID_MODEL_ENDPOINT_ERROR"; then
+  echo "Release renderer accepted an external model overlay without MODEL_ENDPOINT_URL." >&2
+  exit 1
+fi
+
+grep -q "MODEL_ENDPOINT_URL must be set" "$INVALID_MODEL_ENDPOINT_ERROR" || {
+  echo "Release renderer did not explain missing MODEL_ENDPOINT_URL input." >&2
+  exit 1
+}
+
+K8S_BASE_DIR="infra/k8s-overlays/private-ghcr-ollama-gpu-nvidia" "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee > "$PRIVATE_GHCR_GPU_RELEASE_MANIFEST"
+validate_manifest "$PRIVATE_GHCR_GPU_RELEASE_MANIFEST" gpu
+check_private_ghcr_invariants "$PRIVATE_GHCR_GPU_RELEASE_MANIFEST"
+
+MODEL_ENDPOINT_URL=https://ollama.internal.example.test K8S_BASE_DIR="infra/k8s-overlays/private-ghcr-external-model" "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee > "$PRIVATE_GHCR_EXTERNAL_MODEL_RELEASE_MANIFEST"
+validate_manifest "$PRIVATE_GHCR_EXTERNAL_MODEL_RELEASE_MANIFEST" external
+check_private_ghcr_invariants "$PRIVATE_GHCR_EXTERNAL_MODEL_RELEASE_MANIFEST"
 
 if PUBLIC_HOST=https://desk-ai.example.test "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee >/dev/null 2>"$INVALID_PUBLIC_HOST_ERROR"; then
   echo "Release renderer accepted an invalid PUBLIC_HOST with scheme." >&2
@@ -332,6 +464,35 @@ grep -q "Deployment backend references Secret desk-ai-secrets" "$RUNTIME_SECRET_
   exit 1
 }
 
+MODEL_RUNTIME_FAKE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/desk-ai-model-runtime-check.XXXXXX")"
+trap 'rm -rf "$TLS_CHECK_FAKE_DIR" "$RUNTIME_SECRET_FAKE_DIR" "$MODEL_RUNTIME_FAKE_DIR"' EXIT
+
+cat > "$MODEL_RUNTIME_FAKE_DIR/curl" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+case "$*" in
+  *"/api/health"*)
+    cat <<'JSON'
+{"status":"ok","ollama":"configured","model":"ollama_chat/gemma4:latest","adk_model":"ollama_chat/gemma4:latest","ollama_model":"gemma4:latest","model_warmup":{"status":"ready","elapsed_seconds":41.2,"ollama_total_seconds":39.8,"ollama_load_seconds":32.1}}
+JSON
+    ;;
+  *)
+    echo "unexpected curl args: $*" >&2
+    exit 1
+    ;;
+esac
+SH
+
+chmod +x "$MODEL_RUNTIME_FAKE_DIR/curl"
+
+CURL="$MODEL_RUNTIME_FAKE_DIR/curl" SKIP_CLUSTER_CHECK=true "$ROOT_DIR/scripts/check-model-runtime.sh" https://desk-ai.example.test > "$MODEL_RUNTIME_CHECK_OUTPUT"
+
+grep -q "Model runtime health passed" "$MODEL_RUNTIME_CHECK_OUTPUT" || {
+  echo "Model runtime check did not validate the fake backend health payload." >&2
+  exit 1
+}
+
 grep -q "ghcr.io/heyyymonth/desk-ai-backend:git-deadbee" "$RELEASE_MANIFEST" || {
   echo "Release manifests do not use the requested immutable backend image tag." >&2
   exit 1
@@ -399,6 +560,26 @@ grep -q "ghcr.io/heyyymonth/desk-ai-frontend:git-deadbee" "$PRIVATE_GHCR_RELEASE
 
 if grep -q "ghcr.io/heyyymonth/desk-ai-.*:latest" "$PRIVATE_GHCR_RELEASE_MANIFEST"; then
   echo "Private GHCR release manifests still contain mutable latest application image tags." >&2
+  exit 1
+fi
+
+grep -q "nvidia.com/gpu: \"1\"" "$GPU_RELEASE_MANIFEST" || {
+  echo "GPU release manifests do not request one NVIDIA GPU." >&2
+  exit 1
+}
+
+grep -q "desk-ai/model-runtime: ollama-gpu" "$GPU_RELEASE_MANIFEST" || {
+  echo "GPU release manifests do not pin Ollama to the GPU node pool." >&2
+  exit 1
+}
+
+grep -q "OLLAMA_BASE_URL: https://ollama.internal.example.test" "$EXTERNAL_MODEL_RELEASE_MANIFEST" || {
+  echo "External model release manifests do not use the requested model endpoint URL." >&2
+  exit 1
+}
+
+if grep -q "name: ollama-ingress\\|name: ollama-pull-gemma4\\|name: ollama-data" "$EXTERNAL_MODEL_RELEASE_MANIFEST"; then
+  echo "External model release manifests still include in-cluster Ollama resources." >&2
   exit 1
 fi
 

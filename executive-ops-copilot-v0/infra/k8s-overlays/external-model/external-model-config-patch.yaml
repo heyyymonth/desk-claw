@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: desk-ai-config
+  namespace: desk-ai
+data:
+  OLLAMA_BASE_URL: https://ollama.internal.example.com

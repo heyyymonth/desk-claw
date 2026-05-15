@@ -41,6 +41,7 @@ Container image access guidance lives in `../docs/deployment-image-access.md`.
 Domain and DNS guidance lives in `../docs/deployment-domain-dns.md`.
 TLS issuing guidance lives in `../docs/deployment-tls.md`.
 Secret management guidance lives in `../docs/deployment-secret-management.md`.
+Model hosting guidance lives in `../docs/deployment-model-hosting.md`.
 Resource and timeout tuning guidance lives in `../docs/deployment-resource-tuning.md`.
 Rollout and rollback commands live in `../docs/deployment-rollout-runbook.md`.
 Network policy guidance lives in `../docs/deployment-network-policy.md`.
@@ -131,6 +132,20 @@ K8S_BASE_DIR=infra/k8s-overlays/private-ghcr REQUIRE_RUNTIME_SECRET=true RUNTIME
 kubectl apply -f /tmp/desk-ai-release.yaml
 ```
 
+For an in-cluster NVIDIA GPU model runtime, select the GPU overlay:
+
+```bash
+K8S_BASE_DIR=infra/k8s-overlays/ollama-gpu-nvidia REQUIRE_RUNTIME_SECRET=true RUNTIME_SECRET_NAME=desk-ai-secrets TLS_MODE=cert-manager TLS_CLUSTER_ISSUER=letsencrypt-prod PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
+```
+
+For a private external Ollama-compatible endpoint, select the external model overlay and set the endpoint URL:
+
+```bash
+K8S_BASE_DIR=infra/k8s-overlays/external-model MODEL_ENDPOINT_URL=https://ollama.internal.example.com REQUIRE_RUNTIME_SECRET=true RUNTIME_SECRET_NAME=desk-ai-secrets TLS_MODE=cert-manager TLS_CLUSTER_ISSUER=letsencrypt-prod PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
+```
+
+If GHCR packages are private and model hosting also needs an overlay, use `infra/k8s-overlays/private-ghcr-ollama-gpu-nvidia` or `infra/k8s-overlays/private-ghcr-external-model`.
+
 The release renderer creates a temporary kustomize overlay, sets backend and frontend images to the same immutable `git-<sha>` tag, patches the public Ingress host when `PUBLIC_HOST` is set, applies the selected TLS mode, and leaves the base manifests on `latest` plus the placeholder host for local/default use.
 Use `../docs/deployment-rollout-runbook.md` for the full promotion, `kubectl rollout status`, smoke-test, and rollback sequence.
 
@@ -148,6 +163,7 @@ kubectl apply -f /tmp/desk-ai-release.yaml
 kubectl -n desk-ai rollout status deployment/backend --timeout=600s
 kubectl -n desk-ai rollout status deployment/frontend --timeout=300s
 ./scripts/check-runtime-secret.sh desk-ai-secrets
+./scripts/check-model-runtime.sh https://desk-ai.example.com
 ./scripts/check-public-dns.sh desk-ai.example.com
 ./scripts/check-public-tls.sh desk-ai.example.com
 ./scripts/smoke-deploy.sh https://desk-ai.example.com

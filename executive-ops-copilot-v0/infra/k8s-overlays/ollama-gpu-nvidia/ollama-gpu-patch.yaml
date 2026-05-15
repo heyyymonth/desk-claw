@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  namespace: desk-ai
+spec:
+  template:
+    spec:
+      nodeSelector:
+        desk-ai/model-runtime: ollama-gpu
+      tolerations:
+        - key: desk-ai/model-runtime
+          operator: Equal
+          value: ollama-gpu
+          effect: NoSchedule
+      containers:
+        - name: ollama
+          resources:
+            requests:
+              cpu: "2"
+              memory: 16Gi
+            limits:
+              cpu: "8"
+              memory: 32Gi
+              nvidia.com/gpu: "1"

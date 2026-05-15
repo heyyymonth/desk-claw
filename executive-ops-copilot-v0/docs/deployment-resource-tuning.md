@@ -38,24 +38,28 @@ For the default `gemma4:latest`, budget VRAM above the model size. A practical f
 
 ## GPU Scheduling
 
-The repository does not hard-code GPU requests yet because the exact Kubernetes GPU resource name depends on the provider, device plugin, and accelerator type.
+The repository includes an NVIDIA GPU overlay at `infra/k8s-overlays/ollama-gpu-nvidia`. Use it only after the selected provider has GPU nodes, drivers, and the NVIDIA device plugin or GPU Operator installed.
 
-For an NVIDIA cluster, install the provider-supported NVIDIA device plugin or GPU Operator, then add a GPU limit to the `ollama` container overlay:
+The overlay adds a GPU limit to the `ollama` container and pins the pod to a model-runtime node pool:
 
 ```yaml
 resources:
   requests:
-    cpu: "1"
-    memory: 8Gi
-  limits:
-    cpu: "4"
+    cpu: "2"
     memory: 16Gi
+  limits:
+    cpu: "8"
+    memory: 32Gi
     nvidia.com/gpu: "1"
+nodeSelector:
+  desk-ai/model-runtime: ollama-gpu
 ```
+
+Kubernetes expects GPU resources to be specified in `limits`; when a GPU limit is set without a separate GPU request, Kubernetes uses the limit as the request.
 
 For AMD GPU clusters, use the provider-supported ROCm path and confirm whether the `ollama/ollama:rocm` image, device mounts, or a device plugin is required for that cluster.
 
-Use the official [Ollama Docker](https://docs.ollama.com/docker) and [Ollama hardware support](https://docs.ollama.com/gpu) docs when translating this overlay to a specific cloud image, device plugin, or runtime class.
+Use `docs/deployment-model-hosting.md`, the official [Ollama Docker](https://docs.ollama.com/docker) docs, and the selected cloud GPU docs when translating this overlay to a specific cloud image, device plugin, or runtime class.
 
 Keep Ollama and its model PVC on the same availability zone or node class where possible. Model pulls and cold starts become slow and brittle if the pod frequently moves across nodes without warm storage.
 

@@ -15,6 +15,7 @@ Before promoting a commit:
 - Secret management is configured using `docs/deployment-secret-management.md`, and `desk-ai-secrets` exists in the `desk-ai` namespace or is created by the configured controller.
 - Public hostname, TLS Secret name, DNS owner, and ingress target are decided using `docs/deployment-domain-dns.md`.
 - TLS issuing mode and issuer setup are decided using `docs/deployment-tls.md`.
+- Model hosting mode is selected using `docs/deployment-model-hosting.md`.
 - Any cloud firewall/security-group rules allow public HTTPS traffic to the ingress controller.
 - Ollama capacity and timeout values have been reviewed against `docs/deployment-resource-tuning.md`.
 
@@ -29,8 +30,13 @@ export TLS_SECRET_NAME="desk-ai-tls"
 export TLS_MODE="cert-manager"
 export TLS_CLUSTER_ISSUER="letsencrypt-prod"
 export RUNTIME_SECRET_NAME="desk-ai-secrets"
+export MODEL_HOSTING_MODE="in-cluster"
+export K8S_BASE_DIR="infra/k8s"
+export MODEL_ENDPOINT_URL=""
 export PUBLIC_URL="https://${PUBLIC_HOST}"
 ```
+
+Set `MODEL_HOSTING_MODE=gpu` and `K8S_BASE_DIR=infra/k8s-overlays/ollama-gpu-nvidia` for the NVIDIA GPU runtime. Set `MODEL_HOSTING_MODE=external`, `K8S_BASE_DIR=infra/k8s-overlays/external-model`, and `MODEL_ENDPOINT_URL=https://ollama.internal.example.com` for a private external Ollama-compatible endpoint. If GHCR packages are private, use `infra/k8s-overlays/private-ghcr`, `infra/k8s-overlays/private-ghcr-ollama-gpu-nvidia`, or `infra/k8s-overlays/private-ghcr-external-model` as the selected `K8S_BASE_DIR`.
 
 Confirm the target context before applying anything:
 
@@ -44,6 +50,8 @@ kubectl -n desk-ai get deployments || true
 
 Run this once per fresh cluster or namespace. The model pull can take a long time on cold storage or CPU-only nodes.
 
+For in-cluster CPU or GPU model hosting, bootstrap the namespace, config, Ollama runtime, and model-pull job:
+
 ```bash
 kubectl apply -f infra/k8s/namespace.yaml
 kubectl apply -f infra/k8s/configmap.yaml
@@ -53,6 +61,15 @@ kubectl -n desk-ai rollout status deployment/ollama --timeout=300s
 kubectl apply -f infra/k8s/ollama-model-job.yaml
 kubectl -n desk-ai wait --for=condition=complete job/ollama-pull-gemma4 --timeout=1800s
 ```
+
+For GPU mode, label and optionally taint the GPU node pool before applying the release overlay:
+
+```bash
+kubectl label node <gpu-node-name> desk-ai/model-runtime=ollama-gpu
+kubectl taint node <gpu-node-name> desk-ai/model-runtime=ollama-gpu:NoSchedule
+```
+
+For external model mode, skip the Ollama bootstrap and verify the private model endpoint from a temporary pod or the backend pod network before promotion.
 
 If the model changes and the job already exists, delete and recreate the job after updating the config:
 
@@ -80,13 +97,21 @@ SECRET_STORE_NAME=desk-ai-runtime-secrets \
 kubectl apply -f /tmp/desk-ai-external-secret.yaml
 ```
 
-Render the release manifest with the immutable commit tag:
+Render the release manifest with the immutable commit tag and selected model-hosting path:
 
 ```bash
-REQUIRE_RUNTIME_SECRET=true RUNTIME_SECRET_NAME="$RUNTIME_SECRET_NAME" TLS_MODE="$TLS_MODE" TLS_CLUSTER_ISSUER="$TLS_CLUSTER_ISSUER" PUBLIC_HOST="$PUBLIC_HOST" TLS_SECRET_NAME="$TLS_SECRET_NAME" ./scripts/render-release-k8s.sh "$RELEASE_TAG" "$RELEASE_FILE"
+K8S_BASE_DIR="$K8S_BASE_DIR" \
+  MODEL_ENDPOINT_URL="$MODEL_ENDPOINT_URL" \
+  REQUIRE_RUNTIME_SECRET=true \
+  RUNTIME_SECRET_NAME="$RUNTIME_SECRET_NAME" \
+  TLS_MODE="$TLS_MODE" \
+  TLS_CLUSTER_ISSUER="$TLS_CLUSTER_ISSUER" \
+  PUBLIC_HOST="$PUBLIC_HOST" \
+  TLS_SECRET_NAME="$TLS_SECRET_NAME" \
+  ./scripts/render-release-k8s.sh "$RELEASE_TAG" "$RELEASE_FILE"
 ```
 
-If GHCR packages are private, render the image-pull-secret overlay instead:
+If GHCR packages are private and no model-hosting overlay is selected, render the image-pull-secret overlay:
 
 ```bash
 K8S_BASE_DIR=infra/k8s-overlays/private-ghcr \
@@ -94,9 +119,18 @@ K8S_BASE_DIR=infra/k8s-overlays/private-ghcr \
   TLS_SECRET_NAME="$TLS_SECRET_NAME" \
   TLS_MODE="$TLS_MODE" \
   TLS_CLUSTER_ISSUER="$TLS_CLUSTER_ISSUER" \
+  MODEL_ENDPOINT_URL="$MODEL_ENDPOINT_URL" \
   REQUIRE_RUNTIME_SECRET=true \
   RUNTIME_SECRET_NAME="$RUNTIME_SECRET_NAME" \
   ./scripts/render-release-k8s.sh "$RELEASE_TAG" "$RELEASE_FILE"
+```
+
+For private GHCR plus GPU or external model hosting, set `K8S_BASE_DIR` to the composed overlay before using the general render command:
+
+```bash
+export K8S_BASE_DIR=infra/k8s-overlays/private-ghcr-ollama-gpu-nvidia
+# or:
+export K8S_BASE_DIR=infra/k8s-overlays/private-ghcr-external-model
 ```
 
 Review the application image tags before applying:
@@ -134,6 +168,12 @@ Verify that runtime secrets exist and the backend requires them:
 ./scripts/check-runtime-secret.sh "$RUNTIME_SECRET_NAME"
 ```
 
+Verify that the selected model runtime is warm and wired through ADK:
+
+```bash
+MODEL_HOSTING_MODE="$MODEL_HOSTING_MODE" ./scripts/check-model-runtime.sh "$PUBLIC_URL"
+```
+
 Verify that public DNS points at the current ingress target:
 
 ```bash
@@ -152,7 +192,7 @@ Run the public smoke check:
 ./scripts/smoke-deploy.sh "$PUBLIC_URL"
 ```
 
-A release is complete only after rollout status commands, runtime-secret verification, DNS verification, TLS verification, and the smoke test pass.
+A release is complete only after rollout status commands, runtime-secret verification, model-runtime verification, DNS verification, TLS verification, and the smoke test pass.
 
 ## Preferred Rollback: Promote the Last Known Good Commit
 
@@ -163,11 +203,12 @@ export PREVIOUS_RELEASE_SHA=<last-known-good-git-sha>
 export PREVIOUS_RELEASE_TAG="git-${PREVIOUS_RELEASE_SHA}"
 export ROLLBACK_FILE="/tmp/desk-ai-${PREVIOUS_RELEASE_TAG}.yaml"
 
-REQUIRE_RUNTIME_SECRET=true RUNTIME_SECRET_NAME="$RUNTIME_SECRET_NAME" TLS_MODE="$TLS_MODE" TLS_CLUSTER_ISSUER="$TLS_CLUSTER_ISSUER" PUBLIC_HOST="$PUBLIC_HOST" TLS_SECRET_NAME="$TLS_SECRET_NAME" ./scripts/render-release-k8s.sh "$PREVIOUS_RELEASE_TAG" "$ROLLBACK_FILE"
+K8S_BASE_DIR="$K8S_BASE_DIR" MODEL_ENDPOINT_URL="$MODEL_ENDPOINT_URL" REQUIRE_RUNTIME_SECRET=true RUNTIME_SECRET_NAME="$RUNTIME_SECRET_NAME" TLS_MODE="$TLS_MODE" TLS_CLUSTER_ISSUER="$TLS_CLUSTER_ISSUER" PUBLIC_HOST="$PUBLIC_HOST" TLS_SECRET_NAME="$TLS_SECRET_NAME" ./scripts/render-release-k8s.sh "$PREVIOUS_RELEASE_TAG" "$ROLLBACK_FILE"
 kubectl apply -f "$ROLLBACK_FILE"
 kubectl -n desk-ai rollout status deployment/backend --timeout=600s
 kubectl -n desk-ai rollout status deployment/frontend --timeout=300s
 ./scripts/check-runtime-secret.sh "$RUNTIME_SECRET_NAME"
+MODEL_HOSTING_MODE="$MODEL_HOSTING_MODE" ./scripts/check-model-runtime.sh "$PUBLIC_URL"
 ./scripts/check-public-dns.sh "$PUBLIC_HOST"
 ./scripts/check-public-tls.sh "$PUBLIC_HOST"
 ./scripts/smoke-deploy.sh "$PUBLIC_URL"
@@ -227,6 +268,8 @@ Common responses:
 | Backend rollout waits until timeout. | Check `/api/health`, Ollama readiness, model warmup fields, and backend logs. |
 | Frontend rolls out but `/api` fails. | Check nginx proxy config, backend service endpoints, and same-origin ingress routing. |
 | Ollama is ready but model warmup fails. | Re-run or inspect `ollama-pull-gemma4`, then check model availability inside the Ollama pod. |
+| External model mode cannot warm up. | Confirm `MODEL_ENDPOINT_URL`, private DNS, firewall/security-group rules, TLS trust, and that `gemma4:latest` is available on the endpoint. |
+| GPU Ollama pod is pending. | Check the NVIDIA device plugin, allocatable `nvidia.com/gpu`, `desk-ai/model-runtime=ollama-gpu` node label, and taint/toleration. |
 | Backend pod fails because `desk-ai-secrets` is missing. | Apply the ExternalSecret/manual Secret from `docs/deployment-secret-management.md`, then rerun rollout status. |
 | DNS check fails. | Confirm the DNS zone, record type, and Ingress load balancer target in `docs/deployment-domain-dns.md`. |
 | TLS check fails. | Confirm `TLS_MODE`, `TLS_CLUSTER_ISSUER`, `TLS_SECRET_NAME`, Certificate status, and provider-specific ingress TLS requirements in `docs/deployment-tls.md`. |

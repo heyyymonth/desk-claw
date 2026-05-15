@@ -130,6 +130,8 @@ ADK eval dependencies are intentionally separate from the normal backend install
 pip install -e ".[dev,evals]"
 ```
 
+Deployment model hosting is documented in `docs/deployment-model-hosting.md`. The Kubernetes release path supports the default in-cluster CPU Ollama runtime, an NVIDIA GPU Ollama overlay, and a private external Ollama-compatible endpoint while keeping FastAPI as the model boundary.
+
 The default SQLite database path is `backend/data/deskclaw.db` when running from `backend/`. Local database files are ignored by git.
 
 ## Persistence and Audit

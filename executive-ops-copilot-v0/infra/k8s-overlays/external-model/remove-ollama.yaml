@@ -1,0 +1,34 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  namespace: desk-ai
+$patch: delete
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama
+  namespace: desk-ai
+$patch: delete
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-data
+  namespace: desk-ai
+$patch: delete
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ollama-pull-gemma4
+  namespace: desk-ai
+$patch: delete
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ollama-ingress
+  namespace: desk-ai
+$patch: delete
