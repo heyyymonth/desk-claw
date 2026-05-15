@@ -70,11 +70,11 @@ The runtime has two separate timeout classes:
 | Setting | Current value | Purpose | Tuning rule |
 | --- | --- | --- | --- |
 | `OLLAMA_WARMUP_TIMEOUT_SECONDS` | `240` | Startup model load check. Backend readiness stays unavailable until this succeeds. | Increase for CPU-only or slow disks. Do not reduce below observed cold-load p95. |
-| `ADK_AGENT_TIMEOUT_SECONDS` | `180` | Bounds one user-facing ADK agent loop after the model is already warm. | Keep lower than ingress/proxy request timeout so the backend can return a controlled failure. |
+| `ADK_AGENT_TIMEOUT_SECONDS` | `300` | Bounds one user-facing ADK agent loop after the model is already warm. | Keep lower than ingress/proxy request timeout so the backend can return a controlled failure. |
 | Backend readiness probe | `timeoutSeconds: 5`, `failureThreshold: 24` | Gives startup warmup up to about four minutes before the pod is considered unavailable. | Align with `OLLAMA_WARMUP_TIMEOUT_SECONDS`. |
 | Backend liveness probe | `timeoutSeconds: 5`, `periodSeconds: 30` | Detects a wedged backend process after startup. | Do not make liveness aggressive during long model-backed requests. |
 
-Ingress and load-balancer request timeouts should be at least 30 seconds longer than `ADK_AGENT_TIMEOUT_SECONDS`. If users see gateway timeouts, first inspect backend and Ollama latency before raising every timeout.
+Ingress and load-balancer request timeouts should be at least 30 seconds longer than `ADK_AGENT_TIMEOUT_SECONDS`; the checked-in frontend Nginx and ingress baseline is `360` seconds. If users see gateway timeouts, first inspect backend and Ollama latency before raising every timeout.
 
 ## Production Tuning Workflow
 
