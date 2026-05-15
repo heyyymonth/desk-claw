@@ -45,7 +45,6 @@ metadata:
   name: frontend
   namespace: desk-ai
 spec:
-  type: LoadBalancer
   selector:
     app: frontend
   ports:

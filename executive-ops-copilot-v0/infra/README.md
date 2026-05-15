@@ -71,6 +71,30 @@ Apply the stack:
 kubectl apply -k infra/k8s
 ```
 
+## Public Entry Point
+
+The default Kubernetes path exposes only the frontend through an Ingress. The backend remains a private ClusterIP service and is reached through the frontend nginx `/api` proxy.
+
+Before a public deployment, update `infra/k8s/ingress.yaml` for your environment:
+
+```yaml
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - desk-ai.example.com
+      secretName: desk-ai-tls
+  rules:
+    - host: desk-ai.example.com
+```
+
+Production dependencies outside this repo:
+
+- an ingress controller installed in the cluster, such as nginx ingress or a hyperscaler-managed ingress controller;
+- DNS pointing the chosen host to the ingress controller load balancer;
+- TLS issued by cert-manager, provider-managed certificates, or a pre-created `desk-ai-tls` Secret;
+- provider firewall/security-group rules allowing public HTTPS traffic to the ingress controller.
+
 For production rollouts, prefer immutable commit tags over `latest`. Update the `newTag` values in `infra/k8s/kustomization.yaml` to the CI commit tag before applying:
 
 ```yaml
@@ -104,3 +128,4 @@ The backend readiness probe depends on `/api/health`, which only reports ready a
 - Ollama model storage is mounted on a PVC so the model pull survives pod restarts.
 - Do not ship `VITE_ADMIN_API_KEY` or `VITE_ACTOR_AUTH_TOKEN` in public frontend builds. Those Vite variables are only for local V0 inspection until real login/session auth replaces the admin key path.
 - The frontend nginx proxy assumes the backend service name is `backend` in the same namespace.
+- The checked-in ingress host is a placeholder; replace `desk-ai.example.com` before public DNS cutover.
