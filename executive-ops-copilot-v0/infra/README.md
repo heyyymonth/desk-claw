@@ -116,14 +116,15 @@ TLS_MODE=cert-manager TLS_CLUSTER_ISSUER=letsencrypt-prod PUBLIC_HOST=desk-ai.ex
 Production dependencies outside this repo:
 
 - an ingress controller installed in the cluster, such as nginx ingress or a hyperscaler-managed ingress controller;
+- a NetworkPolicy-enforcing CNI, with ingress-controller namespace and pod labels identified before frontend ingress isolation is enabled;
 - DNS pointing the chosen host to the ingress controller load balancer;
 - TLS issued by cert-manager, provider-managed certificates, or a pre-created `desk-ai-tls` Secret using `../docs/deployment-tls.md`;
 - provider firewall/security-group rules allowing public HTTPS traffic to the ingress controller.
 
-For production rollouts, prefer immutable commit tags over `latest`. Render a release manifest with the CI commit tag, then apply the rendered output:
+For production rollouts, prefer immutable commit tags over `latest`. Render a release manifest with the CI commit tag, then apply the rendered output. After the CNI and ingress-controller labels are confirmed, include the NetworkPolicy gate variables:
 
 ```bash
-STORAGE_CLASS_NAME=desk-ai-retain REQUIRE_PUBLIC_ACCESS_CONTROL=true PUBLIC_ACCESS_MODE=ip-allowlist PUBLIC_ALLOWED_CIDRS=203.0.113.10/32 REQUIRE_RUNTIME_SECRET=true RUNTIME_SECRET_NAME=desk-ai-secrets TLS_MODE=cert-manager TLS_CLUSTER_ISSUER=letsencrypt-prod PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
+STORAGE_CLASS_NAME=desk-ai-retain REQUIRE_NETWORK_POLICY_ENFORCEMENT=true NETWORK_POLICY_PROVIDER=cilium NETWORK_POLICY_ENFORCEMENT_CONFIRMED=true FRONTEND_INGRESS_POLICY=enabled INGRESS_CONTROLLER_NAMESPACE=ingress-nginx INGRESS_CONTROLLER_POD_SELECTOR=app.kubernetes.io/name=ingress-nginx,app.kubernetes.io/component=controller REQUIRE_PUBLIC_ACCESS_CONTROL=true PUBLIC_ACCESS_MODE=ip-allowlist PUBLIC_ALLOWED_CIDRS=203.0.113.10/32 REQUIRE_RUNTIME_SECRET=true RUNTIME_SECRET_NAME=desk-ai-secrets TLS_MODE=cert-manager TLS_CLUSTER_ISSUER=letsencrypt-prod PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
 kubectl apply -f /tmp/desk-ai-release.yaml
 ```
 
@@ -160,7 +161,7 @@ kubectl apply -f infra/k8s/ollama.yaml
 kubectl -n desk-ai wait --for=condition=available deployment/ollama --timeout=300s
 kubectl apply -f infra/k8s/ollama-model-job.yaml
 kubectl -n desk-ai wait --for=condition=complete job/ollama-pull-gemma4 --timeout=1800s
-STORAGE_CLASS_NAME=desk-ai-retain REQUIRE_PUBLIC_ACCESS_CONTROL=true PUBLIC_ACCESS_MODE=ip-allowlist PUBLIC_ALLOWED_CIDRS=203.0.113.10/32 REQUIRE_RUNTIME_SECRET=true RUNTIME_SECRET_NAME=desk-ai-secrets TLS_MODE=cert-manager TLS_CLUSTER_ISSUER=letsencrypt-prod PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
+STORAGE_CLASS_NAME=desk-ai-retain REQUIRE_NETWORK_POLICY_ENFORCEMENT=true NETWORK_POLICY_PROVIDER=cilium NETWORK_POLICY_ENFORCEMENT_CONFIRMED=true FRONTEND_INGRESS_POLICY=enabled INGRESS_CONTROLLER_NAMESPACE=ingress-nginx INGRESS_CONTROLLER_POD_SELECTOR=app.kubernetes.io/name=ingress-nginx,app.kubernetes.io/component=controller REQUIRE_PUBLIC_ACCESS_CONTROL=true PUBLIC_ACCESS_MODE=ip-allowlist PUBLIC_ALLOWED_CIDRS=203.0.113.10/32 REQUIRE_RUNTIME_SECRET=true RUNTIME_SECRET_NAME=desk-ai-secrets TLS_MODE=cert-manager TLS_CLUSTER_ISSUER=letsencrypt-prod PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
 kubectl apply -f /tmp/desk-ai-release.yaml
 kubectl -n desk-ai rollout status deployment/backend --timeout=600s
 kubectl -n desk-ai rollout status deployment/frontend --timeout=300s
@@ -168,6 +169,7 @@ kubectl -n desk-ai rollout status deployment/frontend --timeout=300s
 ./scripts/check-model-runtime.sh https://desk-ai.example.com
 VOLUME_SNAPSHOT_CLASS_NAME=desk-ai-snapshots REQUIRE_VOLUME_SNAPSHOT_CLASS=true ./scripts/check-storage-policy.sh desk-ai-retain
 PUBLIC_ACCESS_MODE=ip-allowlist PUBLIC_ALLOWED_CIDRS=203.0.113.10/32 ./scripts/check-public-access.sh desk-ai.example.com
+NETWORK_POLICY_PROVIDER=cilium REQUIRE_FRONTEND_INGRESS_POLICY=true INGRESS_CONTROLLER_NAMESPACE=ingress-nginx INGRESS_CONTROLLER_POD_SELECTOR=app.kubernetes.io/name=ingress-nginx,app.kubernetes.io/component=controller ./scripts/check-network-policy.sh desk-ai
 ./scripts/check-public-dns.sh desk-ai.example.com
 ./scripts/check-public-tls.sh desk-ai.example.com
 ./scripts/smoke-deploy.sh https://desk-ai.example.com
@@ -194,7 +196,7 @@ Rollback options are documented in `../docs/deployment-rollout-runbook.md`. Pref
 The base Kubernetes manifests include `infra/k8s/network-policy.yaml`. The baseline allows only frontend pods to reach backend on port `8000`, and only backend plus the model-pull job to reach Ollama on port `11434`.
 It also allows Prometheus pods in a `monitoring` namespace with label `app.kubernetes.io/name=prometheus` to scrape backend metrics on port `8000`.
 
-The frontend is not ingress-isolated in the base manifest because ingress-controller namespace and pod labels are provider-specific. Review `../docs/deployment-network-policy.md` before adding frontend ingress restrictions or egress default-deny rules.
+The frontend is not ingress-isolated in the base manifest because ingress-controller namespace and pod labels are provider-specific. Production releases can set `FRONTEND_INGRESS_POLICY=enabled` plus `INGRESS_CONTROLLER_NAMESPACE` and `INGRESS_CONTROLLER_POD_SELECTOR` to render `NetworkPolicy/frontend-ingress`. Verify live policy state with `./scripts/check-network-policy.sh desk-ai`. Review `../docs/deployment-network-policy.md` before adding frontend ingress restrictions or egress default-deny rules.
 
 ## Observability
 

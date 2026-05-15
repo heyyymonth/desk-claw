@@ -110,7 +110,7 @@ Decision date:
 ## Immediate Follow-On Work After Choice
 
 1. Create the managed Kubernetes cluster and verify `kubectl` access.
-2. Confirm NetworkPolicy enforcement is active before relying on backend/Ollama isolation.
+2. Confirm NetworkPolicy enforcement is active, identify ingress-controller namespace/pod labels, and use `docs/deployment-network-policy.md` plus `scripts/check-network-policy.sh` before relying on backend/Ollama/frontend isolation.
 3. Create or configure image-pull access for GHCR using `docs/deployment-image-access.md`, unless the packages are public.
 4. Choose the model-hosting path using `docs/deployment-model-hosting.md`; install GPU dependencies or create the private model endpoint before the first release if needed.
 5. Choose the StorageClass and VolumeSnapshotClass using `docs/deployment-storage-policy.md`.
@@ -119,8 +119,8 @@ Decision date:
 8. Configure DNS using `docs/deployment-domain-dns.md`, then configure TLS using `docs/deployment-tls.md`.
 9. Connect the secret manager to a Kubernetes Secret named `desk-ai-secrets` using `docs/deployment-secret-management.md`.
 10. Install the observability stack and confirm backend `/metrics` plus ingress errors are scraped.
-11. Run `K8S_BASE_DIR=<selected-path> MODEL_ENDPOINT_URL=<external-url-if-needed> STORAGE_CLASS_NAME=<storage-class> REQUIRE_PUBLIC_ACCESS_CONTROL=true PUBLIC_ACCESS_MODE=<access-mode> REQUIRE_RUNTIME_SECRET=true TLS_MODE=<tls-mode> PUBLIC_HOST=<host> TLS_SECRET_NAME=<secret> ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml`.
-12. Apply the release, run `./scripts/check-runtime-secret.sh desk-ai-secrets`, run `MODEL_HOSTING_MODE=<model-mode> ./scripts/check-model-runtime.sh https://<host>`, run `VOLUME_SNAPSHOT_CLASS_NAME=<snapshot-class> REQUIRE_VOLUME_SNAPSHOT_CLASS=true ./scripts/check-storage-policy.sh <storage-class>`, run `PUBLIC_ACCESS_MODE=<access-mode> ./scripts/check-public-access.sh <host>`, run `./scripts/check-public-dns.sh <host>`, run `./scripts/check-public-tls.sh <host>`, then run `./scripts/smoke-deploy.sh https://<host>`.
+11. Run `K8S_BASE_DIR=<selected-path> MODEL_ENDPOINT_URL=<external-url-if-needed> STORAGE_CLASS_NAME=<storage-class> REQUIRE_NETWORK_POLICY_ENFORCEMENT=true NETWORK_POLICY_PROVIDER=<provider> NETWORK_POLICY_ENFORCEMENT_CONFIRMED=true FRONTEND_INGRESS_POLICY=enabled INGRESS_CONTROLLER_NAMESPACE=<namespace> INGRESS_CONTROLLER_POD_SELECTOR=<selector> REQUIRE_PUBLIC_ACCESS_CONTROL=true PUBLIC_ACCESS_MODE=<access-mode> REQUIRE_RUNTIME_SECRET=true TLS_MODE=<tls-mode> PUBLIC_HOST=<host> TLS_SECRET_NAME=<secret> ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml`.
+12. Apply the release, run `./scripts/check-runtime-secret.sh desk-ai-secrets`, run `MODEL_HOSTING_MODE=<model-mode> ./scripts/check-model-runtime.sh https://<host>`, run `VOLUME_SNAPSHOT_CLASS_NAME=<snapshot-class> REQUIRE_VOLUME_SNAPSHOT_CLASS=true ./scripts/check-storage-policy.sh <storage-class>`, run `PUBLIC_ACCESS_MODE=<access-mode> ./scripts/check-public-access.sh <host>`, run `NETWORK_POLICY_PROVIDER=<provider> REQUIRE_FRONTEND_INGRESS_POLICY=true INGRESS_CONTROLLER_NAMESPACE=<namespace> INGRESS_CONTROLLER_POD_SELECTOR=<selector> ./scripts/check-network-policy.sh desk-ai`, run `./scripts/check-public-dns.sh <host>`, run `./scripts/check-public-tls.sh <host>`, then run `./scripts/smoke-deploy.sh https://<host>`.
 
 ## References
 

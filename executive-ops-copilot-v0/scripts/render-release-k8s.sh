@@ -22,6 +22,8 @@ Set BACKEND_STORAGE_CLASS_NAME or OLLAMA_STORAGE_CLASS_NAME to override one PVC 
 Set REQUIRE_PUBLIC_ACCESS_CONTROL=true for public releases that must declare an access mode.
 Set PUBLIC_ACCESS_MODE=ip-allowlist with PUBLIC_ALLOWED_CIDRS=<cidr,cidr> for nginx ingress CIDR allowlisting.
 Set PUBLIC_ACCESS_MODE=provider-gated with PUBLIC_WAF_POLICY_ID, PUBLIC_DDOS_PROTECTION=true, and PUBLIC_IDENTITY_PROVIDER for provider edge controls.
+Set REQUIRE_NETWORK_POLICY_ENFORCEMENT=true with NETWORK_POLICY_PROVIDER and NETWORK_POLICY_ENFORCEMENT_CONFIRMED=true once the cluster CNI is verified.
+Set FRONTEND_INGRESS_POLICY=enabled with INGRESS_CONTROLLER_NAMESPACE and INGRESS_CONTROLLER_POD_SELECTOR=<key=value,key=value> to isolate frontend ingress to the selected controller.
 USAGE
 }
 
@@ -54,6 +56,12 @@ PUBLIC_ALLOWED_CIDRS="${PUBLIC_ALLOWED_CIDRS:-}"
 PUBLIC_WAF_POLICY_ID="${PUBLIC_WAF_POLICY_ID:-}"
 PUBLIC_DDOS_PROTECTION="${PUBLIC_DDOS_PROTECTION:-}"
 PUBLIC_IDENTITY_PROVIDER="${PUBLIC_IDENTITY_PROVIDER:-}"
+REQUIRE_NETWORK_POLICY_ENFORCEMENT="${REQUIRE_NETWORK_POLICY_ENFORCEMENT:-false}"
+NETWORK_POLICY_PROVIDER="${NETWORK_POLICY_PROVIDER:-}"
+NETWORK_POLICY_ENFORCEMENT_CONFIRMED="${NETWORK_POLICY_ENFORCEMENT_CONFIRMED:-false}"
+FRONTEND_INGRESS_POLICY="${FRONTEND_INGRESS_POLICY:-disabled}"
+INGRESS_CONTROLLER_NAMESPACE="${INGRESS_CONTROLLER_NAMESPACE:-}"
+INGRESS_CONTROLLER_POD_SELECTOR="${INGRESS_CONTROLLER_POD_SELECTOR:-}"
 
 if [[ "$K8S_BASE_DIR" != /* ]]; then
   K8S_BASE_DIR="$ROOT_DIR/$K8S_BASE_DIR"
@@ -114,6 +122,44 @@ validate_cidr_list() {
   ' "$cidrs"
 }
 
+validate_kubernetes_label() {
+  local value="$1"
+  local label="$2"
+  if ! [[ "$value" =~ ^[A-Za-z0-9_.:/=,-]+$ ]]; then
+    echo "$label may only contain letters, numbers, dots, dashes, underscores, slashes, colons, equals signs, or label separators." >&2
+    exit 1
+  fi
+}
+
+render_match_labels_yaml() {
+  local selector="$1"
+  local indent="$2"
+  ruby -e '
+    selector = ARGV.fetch(0)
+    indent = Integer(ARGV.fetch(1))
+    entries = selector.split(",").map(&:strip)
+    if entries.empty? || entries.any?(&:empty?)
+      warn "INGRESS_CONTROLLER_POD_SELECTOR must be a comma-separated list of key=value labels."
+      exit 1
+    end
+
+    entries.each do |entry|
+      key, value = entry.split("=", 2)
+      if key.to_s.empty? || value.to_s.empty?
+        warn "INGRESS_CONTROLLER_POD_SELECTOR entry #{entry.inspect} must use key=value."
+        exit 1
+      end
+      unless key.match?(/\A[A-Za-z0-9_.\/-]+\z/) && value.match?(/\A[A-Za-z0-9_.-]+\z/)
+        warn "INGRESS_CONTROLLER_POD_SELECTOR entry #{entry.inspect} contains unsupported label characters."
+        exit 1
+      end
+
+      escaped = value.gsub("\\", "\\\\\\").gsub("\"", "\\\"")
+      puts "#{" " * indent}#{key}: \"#{escaped}\""
+    end
+  ' "$selector" "$indent"
+}
+
 case "$TLS_MODE" in
   cert-manager | precreated-secret | provider-managed) ;;
   *)
@@ -152,6 +198,30 @@ case "$REQUIRE_PUBLIC_ACCESS_CONTROL" in
   true | false) ;;
   *)
     echo "REQUIRE_PUBLIC_ACCESS_CONTROL must be true or false." >&2
+    exit 1
+    ;;
+esac
+
+case "$REQUIRE_NETWORK_POLICY_ENFORCEMENT" in
+  true | false) ;;
+  *)
+    echo "REQUIRE_NETWORK_POLICY_ENFORCEMENT must be true or false." >&2
+    exit 1
+    ;;
+esac
+
+case "$NETWORK_POLICY_ENFORCEMENT_CONFIRMED" in
+  true | false) ;;
+  *)
+    echo "NETWORK_POLICY_ENFORCEMENT_CONFIRMED must be true or false." >&2
+    exit 1
+    ;;
+esac
+
+case "$FRONTEND_INGRESS_POLICY" in
+  enabled | disabled) ;;
+  *)
+    echo "FRONTEND_INGRESS_POLICY must be enabled or disabled." >&2
     exit 1
     ;;
 esac
@@ -210,6 +280,38 @@ if [[ "$PUBLIC_ACCESS_MODE" == "provider-gated" ]]; then
   fi
 fi
 
+if [[ -n "$NETWORK_POLICY_PROVIDER" ]]; then
+  validate_public_metadata_value "$NETWORK_POLICY_PROVIDER" "NETWORK_POLICY_PROVIDER"
+fi
+
+if [[ "$REQUIRE_NETWORK_POLICY_ENFORCEMENT" == "true" ]]; then
+  if [[ -z "$NETWORK_POLICY_PROVIDER" ]]; then
+    echo "NETWORK_POLICY_PROVIDER must be set when REQUIRE_NETWORK_POLICY_ENFORCEMENT=true." >&2
+    exit 1
+  fi
+  if [[ "$NETWORK_POLICY_ENFORCEMENT_CONFIRMED" != "true" ]]; then
+    echo "NETWORK_POLICY_ENFORCEMENT_CONFIRMED=true must be set when REQUIRE_NETWORK_POLICY_ENFORCEMENT=true." >&2
+    exit 1
+  fi
+fi
+
+if [[ "$FRONTEND_INGRESS_POLICY" == "enabled" ]]; then
+  if [[ -z "$INGRESS_CONTROLLER_NAMESPACE" ]]; then
+    echo "INGRESS_CONTROLLER_NAMESPACE must be set when FRONTEND_INGRESS_POLICY=enabled." >&2
+    exit 1
+  fi
+  if [[ -z "$INGRESS_CONTROLLER_POD_SELECTOR" ]]; then
+    echo "INGRESS_CONTROLLER_POD_SELECTOR must be set when FRONTEND_INGRESS_POLICY=enabled." >&2
+    exit 1
+  fi
+  if ! [[ "$INGRESS_CONTROLLER_NAMESPACE" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]]; then
+    echo "INGRESS_CONTROLLER_NAMESPACE must be a valid Kubernetes DNS label." >&2
+    exit 1
+  fi
+  validate_kubernetes_label "$INGRESS_CONTROLLER_POD_SELECTOR" "INGRESS_CONTROLLER_POD_SELECTOR"
+  render_match_labels_yaml "$INGRESS_CONTROLLER_POD_SELECTOR" 0 >/dev/null
+fi
+
 if [[ "$TLS_MODE" == "cert-manager" ]] && ! [[ "$TLS_CLUSTER_ISSUER" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$ ]]; then
   echo "TLS_CLUSTER_ISSUER must be a valid Kubernetes DNS subdomain name." >&2
   exit 1
@@ -258,11 +360,43 @@ RELEASE_TAG="git-$SHA"
 TMP_DIR="$(mktemp -d "$ROOT_DIR/infra/.release.XXXXXX")"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
+EXTRA_RESOURCES=""
+if [[ "$FRONTEND_INGRESS_POLICY" == "enabled" ]]; then
+  cat > "$TMP_DIR/frontend-ingress-network-policy.yaml" <<YAML
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: frontend-ingress
+  namespace: desk-ai
+  annotations:
+    desk.ai/network-policy-scope: public-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: frontend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: "$INGRESS_CONTROLLER_NAMESPACE"
+          podSelector:
+            matchLabels:
+$(render_match_labels_yaml "$INGRESS_CONTROLLER_POD_SELECTOR" 14)
+      ports:
+        - protocol: TCP
+          port: 80
+YAML
+  EXTRA_RESOURCES="  - frontend-ingress-network-policy.yaml"
+fi
+
 cat > "$TMP_DIR/kustomization.yaml" <<YAML
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - $K8S_RESOURCE_PATH
+$EXTRA_RESOURCES
 images:
   - name: ghcr.io/heyyymonth/desk-ai-backend
     newName: ghcr.io/heyyymonth/desk-ai-backend
@@ -421,6 +555,27 @@ YAML
         value: "$PUBLIC_IDENTITY_PROVIDER"
 YAML
   fi
+fi
+
+if [[ -n "$NETWORK_POLICY_PROVIDER" || "$NETWORK_POLICY_ENFORCEMENT_CONFIRMED" == "true" ]]; then
+  for policy_name in backend-ingress ollama-ingress; do
+    if [[ "$policy_name" == "ollama-ingress" && "$EXTERNAL_MODEL_OVERLAY" == "true" ]]; then
+      continue
+    fi
+    append_patches_header
+    cat >> "$TMP_DIR/kustomization.yaml" <<YAML
+  - target:
+      kind: NetworkPolicy
+      name: $policy_name
+      namespace: desk-ai
+    patch: |-
+      - op: add
+        path: /metadata/annotations
+        value:
+          desk.ai/network-policy-provider: "$NETWORK_POLICY_PROVIDER"
+          desk.ai/network-policy-enforcement: "$NETWORK_POLICY_ENFORCEMENT_CONFIRMED"
+YAML
+  done
 fi
 
 if [[ -n "$OUTPUT_FILE" ]]; then

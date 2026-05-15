@@ -314,7 +314,7 @@ Install `kubeconform` locally to run the same offline schema validation that CI 
 Render immutable-image release manifests:
 
 ```bash
-REQUIRE_RUNTIME_SECRET=true RUNTIME_SECRET_NAME=desk-ai-secrets TLS_MODE=cert-manager TLS_CLUSTER_ISSUER=letsencrypt-prod PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
+REQUIRE_RUNTIME_SECRET=true RUNTIME_SECRET_NAME=desk-ai-secrets REQUIRE_NETWORK_POLICY_ENFORCEMENT=true NETWORK_POLICY_PROVIDER=cilium NETWORK_POLICY_ENFORCEMENT_CONFIRMED=true FRONTEND_INGRESS_POLICY=enabled INGRESS_CONTROLLER_NAMESPACE=ingress-nginx INGRESS_CONTROLLER_POD_SELECTOR=app.kubernetes.io/name=ingress-nginx,app.kubernetes.io/component=controller TLS_MODE=cert-manager TLS_CLUSTER_ISSUER=letsencrypt-prod PUBLIC_HOST=desk-ai.example.com TLS_SECRET_NAME=desk-ai-tls ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-release.yaml
 ```
 
 Promote or roll back a Kubernetes release using the runbook:
@@ -329,6 +329,7 @@ Smoke test a deployed public ingress:
 ./scripts/check-public-dns.sh desk-ai.example.com
 ./scripts/check-public-tls.sh desk-ai.example.com
 ./scripts/check-runtime-secret.sh desk-ai-secrets
+NETWORK_POLICY_PROVIDER=cilium REQUIRE_FRONTEND_INGRESS_POLICY=true INGRESS_CONTROLLER_NAMESPACE=ingress-nginx INGRESS_CONTROLLER_POD_SELECTOR=app.kubernetes.io/name=ingress-nginx,app.kubernetes.io/component=controller ./scripts/check-network-policy.sh desk-ai
 ./scripts/smoke-deploy.sh https://desk-ai.example.com
 ```
 
@@ -393,7 +394,7 @@ Eval assertions cover meeting type, draft type, sensitivity, async candidacy, es
 - `docs/deployment-secret-management.md`: External Secrets, manual runtime Secret fallback, rotation, and production Secret verification.
 - `docs/deployment-resource-tuning.md`: Ollama/backend CPU, memory, GPU, and timeout sizing guidance.
 - `docs/deployment-rollout-runbook.md`: immutable commit-tag promotion, rollout verification, smoke checks, and rollback commands.
-- `docs/deployment-network-policy.md`: Kubernetes NetworkPolicy baseline, CNI requirements, and provider-specific hardening guidance.
+- `docs/deployment-network-policy.md`: Kubernetes NetworkPolicy baseline, CNI enforcement verification, frontend ingress isolation, and provider-specific hardening guidance.
 - `docs/deployment-database-migration.md`: SQLite-to-managed-Postgres migration path and backend scaling gate.
 - `docs/deployment-backup-restore.md`: backend SQLite backup/restore, provider snapshots, and Ollama data recovery guidance.
 - `docs/deployment-auth-session.md`: OIDC/session/RBAC target design before public admin dashboard exposure.

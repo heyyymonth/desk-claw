@@ -18,6 +18,7 @@ Before promoting a commit:
 - Model hosting mode is selected using `docs/deployment-model-hosting.md`.
 - StorageClass, VolumeSnapshotClass, and backup policy are selected using `docs/deployment-storage-policy.md`.
 - Public access mode is selected using `docs/deployment-public-access.md`.
+- NetworkPolicy enforcement and ingress-controller selectors are selected using `docs/deployment-network-policy.md`.
 - Any cloud firewall/security-group rules allow public HTTPS traffic to the ingress controller.
 - Ollama capacity and timeout values have been reviewed against `docs/deployment-resource-tuning.md`.
 
@@ -42,10 +43,16 @@ export PUBLIC_ALLOWED_CIDRS="203.0.113.10/32"
 export PUBLIC_WAF_POLICY_ID=""
 export PUBLIC_DDOS_PROTECTION=""
 export PUBLIC_IDENTITY_PROVIDER=""
+export NETWORK_POLICY_PROVIDER="cilium"
+export NETWORK_POLICY_ENFORCEMENT_CONFIRMED="true"
+export FRONTEND_INGRESS_POLICY="enabled"
+export INGRESS_CONTROLLER_NAMESPACE="ingress-nginx"
+export INGRESS_CONTROLLER_POD_SELECTOR="app.kubernetes.io/name=ingress-nginx,app.kubernetes.io/component=controller"
 export PUBLIC_URL="https://${PUBLIC_HOST}"
 ```
 
 Use `PUBLIC_ACCESS_MODE=provider-gated` with `PUBLIC_WAF_POLICY_ID`, `PUBLIC_DDOS_PROTECTION=true`, and `PUBLIC_IDENTITY_PROVIDER` after the provider edge controls and identity provider are configured. Keep `ip-allowlist` for private pilots or pre-auth validation.
+Use `FRONTEND_INGRESS_POLICY=disabled` only while discovering the ingress-controller namespace and labels. Public releases should set it to `enabled` after the CNI has been confirmed to enforce NetworkPolicy.
 
 Set `MODEL_HOSTING_MODE=gpu` and `K8S_BASE_DIR=infra/k8s-overlays/ollama-gpu-nvidia` for the NVIDIA GPU runtime. Set `MODEL_HOSTING_MODE=external`, `K8S_BASE_DIR=infra/k8s-overlays/external-model`, and `MODEL_ENDPOINT_URL=https://ollama.internal.example.com` for a private external Ollama-compatible endpoint. If GHCR packages are private, use `infra/k8s-overlays/private-ghcr`, `infra/k8s-overlays/private-ghcr-ollama-gpu-nvidia`, or `infra/k8s-overlays/private-ghcr-external-model` as the selected `K8S_BASE_DIR`.
 
@@ -120,6 +127,12 @@ K8S_BASE_DIR="$K8S_BASE_DIR" \
   PUBLIC_WAF_POLICY_ID="$PUBLIC_WAF_POLICY_ID" \
   PUBLIC_DDOS_PROTECTION="$PUBLIC_DDOS_PROTECTION" \
   PUBLIC_IDENTITY_PROVIDER="$PUBLIC_IDENTITY_PROVIDER" \
+  REQUIRE_NETWORK_POLICY_ENFORCEMENT=true \
+  NETWORK_POLICY_PROVIDER="$NETWORK_POLICY_PROVIDER" \
+  NETWORK_POLICY_ENFORCEMENT_CONFIRMED="$NETWORK_POLICY_ENFORCEMENT_CONFIRMED" \
+  FRONTEND_INGRESS_POLICY="$FRONTEND_INGRESS_POLICY" \
+  INGRESS_CONTROLLER_NAMESPACE="$INGRESS_CONTROLLER_NAMESPACE" \
+  INGRESS_CONTROLLER_POD_SELECTOR="$INGRESS_CONTROLLER_POD_SELECTOR" \
   REQUIRE_RUNTIME_SECRET=true \
   RUNTIME_SECRET_NAME="$RUNTIME_SECRET_NAME" \
   TLS_MODE="$TLS_MODE" \
@@ -145,6 +158,12 @@ K8S_BASE_DIR=infra/k8s-overlays/private-ghcr \
   PUBLIC_WAF_POLICY_ID="$PUBLIC_WAF_POLICY_ID" \
   PUBLIC_DDOS_PROTECTION="$PUBLIC_DDOS_PROTECTION" \
   PUBLIC_IDENTITY_PROVIDER="$PUBLIC_IDENTITY_PROVIDER" \
+  REQUIRE_NETWORK_POLICY_ENFORCEMENT=true \
+  NETWORK_POLICY_PROVIDER="$NETWORK_POLICY_PROVIDER" \
+  NETWORK_POLICY_ENFORCEMENT_CONFIRMED="$NETWORK_POLICY_ENFORCEMENT_CONFIRMED" \
+  FRONTEND_INGRESS_POLICY="$FRONTEND_INGRESS_POLICY" \
+  INGRESS_CONTROLLER_NAMESPACE="$INGRESS_CONTROLLER_NAMESPACE" \
+  INGRESS_CONTROLLER_POD_SELECTOR="$INGRESS_CONTROLLER_POD_SELECTOR" \
   REQUIRE_RUNTIME_SECRET=true \
   RUNTIME_SECRET_NAME="$RUNTIME_SECRET_NAME" \
   ./scripts/render-release-k8s.sh "$RELEASE_TAG" "$RELEASE_FILE"
@@ -219,6 +238,17 @@ PUBLIC_ACCESS_MODE="$PUBLIC_ACCESS_MODE" \
   ./scripts/check-public-access.sh "$PUBLIC_HOST"
 ```
 
+Verify NetworkPolicy resources and CNI evidence:
+
+```bash
+NETWORK_POLICY_PROVIDER="$NETWORK_POLICY_PROVIDER" \
+  NETWORK_POLICY_ENFORCEMENT_CONFIRMED="$NETWORK_POLICY_ENFORCEMENT_CONFIRMED" \
+  REQUIRE_FRONTEND_INGRESS_POLICY=true \
+  INGRESS_CONTROLLER_NAMESPACE="$INGRESS_CONTROLLER_NAMESPACE" \
+  INGRESS_CONTROLLER_POD_SELECTOR="$INGRESS_CONTROLLER_POD_SELECTOR" \
+  ./scripts/check-network-policy.sh desk-ai
+```
+
 Verify that public DNS points at the current ingress target:
 
 ```bash
@@ -237,7 +267,7 @@ Run the public smoke check:
 ./scripts/smoke-deploy.sh "$PUBLIC_URL"
 ```
 
-A release is complete only after rollout status commands, runtime-secret verification, model-runtime verification, storage-policy verification, public-access verification, DNS verification, TLS verification, and the smoke test pass.
+A release is complete only after rollout status commands, runtime-secret verification, model-runtime verification, storage-policy verification, public-access verification, NetworkPolicy verification, DNS verification, TLS verification, and the smoke test pass.
 
 ## Preferred Rollback: Promote the Last Known Good Commit
 
@@ -248,7 +278,7 @@ export PREVIOUS_RELEASE_SHA=<last-known-good-git-sha>
 export PREVIOUS_RELEASE_TAG="git-${PREVIOUS_RELEASE_SHA}"
 export ROLLBACK_FILE="/tmp/desk-ai-${PREVIOUS_RELEASE_TAG}.yaml"
 
-K8S_BASE_DIR="$K8S_BASE_DIR" MODEL_ENDPOINT_URL="$MODEL_ENDPOINT_URL" STORAGE_CLASS_NAME="$STORAGE_CLASS_NAME" REQUIRE_PUBLIC_ACCESS_CONTROL=true PUBLIC_ACCESS_MODE="$PUBLIC_ACCESS_MODE" PUBLIC_ALLOWED_CIDRS="$PUBLIC_ALLOWED_CIDRS" PUBLIC_WAF_POLICY_ID="$PUBLIC_WAF_POLICY_ID" PUBLIC_DDOS_PROTECTION="$PUBLIC_DDOS_PROTECTION" PUBLIC_IDENTITY_PROVIDER="$PUBLIC_IDENTITY_PROVIDER" REQUIRE_RUNTIME_SECRET=true RUNTIME_SECRET_NAME="$RUNTIME_SECRET_NAME" TLS_MODE="$TLS_MODE" TLS_CLUSTER_ISSUER="$TLS_CLUSTER_ISSUER" PUBLIC_HOST="$PUBLIC_HOST" TLS_SECRET_NAME="$TLS_SECRET_NAME" ./scripts/render-release-k8s.sh "$PREVIOUS_RELEASE_TAG" "$ROLLBACK_FILE"
+K8S_BASE_DIR="$K8S_BASE_DIR" MODEL_ENDPOINT_URL="$MODEL_ENDPOINT_URL" STORAGE_CLASS_NAME="$STORAGE_CLASS_NAME" REQUIRE_PUBLIC_ACCESS_CONTROL=true PUBLIC_ACCESS_MODE="$PUBLIC_ACCESS_MODE" PUBLIC_ALLOWED_CIDRS="$PUBLIC_ALLOWED_CIDRS" PUBLIC_WAF_POLICY_ID="$PUBLIC_WAF_POLICY_ID" PUBLIC_DDOS_PROTECTION="$PUBLIC_DDOS_PROTECTION" PUBLIC_IDENTITY_PROVIDER="$PUBLIC_IDENTITY_PROVIDER" REQUIRE_NETWORK_POLICY_ENFORCEMENT=true NETWORK_POLICY_PROVIDER="$NETWORK_POLICY_PROVIDER" NETWORK_POLICY_ENFORCEMENT_CONFIRMED="$NETWORK_POLICY_ENFORCEMENT_CONFIRMED" FRONTEND_INGRESS_POLICY="$FRONTEND_INGRESS_POLICY" INGRESS_CONTROLLER_NAMESPACE="$INGRESS_CONTROLLER_NAMESPACE" INGRESS_CONTROLLER_POD_SELECTOR="$INGRESS_CONTROLLER_POD_SELECTOR" REQUIRE_RUNTIME_SECRET=true RUNTIME_SECRET_NAME="$RUNTIME_SECRET_NAME" TLS_MODE="$TLS_MODE" TLS_CLUSTER_ISSUER="$TLS_CLUSTER_ISSUER" PUBLIC_HOST="$PUBLIC_HOST" TLS_SECRET_NAME="$TLS_SECRET_NAME" ./scripts/render-release-k8s.sh "$PREVIOUS_RELEASE_TAG" "$ROLLBACK_FILE"
 kubectl apply -f "$ROLLBACK_FILE"
 kubectl -n desk-ai rollout status deployment/backend --timeout=600s
 kubectl -n desk-ai rollout status deployment/frontend --timeout=300s
@@ -256,6 +286,7 @@ kubectl -n desk-ai rollout status deployment/frontend --timeout=300s
 MODEL_HOSTING_MODE="$MODEL_HOSTING_MODE" ./scripts/check-model-runtime.sh "$PUBLIC_URL"
 MODEL_HOSTING_MODE="$MODEL_HOSTING_MODE" VOLUME_SNAPSHOT_CLASS_NAME="$VOLUME_SNAPSHOT_CLASS_NAME" REQUIRE_VOLUME_SNAPSHOT_CLASS=true ./scripts/check-storage-policy.sh "$STORAGE_CLASS_NAME"
 PUBLIC_ACCESS_MODE="$PUBLIC_ACCESS_MODE" PUBLIC_ALLOWED_CIDRS="$PUBLIC_ALLOWED_CIDRS" PUBLIC_WAF_POLICY_ID="$PUBLIC_WAF_POLICY_ID" PUBLIC_DDOS_PROTECTION="$PUBLIC_DDOS_PROTECTION" PUBLIC_IDENTITY_PROVIDER="$PUBLIC_IDENTITY_PROVIDER" ./scripts/check-public-access.sh "$PUBLIC_HOST"
+NETWORK_POLICY_PROVIDER="$NETWORK_POLICY_PROVIDER" NETWORK_POLICY_ENFORCEMENT_CONFIRMED="$NETWORK_POLICY_ENFORCEMENT_CONFIRMED" REQUIRE_FRONTEND_INGRESS_POLICY=true INGRESS_CONTROLLER_NAMESPACE="$INGRESS_CONTROLLER_NAMESPACE" INGRESS_CONTROLLER_POD_SELECTOR="$INGRESS_CONTROLLER_POD_SELECTOR" ./scripts/check-network-policy.sh desk-ai
 ./scripts/check-public-dns.sh "$PUBLIC_HOST"
 ./scripts/check-public-tls.sh "$PUBLIC_HOST"
 ./scripts/smoke-deploy.sh "$PUBLIC_URL"
@@ -319,6 +350,7 @@ Common responses:
 | GPU Ollama pod is pending. | Check the NVIDIA device plugin, allocatable `nvidia.com/gpu`, `desk-ai/model-runtime=ollama-gpu` node label, and taint/toleration. |
 | Storage policy check fails. | Confirm the StorageClass exists, allows expansion, PVCs are `Bound`, and the selected VolumeSnapshotClass exists if snapshots are required. |
 | Public access check fails. | Confirm `PUBLIC_ACCESS_MODE`, nginx allowlist annotation, provider WAF/DDoS controls, and identity-provider decision in `docs/deployment-public-access.md`. |
+| NetworkPolicy check fails. | Confirm the CNI enforces NetworkPolicy, the baseline policies exist, and `INGRESS_CONTROLLER_NAMESPACE` plus `INGRESS_CONTROLLER_POD_SELECTOR` match the actual ingress-controller pods. Disable only `FRONTEND_INGRESS_POLICY` while correcting selector mismatches. |
 | Backend pod fails because `desk-ai-secrets` is missing. | Apply the ExternalSecret/manual Secret from `docs/deployment-secret-management.md`, then rerun rollout status. |
 | DNS check fails. | Confirm the DNS zone, record type, and Ingress load balancer target in `docs/deployment-domain-dns.md`. |
 | TLS check fails. | Confirm `TLS_MODE`, `TLS_CLUSTER_ISSUER`, `TLS_SECRET_NAME`, Certificate status, and provider-specific ingress TLS requirements in `docs/deployment-tls.md`. |
@@ -330,5 +362,6 @@ Common responses:
 - Do not deploy public traffic from `latest`.
 - Do not skip `kubectl rollout status`; `kubectl apply` only confirms the API accepted the manifest.
 - Do not treat frontend rollout success as backend success. Verify both deployments.
+- Do not enable frontend ingress isolation until the ingress-controller selector is confirmed against live pod labels.
 - Do not scale backend replicas during rollback while SQLite remains the runtime database.
 - Keep release manifests in `/tmp` or another operator-owned path; do not commit rendered environment-specific manifests.

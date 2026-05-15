@@ -10,6 +10,7 @@ TLS_PRECREATED_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-precreated-tls-rele
 RUNTIME_SECRET_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-runtime-secret-release-rendered.yaml"
 PUBLIC_ACCESS_ALLOWLIST_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-public-access-allowlist-release-rendered.yaml"
 PUBLIC_ACCESS_PROVIDER_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-public-access-provider-release-rendered.yaml"
+NETWORK_POLICY_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-network-policy-release-rendered.yaml"
 STORAGE_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-storage-release-rendered.yaml"
 STORAGE_EXTERNAL_MODEL_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-storage-external-model-release-rendered.yaml"
 PRIVATE_GHCR_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-private-ghcr-rendered.yaml"
@@ -28,11 +29,15 @@ RUNTIME_SECRET_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-runtime-secret-check.out"
 MODEL_RUNTIME_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-model-runtime-check.out"
 STORAGE_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-storage-check.out"
 PUBLIC_ACCESS_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-public-access-check.out"
+NETWORK_POLICY_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-network-policy-check.out"
 INVALID_PUBLIC_HOST_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-public-host.err"
 INVALID_TLS_MODE_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-tls-mode.err"
 INVALID_PUBLIC_ACCESS_MODE_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-public-access-mode.err"
 MISSING_PUBLIC_ACCESS_CONTROL_ERROR="${TMPDIR:-/tmp}/desk-ai-missing-public-access-control.err"
 MISSING_PUBLIC_ALLOWED_CIDRS_ERROR="${TMPDIR:-/tmp}/desk-ai-missing-public-allowed-cidrs.err"
+MISSING_NETWORK_POLICY_PROVIDER_ERROR="${TMPDIR:-/tmp}/desk-ai-missing-network-policy-provider.err"
+MISSING_NETWORK_POLICY_CONFIRMATION_ERROR="${TMPDIR:-/tmp}/desk-ai-missing-network-policy-confirmation.err"
+MISSING_FRONTEND_INGRESS_SELECTOR_ERROR="${TMPDIR:-/tmp}/desk-ai-missing-frontend-ingress-selector.err"
 INVALID_MODEL_ENDPOINT_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-model-endpoint.err"
 INVALID_STORAGE_CLASS_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-storage-class.err"
 INVALID_SNAPSHOT_CLASS_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-snapshot-class.err"
@@ -348,6 +353,69 @@ check_public_access_invariants() {
   ' "$manifest" "$expected_mode" "$expected_cidrs" "$expected_waf" "$expected_ddos" "$expected_identity"
 }
 
+check_network_policy_release_invariants() {
+  local manifest="$1"
+  local expected_provider="$2"
+  local expected_ingress_namespace="$3"
+  local expected_ingress_selector="$4"
+
+  if ! command -v ruby >/dev/null 2>&1; then
+    echo "Ruby is not installed; skipping network policy release invariant validation." >&2
+    return
+  fi
+
+  ruby -e '
+    require "yaml"
+
+    manifest = ARGV.fetch(0)
+    expected_provider = ARGV.fetch(1)
+    expected_ingress_namespace = ARGV.fetch(2)
+    expected_ingress_selector = ARGV.fetch(3).split(",").to_h { |pair| pair.split("=", 2) }
+    docs = YAML.load_stream(File.read(manifest)).compact
+    errors = []
+
+    resource = lambda do |kind, name|
+      docs.find { |doc| doc["kind"] == kind && doc.dig("metadata", "name") == name }
+    end
+
+    ["backend-ingress", "ollama-ingress"].each do |name|
+      policy = resource.call("NetworkPolicy", name)
+      if policy.nil?
+        errors << "manifest is missing NetworkPolicy/#{name}"
+        next
+      end
+      annotations = policy.dig("metadata", "annotations") || {}
+      errors << "#{name} network-policy provider is #{annotations["desk.ai/network-policy-provider"].inspect}, expected #{expected_provider.inspect}" unless annotations["desk.ai/network-policy-provider"] == expected_provider
+      errors << "#{name} enforcement annotation is #{annotations["desk.ai/network-policy-enforcement"].inspect}, expected \"true\"" unless annotations["desk.ai/network-policy-enforcement"] == "true"
+    end
+
+    frontend = resource.call("NetworkPolicy", "frontend-ingress")
+    if frontend.nil?
+      errors << "manifest is missing NetworkPolicy/frontend-ingress"
+    else
+      errors << "frontend-ingress must select app=frontend" unless frontend.dig("spec", "podSelector", "matchLabels", "app") == "frontend"
+      ingress = frontend.dig("spec", "ingress") || []
+      from = ingress.flat_map { |rule| rule["from"] || [] }
+      ports = ingress.flat_map { |rule| rule["ports"] || [] }
+
+      errors << "frontend-ingress must allow TCP 80" unless ports.any? { |entry| entry["protocol"].to_s.upcase == "TCP" && entry["port"].to_i == 80 }
+
+      matches = from.any? do |entry|
+        ns_labels = entry.dig("namespaceSelector", "matchLabels") || {}
+        pod_labels = entry.dig("podSelector", "matchLabels") || {}
+        ns_labels["kubernetes.io/metadata.name"] == expected_ingress_namespace &&
+          expected_ingress_selector.all? { |key, value| pod_labels[key] == value }
+      end
+      errors << "frontend-ingress does not allow the expected ingress controller selector" unless matches
+    end
+
+    unless errors.empty?
+      warn errors.join("\n")
+      exit 1
+    end
+  ' "$manifest" "$expected_provider" "$expected_ingress_namespace" "$expected_ingress_selector"
+}
+
 validate_manifest() {
   local manifest="$1"
   local model_mode="${2:-in-cluster}"
@@ -363,6 +431,7 @@ validate_manifest() {
 
 for script in \
   "$ROOT_DIR/scripts/check-model-runtime.sh" \
+  "$ROOT_DIR/scripts/check-network-policy.sh" \
   "$ROOT_DIR/scripts/check-public-access.sh" \
   "$ROOT_DIR/scripts/check-public-dns.sh" \
   "$ROOT_DIR/scripts/check-public-tls.sh" \
@@ -397,6 +466,10 @@ check_public_access_invariants "$PUBLIC_ACCESS_ALLOWLIST_RELEASE_MANIFEST" ip-al
 PUBLIC_HOST=desk-ai.example.test REQUIRE_PUBLIC_ACCESS_CONTROL=true PUBLIC_ACCESS_MODE=provider-gated PUBLIC_WAF_POLICY_ID=aws-wafv2-desk-ai-prod PUBLIC_DDOS_PROTECTION=true PUBLIC_IDENTITY_PROVIDER=okta-workforce "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee > "$PUBLIC_ACCESS_PROVIDER_RELEASE_MANIFEST"
 validate_manifest "$PUBLIC_ACCESS_PROVIDER_RELEASE_MANIFEST"
 check_public_access_invariants "$PUBLIC_ACCESS_PROVIDER_RELEASE_MANIFEST" provider-gated "" aws-wafv2-desk-ai-prod true okta-workforce
+
+REQUIRE_NETWORK_POLICY_ENFORCEMENT=true NETWORK_POLICY_PROVIDER=cilium NETWORK_POLICY_ENFORCEMENT_CONFIRMED=true FRONTEND_INGRESS_POLICY=enabled INGRESS_CONTROLLER_NAMESPACE=ingress-nginx INGRESS_CONTROLLER_POD_SELECTOR=app.kubernetes.io/name=ingress-nginx,app.kubernetes.io/component=controller "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee > "$NETWORK_POLICY_RELEASE_MANIFEST"
+validate_manifest "$NETWORK_POLICY_RELEASE_MANIFEST"
+check_network_policy_release_invariants "$NETWORK_POLICY_RELEASE_MANIFEST" cilium ingress-nginx app.kubernetes.io/name=ingress-nginx,app.kubernetes.io/component=controller
 
 STORAGE_CLASS_NAME=desk-ai-retain "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee > "$STORAGE_RELEASE_MANIFEST"
 validate_manifest "$STORAGE_RELEASE_MANIFEST" in-cluster desk-ai-retain desk-ai-retain
@@ -471,6 +544,36 @@ fi
 
 grep -q "PUBLIC_ALLOWED_CIDRS must be set" "$MISSING_PUBLIC_ALLOWED_CIDRS_ERROR" || {
   echo "Release renderer did not explain missing PUBLIC_ALLOWED_CIDRS input." >&2
+  exit 1
+}
+
+if REQUIRE_NETWORK_POLICY_ENFORCEMENT=true "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee >/dev/null 2>"$MISSING_NETWORK_POLICY_PROVIDER_ERROR"; then
+  echo "Release renderer accepted required network policy enforcement without NETWORK_POLICY_PROVIDER." >&2
+  exit 1
+fi
+
+grep -q "NETWORK_POLICY_PROVIDER must be set" "$MISSING_NETWORK_POLICY_PROVIDER_ERROR" || {
+  echo "Release renderer did not explain missing NETWORK_POLICY_PROVIDER input." >&2
+  exit 1
+}
+
+if REQUIRE_NETWORK_POLICY_ENFORCEMENT=true NETWORK_POLICY_PROVIDER=cilium "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee >/dev/null 2>"$MISSING_NETWORK_POLICY_CONFIRMATION_ERROR"; then
+  echo "Release renderer accepted required network policy enforcement without confirmation." >&2
+  exit 1
+fi
+
+grep -q "NETWORK_POLICY_ENFORCEMENT_CONFIRMED=true must be set" "$MISSING_NETWORK_POLICY_CONFIRMATION_ERROR" || {
+  echo "Release renderer did not explain missing NETWORK_POLICY_ENFORCEMENT_CONFIRMED input." >&2
+  exit 1
+}
+
+if FRONTEND_INGRESS_POLICY=enabled INGRESS_CONTROLLER_NAMESPACE=ingress-nginx "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee >/dev/null 2>"$MISSING_FRONTEND_INGRESS_SELECTOR_ERROR"; then
+  echo "Release renderer accepted frontend ingress isolation without INGRESS_CONTROLLER_POD_SELECTOR." >&2
+  exit 1
+fi
+
+grep -q "INGRESS_CONTROLLER_POD_SELECTOR must be set" "$MISSING_FRONTEND_INGRESS_SELECTOR_ERROR" || {
+  echo "Release renderer did not explain missing INGRESS_CONTROLLER_POD_SELECTOR input." >&2
   exit 1
 }
 
@@ -778,6 +881,53 @@ grep -q "Public access check passed" "$PUBLIC_ACCESS_CHECK_OUTPUT" || {
   exit 1
 }
 
+NETWORK_POLICY_CHECK_FAKE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/desk-ai-network-policy-check.XXXXXX")"
+trap 'rm -rf "$TLS_CHECK_FAKE_DIR" "$RUNTIME_SECRET_FAKE_DIR" "$MODEL_RUNTIME_FAKE_DIR" "$STORAGE_CHECK_FAKE_DIR" "$PUBLIC_ACCESS_CHECK_FAKE_DIR" "$NETWORK_POLICY_CHECK_FAKE_DIR"' EXIT
+
+cat > "$NETWORK_POLICY_CHECK_FAKE_DIR/kubectl" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+case "$*" in
+  "-n desk-ai get networkpolicy backend-ingress -o json")
+    cat <<'JSON'
+{"metadata":{"name":"backend-ingress"},"spec":{"podSelector":{"matchLabels":{"app":"backend"}},"policyTypes":["Ingress"],"ingress":[{"from":[{"podSelector":{"matchLabels":{"app":"frontend"}}},{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"monitoring"}},"podSelector":{"matchLabels":{"app.kubernetes.io/name":"prometheus"}}}],"ports":[{"protocol":"TCP","port":8000}]}]}}
+JSON
+    ;;
+  "-n desk-ai get deployment ollama")
+    exit 0
+    ;;
+  "-n desk-ai get networkpolicy ollama-ingress -o json")
+    cat <<'JSON'
+{"metadata":{"name":"ollama-ingress"},"spec":{"podSelector":{"matchLabels":{"app":"ollama"}},"policyTypes":["Ingress"],"ingress":[{"from":[{"podSelector":{"matchLabels":{"app":"backend"}}},{"podSelector":{"matchLabels":{"app":"ollama-model-pull"}}}],"ports":[{"protocol":"TCP","port":11434}]}]}}
+JSON
+    ;;
+  "-n desk-ai get networkpolicy frontend-ingress -o json")
+    cat <<'JSON'
+{"metadata":{"name":"frontend-ingress"},"spec":{"podSelector":{"matchLabels":{"app":"frontend"}},"policyTypes":["Ingress"],"ingress":[{"from":[{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"ingress-nginx"}},"podSelector":{"matchLabels":{"app.kubernetes.io/name":"ingress-nginx","app.kubernetes.io/component":"controller"}}}],"ports":[{"protocol":"TCP","port":80}]}]}}
+JSON
+    ;;
+  "get pods -A -o json")
+    cat <<'JSON'
+{"items":[{"metadata":{"namespace":"kube-system","name":"cilium-agent-abc","labels":{"app.kubernetes.io/name":"cilium"}}}]}
+JSON
+    ;;
+  *)
+    echo "unexpected kubectl args: $*" >&2
+    exit 1
+    ;;
+esac
+SH
+
+chmod +x "$NETWORK_POLICY_CHECK_FAKE_DIR/kubectl"
+
+KUBECTL="$NETWORK_POLICY_CHECK_FAKE_DIR/kubectl" REQUIRE_FRONTEND_INGRESS_POLICY=true INGRESS_CONTROLLER_NAMESPACE=ingress-nginx INGRESS_CONTROLLER_POD_SELECTOR=app.kubernetes.io/name=ingress-nginx,app.kubernetes.io/component=controller "$ROOT_DIR/scripts/check-network-policy.sh" desk-ai > "$NETWORK_POLICY_CHECK_OUTPUT"
+
+grep -q "NetworkPolicy check passed" "$NETWORK_POLICY_CHECK_OUTPUT" || {
+  echo "NetworkPolicy check did not validate the fake CNI and policy state." >&2
+  exit 1
+}
+
 grep -q "ghcr.io/heyyymonth/desk-ai-backend:git-deadbee" "$RELEASE_MANIFEST" || {
   echo "Release manifests do not use the requested immutable backend image tag." >&2
   exit 1
@@ -875,6 +1025,31 @@ grep -q "desk.ai/ddos-protection: \"true\"" "$PUBLIC_ACCESS_PROVIDER_RELEASE_MAN
 
 grep -q "desk.ai/identity-provider: okta-workforce" "$PUBLIC_ACCESS_PROVIDER_RELEASE_MANIFEST" || {
   echo "Public access provider-gated release does not include the selected identity provider." >&2
+  exit 1
+}
+
+grep -q "name: frontend-ingress" "$NETWORK_POLICY_RELEASE_MANIFEST" || {
+  echo "NetworkPolicy release does not render frontend ingress isolation." >&2
+  exit 1
+}
+
+grep -q "kubernetes.io/metadata.name: ingress-nginx" "$NETWORK_POLICY_RELEASE_MANIFEST" || {
+  echo "NetworkPolicy release does not include the selected ingress controller namespace." >&2
+  exit 1
+}
+
+grep -q "app.kubernetes.io/name: ingress-nginx" "$NETWORK_POLICY_RELEASE_MANIFEST" || {
+  echo "NetworkPolicy release does not include the selected ingress controller pod selector." >&2
+  exit 1
+}
+
+grep -q "desk.ai/network-policy-provider: cilium" "$NETWORK_POLICY_RELEASE_MANIFEST" || {
+  echo "NetworkPolicy release does not include the selected CNI provider metadata." >&2
+  exit 1
+}
+
+grep -q "desk.ai/network-policy-enforcement: \"true\"" "$NETWORK_POLICY_RELEASE_MANIFEST" || {
+  echo "NetworkPolicy release does not record enforcement confirmation." >&2
   exit 1
 }
 
