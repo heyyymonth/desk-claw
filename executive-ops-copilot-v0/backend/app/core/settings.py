@@ -3,6 +3,13 @@ from os import getenv
 
 from app.agents import DEFAULT_ADK_MODEL, DEFAULT_OLLAMA_MODEL
 
+DEFAULT_CORS_ALLOWED_ORIGINS = (
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+)
+
 
 class Settings:
     def __init__(self) -> None:
@@ -22,6 +29,7 @@ class Settings:
         self.timezone = getenv("APP_TIMEZONE", "America/Los_Angeles")
         self.admin_api_key = getenv("ADMIN_API_KEY")
         self.actor_auth_token = getenv("ACTOR_AUTH_TOKEN")
+        self.cors_allowed_origins = _csv_env("CORS_ALLOWED_ORIGINS", DEFAULT_CORS_ALLOWED_ORIGINS)
 
 
 @lru_cache
@@ -35,3 +43,10 @@ def _database_dialect(database_url: str) -> str:
     if database_url.startswith(("postgres://", "postgresql://")):
         return "postgres"
     return "unsupported"
+
+
+def _csv_env(name: str, default: tuple[str, ...]) -> list[str]:
+    value = getenv(name)
+    if value is None:
+        return list(default)
+    return [entry.strip() for entry in value.split(",") if entry.strip()]

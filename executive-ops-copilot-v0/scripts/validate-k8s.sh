@@ -20,6 +20,7 @@ GPU_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-ollama-gpu-rendered.yaml"
 GPU_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-ollama-gpu-release-rendered.yaml"
 EXTERNAL_MODEL_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-external-model-rendered.yaml"
 EXTERNAL_MODEL_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-external-model-release-rendered.yaml"
+CORS_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-cors-release-rendered.yaml"
 PRIVATE_GHCR_GPU_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-private-ghcr-ollama-gpu-release-rendered.yaml"
 PRIVATE_GHCR_EXTERNAL_MODEL_RELEASE_MANIFEST="${TMPDIR:-/tmp}/desk-ai-k8s-private-ghcr-external-model-release-rendered.yaml"
 CERT_MANAGER_ISSUER_MANIFEST="${TMPDIR:-/tmp}/desk-ai-cert-manager-issuer-rendered.yaml"
@@ -45,6 +46,7 @@ INVALID_DATABASE_MODE_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-database-mode.err"
 INVALID_BACKEND_REPLICAS_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-backend-replicas.err"
 SQLITE_BACKEND_REPLICAS_ERROR="${TMPDIR:-/tmp}/desk-ai-sqlite-backend-replicas.err"
 INVALID_MODEL_ENDPOINT_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-model-endpoint.err"
+INVALID_CORS_ALLOWED_ORIGINS_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-cors-allowed-origins.err"
 INVALID_STORAGE_CLASS_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-storage-class.err"
 INVALID_SNAPSHOT_CLASS_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-snapshot-class.err"
 INVALID_ACME_EMAIL_ERROR="${TMPDIR:-/tmp}/desk-ai-invalid-acme-email.err"
@@ -537,6 +539,9 @@ validate_manifest "$EXTERNAL_MODEL_MANIFEST" external
 MODEL_ENDPOINT_URL=https://ollama.internal.example.test K8S_BASE_DIR="infra/k8s-overlays/external-model" "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee > "$EXTERNAL_MODEL_RELEASE_MANIFEST"
 validate_manifest "$EXTERNAL_MODEL_RELEASE_MANIFEST" external
 
+CORS_ALLOWED_ORIGINS=https://heyyymonth.github.io,https://desk-ai.example.test "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee > "$CORS_RELEASE_MANIFEST"
+validate_manifest "$CORS_RELEASE_MANIFEST"
+
 if K8S_BASE_DIR="infra/k8s-overlays/external-model" "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee >/dev/null 2>"$INVALID_MODEL_ENDPOINT_ERROR"; then
   echo "Release renderer accepted an external model overlay without MODEL_ENDPOINT_URL." >&2
   exit 1
@@ -544,6 +549,16 @@ fi
 
 grep -q "MODEL_ENDPOINT_URL must be set" "$INVALID_MODEL_ENDPOINT_ERROR" || {
   echo "Release renderer did not explain missing MODEL_ENDPOINT_URL input." >&2
+  exit 1
+}
+
+if CORS_ALLOWED_ORIGINS=https://heyyymonth.github.io/desk-claw/ "$ROOT_DIR/scripts/render-release-k8s.sh" git-deadbee >/dev/null 2>"$INVALID_CORS_ALLOWED_ORIGINS_ERROR"; then
+  echo "Release renderer accepted a CORS origin with a path." >&2
+  exit 1
+fi
+
+grep -q "CORS_ALLOWED_ORIGINS entry" "$INVALID_CORS_ALLOWED_ORIGINS_ERROR" || {
+  echo "Release renderer did not explain invalid CORS_ALLOWED_ORIGINS input." >&2
   exit 1
 }
 
@@ -1105,6 +1120,11 @@ if grep -q "ghcr.io/heyyymonth/desk-ai-.*:latest" "$RELEASE_MANIFEST"; then
   echo "Release manifests still contain mutable latest application image tags." >&2
   exit 1
 fi
+
+grep -q "CORS_ALLOWED_ORIGINS: https://heyyymonth.github.io,https://desk-ai.example.test" "$CORS_RELEASE_MANIFEST" || {
+  echo "CORS release manifests do not include the requested allowed origins." >&2
+  exit 1
+}
 
 grep -q "host: desk-ai.example.test" "$DNS_RELEASE_MANIFEST" || {
   echo "DNS release manifests do not use the requested public host." >&2

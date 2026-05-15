@@ -135,6 +135,23 @@ If the provider does not use a Kubernetes TLS Secret, run the public probe witho
 REQUIRE_TLS_SECRET=false ./scripts/check-public-tls.sh "$PUBLIC_HOST"
 ```
 
+## GitHub Pages Preview TLS
+
+GitHub Pages can terminate HTTPS for the static frontend preview URL, but the Desk AI backend/API origin still needs its own TLS path. For a Pages preview, run this TLS checklist against the API origin supplied to the Pages workflow as `api_base_url`.
+
+The backend release must also allow the Pages browser origin through CORS:
+
+```bash
+CORS_ALLOWED_ORIGINS=https://heyyymonth.github.io \
+  TLS_MODE=cert-manager \
+  TLS_CLUSTER_ISSUER=letsencrypt-prod \
+  PUBLIC_HOST=api.desk-ai.example.com \
+  TLS_SECRET_NAME=desk-ai-api-tls \
+  ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-api-release.yaml
+```
+
+Use only the origin in `CORS_ALLOWED_ORIGINS`, not the Pages project path. For the default GitHub Pages URL, use `https://heyyymonth.github.io`, not `https://heyyymonth.github.io/desk-claw/`.
+
 ## Failure Triage
 
 | Symptom | Likely Cause | Action |

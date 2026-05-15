@@ -26,6 +26,7 @@ Set PUBLIC_ACCESS_MODE=ip-allowlist with PUBLIC_ALLOWED_CIDRS=<cidr,cidr> for ng
 Set PUBLIC_ACCESS_MODE=provider-gated with PUBLIC_WAF_POLICY_ID, PUBLIC_DDOS_PROTECTION=true, and PUBLIC_IDENTITY_PROVIDER for provider edge controls.
 Set REQUIRE_NETWORK_POLICY_ENFORCEMENT=true with NETWORK_POLICY_PROVIDER and NETWORK_POLICY_ENFORCEMENT_CONFIRMED=true once the cluster CNI is verified.
 Set FRONTEND_INGRESS_POLICY=enabled with INGRESS_CONTROLLER_NAMESPACE and INGRESS_CONTROLLER_POD_SELECTOR=<key=value,key=value> to isolate frontend ingress to the selected controller.
+Set CORS_ALLOWED_ORIGINS=https://heyyymonth.github.io to allow split-origin static frontends such as GitHub Pages.
 USAGE
 }
 
@@ -68,6 +69,7 @@ NETWORK_POLICY_ENFORCEMENT_CONFIRMED="${NETWORK_POLICY_ENFORCEMENT_CONFIRMED:-fa
 FRONTEND_INGRESS_POLICY="${FRONTEND_INGRESS_POLICY:-disabled}"
 INGRESS_CONTROLLER_NAMESPACE="${INGRESS_CONTROLLER_NAMESPACE:-}"
 INGRESS_CONTROLLER_POD_SELECTOR="${INGRESS_CONTROLLER_POD_SELECTOR:-}"
+CORS_ALLOWED_ORIGINS="${CORS_ALLOWED_ORIGINS:-}"
 
 if [[ "$K8S_BASE_DIR" != /* ]]; then
   K8S_BASE_DIR="$ROOT_DIR/$K8S_BASE_DIR"
@@ -135,6 +137,29 @@ validate_kubernetes_label() {
     echo "$label may only contain letters, numbers, dots, dashes, underscores, slashes, colons, equals signs, or label separators." >&2
     exit 1
   fi
+}
+
+validate_cors_allowed_origins() {
+  local origins="$1"
+  ruby -ruri -e '
+    value = ARGV.fetch(0)
+    entries = value.split(",").map(&:strip)
+    if entries.empty? || entries.any?(&:empty?)
+      warn "CORS_ALLOWED_ORIGINS must be a comma-separated list of origins."
+      exit 1
+    end
+
+    entries.each do |entry|
+      uri = URI.parse(entry)
+      unless %w[http https].include?(uri.scheme) && uri.host && uri.path.to_s.empty? && uri.query.nil? && uri.fragment.nil?
+        warn "CORS_ALLOWED_ORIGINS entry #{entry.inspect} must be an http(s) origin without path, query, or fragment."
+        exit 1
+      end
+    rescue URI::InvalidURIError
+      warn "CORS_ALLOWED_ORIGINS entry #{entry.inspect} is not a valid origin."
+      exit 1
+    end
+  ' "$origins"
 }
 
 render_match_labels_yaml() {
@@ -388,6 +413,10 @@ if [[ "$EXTERNAL_MODEL_OVERLAY" == "true" && -z "$MODEL_ENDPOINT_URL" ]]; then
   exit 1
 fi
 
+if [[ -n "$CORS_ALLOWED_ORIGINS" ]]; then
+  validate_cors_allowed_origins "$CORS_ALLOWED_ORIGINS"
+fi
+
 RAW_TAG="$1"
 OUTPUT_FILE="${2:-}"
 SHA="${RAW_TAG#git-}"
@@ -576,6 +605,20 @@ if [[ -n "$MODEL_ENDPOINT_URL" ]]; then
       - op: replace
         path: /data/OLLAMA_BASE_URL
         value: "$MODEL_ENDPOINT_URL"
+YAML
+fi
+
+if [[ -n "$CORS_ALLOWED_ORIGINS" ]]; then
+  append_patches_header
+  cat >> "$TMP_DIR/kustomization.yaml" <<YAML
+  - target:
+      kind: ConfigMap
+      name: desk-ai-config
+      namespace: desk-ai
+    patch: |-
+      - op: add
+        path: /data/CORS_ALLOWED_ORIGINS
+        value: "$CORS_ALLOWED_ORIGINS"
 YAML
 fi
 

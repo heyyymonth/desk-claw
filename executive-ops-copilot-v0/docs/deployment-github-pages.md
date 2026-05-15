@@ -48,6 +48,31 @@ Use `base_path: /` only when GitHub Pages is configured with a custom domain for
 
 The workflow validates that `api_base_url` starts with `https://`, runs frontend tests, builds the Vite app with `VITE_API_BASE_URL=<api_base_url>`, uploads the static `dist` artifact, and deploys it to Pages.
 
+## Backend CORS
+
+Because GitHub Pages is a different browser origin from the backend API, the backend must explicitly allow the Pages origin.
+
+For the default project URL, the CORS origin is the scheme and host only:
+
+```text
+https://heyyymonth.github.io
+```
+
+Do not include the project path `/desk-claw/` in `CORS_ALLOWED_ORIGINS`; CORS origins do not include paths.
+
+When rendering the backend/API release for a Pages preview, pass:
+
+```bash
+CORS_ALLOWED_ORIGINS=https://heyyymonth.github.io \
+  PUBLIC_HOST=api.desk-ai.example.com \
+  TLS_SECRET_NAME=desk-ai-api-tls \
+  TLS_MODE=cert-manager \
+  TLS_CLUSTER_ISSUER=letsencrypt-prod \
+  ./scripts/render-release-k8s.sh git-<sha> /tmp/desk-ai-api-release.yaml
+```
+
+If the Pages site uses a custom domain, set `CORS_ALLOWED_ORIGINS` to that custom origin instead, for example `https://desk-ai.example.com`.
+
 ## Production Gate
 
 Do not use the Pages preview as the public production path until these are true:
