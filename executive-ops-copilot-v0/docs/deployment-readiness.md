@@ -20,6 +20,7 @@ This checklist tracks the repo-side and outside-infrastructure work needed befor
 | Network policy baseline | Complete | `infra/k8s/network-policy.yaml` isolates backend and Ollama ingress while `docs/deployment-network-policy.md` captures CNI and ingress-controller hardening steps. |
 | Database migration path | Complete | `docs/deployment-database-migration.md` documents the SQLite-to-managed-Postgres path and CI enforces one backend replica while SQLite is configured. |
 | PVC backup and restore runbook | Complete | `docs/deployment-backup-restore.md` documents backend SQLite backups, restore flow, provider snapshots, and Ollama data recovery. |
+| Production auth/session design | Complete | `docs/deployment-auth-session.md` defines OIDC/session/RBAC target state and CI validates public frontend image builds do not bundle admin or actor secrets. |
 | Local container stack | Present | Docker Compose starts Ollama, backend, and frontend for local validation. |
 
 ## Issues Found While Preparing Deployment
@@ -38,11 +39,11 @@ This checklist tracks the repo-side and outside-infrastructure work needed befor
 | Internal service traffic was not isolated in Kubernetes. | Any pod in an enforcing cluster could attempt direct backend or Ollama access. | Added baseline NetworkPolicies for backend and Ollama ingress and documented provider-specific frontend/egress hardening. |
 | SQLite scaling risk was documented only as a note. | Backend replicas could be raised against a `ReadWriteOnce` SQLite PVC, risking write contention and data corruption. | Added a managed Postgres migration path and a manifest validation guard that fails when SQLite is configured with more than one backend replica. |
 | PVCs had no recovery procedure. | A disk, namespace, or cluster failure could lose SQLite audit/decision data or force slow model repulls. | Added backup/restore guidance for `backend-data` and `ollama-data`, including SQLite integrity checks and provider snapshot guidance. |
+| Admin access still used local V0 keys. | Browser-bundled admin keys or actor tokens would expose audit and telemetry access in a public deployment. | Added a production auth/session design and a CI guard against shipping `VITE_ADMIN_API_KEY` or `VITE_ACTOR_AUTH_TOKEN` in the public frontend image. |
 
 ## Remaining Repo Work
 
-1. Add production auth/session design before exposing admin dashboards to real users.
-2. Add runtime observability exports for backend health, AI telemetry, tool failures, model latency, and ingress errors.
+1. Add runtime observability exports for backend health, AI telemetry, tool failures, model latency, and ingress errors.
 
 ## Outside-Repo Dependencies
 
@@ -59,6 +60,7 @@ This checklist tracks the repo-side and outside-infrastructure work needed befor
 | NetworkPolicy enforcement | Confirm the cluster CNI enforces NetworkPolicy and identify ingress-controller namespace/pod labels before frontend ingress isolation. |
 | Managed Postgres | Choose provider, region, network path, backup/PITR policy, and secret-management integration before backend horizontal scaling. |
 | Storage backup mechanism | Choose CSI snapshots, provider disk snapshots, or an external backup tool and confirm restore support for the selected storage class. |
+| Identity provider | Choose OIDC/SAML provider, required claims, role mapping, session store, and signout behavior before public admin access. |
 
 ## Deployment Gate
 
@@ -70,7 +72,7 @@ Do not treat the system as public-production ready until these are true:
 - The ingress hostname, TLS path, and DNS are real, not placeholders.
 - Runtime secrets come from a secret manager or out-of-band Kubernetes Secret.
 - The cluster CNI is confirmed to enforce NetworkPolicy, or traffic isolation is handled by another provider control.
-- Admin dashboard access is protected by real login/session auth, not frontend-bundled keys.
+- Admin dashboard access is protected by real login/session auth, not frontend-bundled keys, and production auth has passed the deployment auth/session gate.
 - Backend persistence remains one replica on SQLite, or Postgres support has been implemented and cut over through the database migration runbook.
 - PVC backups and at least one restore drill have succeeded, or managed storage backup/PITR has replaced the PVC recovery path.
 - Ollama capacity is sized and model warmup succeeds before backend readiness.

@@ -272,6 +272,9 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,prefix=git-
 
+      - name: Validate public frontend env
+        run: ./executive-ops-copilot-v0/scripts/validate-public-frontend-env.sh
+
       - name: Build frontend image
         uses: docker/build-push-action@v7
         with:

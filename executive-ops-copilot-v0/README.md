@@ -324,6 +324,7 @@ Before public exposure, review `docs/deployment-resource-tuning.md` for Ollama/b
 Network policy guidance lives in `docs/deployment-network-policy.md`.
 Database migration guidance lives in `docs/deployment-database-migration.md`; backend replicas must stay at one while SQLite is configured.
 Backup and restore guidance lives in `docs/deployment-backup-restore.md`.
+Production auth and session guidance lives in `docs/deployment-auth-session.md`.
 
 ## Evals
 
@@ -371,6 +372,7 @@ Eval assertions cover meeting type, draft type, sensitivity, async candidacy, es
 - `docs/deployment-network-policy.md`: Kubernetes NetworkPolicy baseline, CNI requirements, and provider-specific hardening guidance.
 - `docs/deployment-database-migration.md`: SQLite-to-managed-Postgres migration path and backend scaling gate.
 - `docs/deployment-backup-restore.md`: backend SQLite backup/restore, provider snapshots, and Ollama data recovery guidance.
+- `docs/deployment-auth-session.md`: OIDC/session/RBAC target design before public admin dashboard exposure.
 - `docs/assumptions.md`: product, enterprise, and eval assumptions.
 - `docs/adr/0001-local-web-app.md`: local web app and FastAPI-owned orchestration.
 - `docs/adr/0002-ai-boundaries.md`: AI boundaries and enterprise safety.
