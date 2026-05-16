@@ -31,3 +31,15 @@ raw text
 ```
 
 The compatibility frontend route remains `POST /api/parse-request`. A simple model smoke route is also available at `POST /api/chat`.
+
+## Infrastructure
+
+The service images are intentionally independent:
+
+- `frontend/Dockerfile` builds a static Vite/React app and serves it with nginx.
+- `web_backend/Dockerfile` runs only the FastAPI product API on port `8000`.
+- `ai_backend/Dockerfile` runs only the FastAPI model gateway on port `9000`.
+
+Docker Compose wires the services as `frontend -> web-backend -> ai-backend`. Provider keys and provider base URLs are passed only to `ai-backend`; Web Backend receives only `AI_BACKEND_URL`; Frontend receives no provider secrets or AI Backend URL for browser code.
+
+CI/CD lives in one primary GitHub Actions workflow, `.github/workflows/ci-cd.yml`, which runs service checks in parallel, builds each container independently, runs container smoke tests, and publishes three GHCR images only for `v*.*.*` tags.

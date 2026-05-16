@@ -1,5 +1,5 @@
-from fastapi.testclient import TestClient
 import httpx
+from fastapi.testclient import TestClient
 
 from app.api.deps import get_draft_service, get_recommendation_service, get_request_parser
 from app.llm.schemas import DraftResponse, ParsedMeetingRequest, Recommendation

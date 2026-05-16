@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field
 
 from app.core.settings import Settings
 
+
 class AiProviderOption(BaseModel):
     provider: str
     default_model: str

@@ -121,11 +121,13 @@ curl http://localhost:9000/test/gemini/chat -H "Content-Type: application/json" 
 ## Development
 
 ```bash
+make lint-all
 make test-web-backend
 make test-ai-backend
 make test-frontend
 make test-all
 make build-all
+make smoke-containers
 make health
 make health-providers
 ```
@@ -133,11 +135,46 @@ make health-providers
 Direct commands:
 
 ```bash
+cd web_backend && python3 -m ruff check app tests
 cd web_backend && python3 -m pytest
+cd ai_backend && python3 -m ruff check .
 cd ai_backend && python3 -m pytest
-cd frontend && npm test -- --run && npm run build
+cd frontend && npm run lint && npm test -- --run && npm run build
 docker compose config
 ```
+
+## Containers
+
+Each major service has its own Dockerfile and image:
+
+| Service | Build context | Local image | Port |
+| --- | --- | --- | --- |
+| Frontend | `frontend/` | `app-frontend:local` | `3000 -> 80` |
+| Web Backend | `web_backend/` | `app-web-backend:local` | `8000` |
+| AI Backend | `ai_backend/` | `app-ai-backend:local` | `9000` |
+
+Build one service at a time with `make build-frontend`, `make build-web-backend`, or `make build-ai-backend`. Run `make smoke-containers` to build the stack, start it, hit health endpoints, and confirm Web Backend can reach AI Backend over the Docker network.
+
+If local ports are already in use, override host ports without changing container wiring:
+
+```bash
+FRONTEND_HOST_PORT=3100 WEB_BACKEND_HOST_PORT=8100 AI_BACKEND_HOST_PORT=9100 make smoke-containers
+```
+
+## CI/CD
+
+The primary workflow is `.github/workflows/ci-cd.yml`.
+
+- Pull requests to `main` and pushes to `main` run frontend, Web Backend, AI Backend, Docker Compose config, container build, and container smoke jobs.
+- Frontend, Web Backend, AI Backend, and Compose checks run in parallel.
+- Container image builds wait for checks to pass and build `frontend`, `web-backend`, and `ai-backend` independently.
+- Container smoke tests start the composed stack and verify `GET /health`, `GET /health/providers`, frontend `GET /`, and Web Backend-to-AI Backend network reachability.
+- Version tags matching `v*.*.*` publish all three GHCR images after checks and smoke tests pass:
+  - `ghcr.io/heyyymonth/desk-claw-frontend:<tag>`
+  - `ghcr.io/heyyymonth/desk-claw-web-backend:<tag>`
+  - `ghcr.io/heyyymonth/desk-claw-ai-backend:<tag>`
+
+Provider secrets are not required for CI health checks. Provider keys must be supplied only to the AI Backend runtime environment.
 
 ## Adding A Provider
 

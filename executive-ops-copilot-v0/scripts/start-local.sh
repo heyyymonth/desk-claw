@@ -16,12 +16,17 @@ wait_for_http() {
   local url="$1"
   local label="$2"
   local timeout_seconds="${3:-180}"
+  local log_file="${4:-}"
   local started
   started="$(date +%s)"
 
   until curl -fsS "$url" >/dev/null 2>&1; do
     if (( "$(date +%s)" - started >= timeout_seconds )); then
       echo "Timed out waiting for $label at $url" >&2
+      if [ -n "$log_file" ] && [ -f "$log_file" ]; then
+        echo "Last logs for $label:" >&2
+        tail -n 80 "$log_file" >&2
+      fi
       return 1
     fi
     sleep 1
@@ -39,7 +44,7 @@ start_ai_backend() {
   echo "$!" >"$PID_DIR/ai-backend.pid"
   STARTED_PIDS+=("$!")
 
-  wait_for_http "$AI_BACKEND_URL/health" "AI Backend health" 120
+  wait_for_http "$AI_BACKEND_URL/health" "AI Backend health" 120 "$LOG_DIR/ai-backend.log"
   echo "AI Backend ready: $AI_BACKEND_URL"
 }
 
@@ -56,7 +61,7 @@ start_web_backend() {
   echo "$!" >"$PID_DIR/web-backend.pid"
   STARTED_PIDS+=("$!")
 
-  wait_for_http "$WEB_BACKEND_URL/health" "Web Backend health" 240
+  wait_for_http "$WEB_BACKEND_URL/health" "Web Backend health" 240 "$LOG_DIR/web-backend.log"
 
   local warmup_status
   warmup_status="$(curl -fsS "$WEB_BACKEND_URL/health")"
@@ -74,7 +79,7 @@ start_frontend() {
   echo "$!" >"$PID_DIR/frontend.pid"
   STARTED_PIDS+=("$!")
 
-  wait_for_http "$FRONTEND_URL" "frontend" 60
+  wait_for_http "$FRONTEND_URL" "frontend" 60 "$LOG_DIR/frontend.log"
   echo "Frontend ready: $FRONTEND_URL"
 }
 
