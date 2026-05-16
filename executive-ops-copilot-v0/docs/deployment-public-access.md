@@ -78,7 +78,11 @@ The checker validates:
 - the Ingress host and TLS host match `PUBLIC_HOST`;
 - the Ingress declares the expected `desk.ai/public-access-mode`;
 - IP allowlist mode has the expected nginx CIDR allowlist;
-- provider-gated mode records the selected WAF policy, DDoS protection, and identity provider.
+- provider-gated mode records the selected WAF policy, DDoS protection, and identity provider;
+- backend and Ollama services are not exposed as `LoadBalancer`, `NodePort`, or `externalIPs`;
+- `Ingress/frontend` routes only to `Service/frontend`, and no alternate Ingress routes to frontend, backend, or Ollama services.
+
+If a provider-specific rollout intentionally uses a different public service name, set `PUBLIC_SERVICE_NAME`. Keep `CHECK_PRIVATE_SERVICE_EXPOSURE=true` for production checks; disabling it is only for narrowly scoped debugging when the checker does not have list access.
 
 ## Provider Responsibilities
 
@@ -97,6 +101,7 @@ Do not treat the deployment as broad-public ready until:
 
 - the release is rendered with `REQUIRE_PUBLIC_ACCESS_CONTROL=true`;
 - `scripts/check-public-access.sh` passes against the deployed Ingress;
+- backend and model runtime services remain private behind the frontend proxy;
 - public DNS and TLS checks pass;
 - runtime secrets are required and verified;
 - real app auth/session work has been implemented or the deployment remains IP-restricted;

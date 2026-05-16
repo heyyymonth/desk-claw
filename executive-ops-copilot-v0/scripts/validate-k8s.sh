@@ -1104,7 +1104,22 @@ set -euo pipefail
 case "$*" in
   *"get ingress frontend -o json"*)
     cat <<'JSON'
-{"metadata":{"annotations":{"desk.ai/public-access-mode":"ip-allowlist","desk.ai/allowed-cidrs":"203.0.113.10/32,198.51.100.0/24","nginx.ingress.kubernetes.io/whitelist-source-range":"203.0.113.10/32,198.51.100.0/24"}},"spec":{"tls":[{"hosts":["desk-ai.example.test"],"secretName":"desk-ai-example-tls"}],"rules":[{"host":"desk-ai.example.test"}]}}
+{"metadata":{"name":"frontend","annotations":{"desk.ai/public-access-mode":"ip-allowlist","desk.ai/allowed-cidrs":"203.0.113.10/32,198.51.100.0/24","nginx.ingress.kubernetes.io/whitelist-source-range":"203.0.113.10/32,198.51.100.0/24"}},"spec":{"tls":[{"hosts":["desk-ai.example.test"],"secretName":"desk-ai-example-tls"}],"rules":[{"host":"desk-ai.example.test","http":{"paths":[{"path":"/","pathType":"Prefix","backend":{"service":{"name":"frontend","port":{"number":80}}}}]}}]}}
+JSON
+    ;;
+  *"get service backend -o json"*)
+    cat <<'JSON'
+{"metadata":{"name":"backend"},"spec":{"type":"ClusterIP","ports":[{"port":8000}]}}
+JSON
+    ;;
+  *"get service ollama -o json"*)
+    cat <<'JSON'
+{"metadata":{"name":"ollama"},"spec":{"type":"ClusterIP","ports":[{"port":11434}]}}
+JSON
+    ;;
+  *"get ingress -o json"*)
+    cat <<'JSON'
+{"items":[{"metadata":{"name":"frontend","annotations":{"desk.ai/public-access-mode":"ip-allowlist","desk.ai/allowed-cidrs":"203.0.113.10/32,198.51.100.0/24","nginx.ingress.kubernetes.io/whitelist-source-range":"203.0.113.10/32,198.51.100.0/24"}},"spec":{"tls":[{"hosts":["desk-ai.example.test"],"secretName":"desk-ai-example-tls"}],"rules":[{"host":"desk-ai.example.test","http":{"paths":[{"path":"/","pathType":"Prefix","backend":{"service":{"name":"frontend","port":{"number":80}}}}]}}]}}]}
 JSON
     ;;
   *)

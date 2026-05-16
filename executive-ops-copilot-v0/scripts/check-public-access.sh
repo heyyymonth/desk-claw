@@ -15,6 +15,9 @@ Environment:
   PUBLIC_WAF_POLICY_ID=<provider-policy-id>       # required for provider-gated
   PUBLIC_DDOS_PROTECTION=true                     # required for provider-gated
   PUBLIC_IDENTITY_PROVIDER=<provider-or-tenant>   # required for provider-gated
+  CHECK_PRIVATE_SERVICE_EXPOSURE=true
+  PUBLIC_SERVICE_NAME=frontend
+  PRIVATE_SERVICE_NAMES="backend ollama"
   KUBECTL=kubectl
 USAGE
 }
@@ -37,6 +40,9 @@ PUBLIC_ALLOWED_CIDRS="${PUBLIC_ALLOWED_CIDRS:-}"
 PUBLIC_WAF_POLICY_ID="${PUBLIC_WAF_POLICY_ID:-}"
 PUBLIC_DDOS_PROTECTION="${PUBLIC_DDOS_PROTECTION:-}"
 PUBLIC_IDENTITY_PROVIDER="${PUBLIC_IDENTITY_PROVIDER:-}"
+CHECK_PRIVATE_SERVICE_EXPOSURE="${CHECK_PRIVATE_SERVICE_EXPOSURE:-true}"
+PUBLIC_SERVICE_NAME="${PUBLIC_SERVICE_NAME:-frontend}"
+PRIVATE_SERVICE_NAMES="${PRIVATE_SERVICE_NAMES:-backend ollama}"
 KUBECTL="${KUBECTL:-kubectl}"
 
 if [[ "$PUBLIC_HOST" =~ ^https?:// || "$PUBLIC_HOST" == */* || "$PUBLIC_HOST" == *:* ]]; then
@@ -53,6 +59,14 @@ case "$PUBLIC_ACCESS_MODE" in
   ip-allowlist | provider-gated) ;;
   *)
     echo "PUBLIC_ACCESS_MODE must be one of: ip-allowlist, provider-gated." >&2
+    exit 1
+    ;;
+esac
+
+case "$CHECK_PRIVATE_SERVICE_EXPOSURE" in
+  true | false) ;;
+  *)
+    echo "CHECK_PRIVATE_SERVICE_EXPOSURE must be true or false." >&2
     exit 1
     ;;
 esac
@@ -130,3 +144,89 @@ printf '%s' "$INGRESS_JSON" |
     puts "WAF policy: #{waf_policy_id}" if mode == "provider-gated"
     puts "Identity provider: #{identity_provider}" if mode == "provider-gated"
   '
+
+if [[ "$CHECK_PRIVATE_SERVICE_EXPOSURE" == "false" ]]; then
+  echo "Skipped private service exposure checks."
+  exit 0
+fi
+
+export PUBLIC_SERVICE_NAME PRIVATE_SERVICE_NAMES INGRESS_NAME
+
+for service_name in $PRIVATE_SERVICE_NAMES; do
+  if SERVICE_JSON="$("$KUBECTL" -n "$NAMESPACE" get service "$service_name" -o json 2>/dev/null)"; then
+    printf '%s' "$SERVICE_JSON" | SERVICE_NAME="$service_name" ruby -rjson -e '
+      payload = JSON.parse(STDIN.read)
+      service_name = ENV.fetch("SERVICE_NAME")
+      service_type = payload.dig("spec", "type") || "ClusterIP"
+      external_ips = payload.dig("spec", "externalIPs").to_a
+      errors = []
+
+      if ["LoadBalancer", "NodePort"].include?(service_type)
+        errors << "Service/#{service_name} is type #{service_type}; private application services must stay ClusterIP."
+      end
+      unless external_ips.empty?
+        errors << "Service/#{service_name} declares externalIPs #{external_ips.join(", ")}; private application services must not expose external IPs."
+      end
+
+      unless errors.empty?
+        warn "Private service exposure check failed:"
+        errors.each { |error| warn "- #{error}" }
+        exit 1
+      end
+
+      puts "Service/#{service_name} remains private with type #{service_type}."
+    '
+  else
+    echo "Service/$service_name not present; skipping private exposure check for that service."
+  fi
+done
+
+INGRESS_LIST_JSON="$("$KUBECTL" -n "$NAMESPACE" get ingress -o json)"
+
+printf '%s' "$INGRESS_LIST_JSON" | ruby -rjson -e '
+  payload = JSON.parse(STDIN.read)
+  ingress_name = ENV.fetch("INGRESS_NAME")
+  public_service = ENV.fetch("PUBLIC_SERVICE_NAME")
+  private_services = ENV.fetch("PRIVATE_SERVICE_NAMES").split
+  items = payload["items"].is_a?(Array) ? payload["items"] : [payload]
+  errors = []
+
+  items.each do |ingress|
+    name = ingress.dig("metadata", "name")
+    service_names = []
+    default_backend = ingress.dig("spec", "defaultBackend", "service", "name")
+    service_names << default_backend if default_backend
+    ingress.dig("spec", "rules").to_a.each do |rule|
+      rule.dig("http", "paths").to_a.each do |path|
+        service_name = path.dig("backend", "service", "name")
+        service_names << service_name if service_name
+      end
+    end
+    service_names.uniq!
+
+    if name != ingress_name
+      protected_targets = service_names & ([public_service] + private_services)
+      unless protected_targets.empty?
+        errors << "Unexpected Ingress/#{name} routes to protected service(s): #{protected_targets.join(", ")}."
+      end
+      next
+    end
+
+    disallowed = service_names - [public_service]
+    unless disallowed.empty?
+      errors << "Ingress/#{name} routes to #{disallowed.join(", ")}, expected only #{public_service}."
+    end
+    private_targets = service_names & private_services
+    unless private_targets.empty?
+      errors << "Ingress/#{name} exposes private service(s): #{private_targets.join(", ")}."
+    end
+  end
+
+  unless errors.empty?
+    warn "Private service exposure check failed:"
+    errors.each { |error| warn "- #{error}" }
+    exit 1
+  end
+
+  puts "Ingress exposure check passed: Ingress/#{ingress_name} routes to Service/#{public_service}, with no alternate Ingress targeting protected services."
+'

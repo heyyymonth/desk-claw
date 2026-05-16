@@ -274,6 +274,8 @@ PUBLIC_ACCESS_MODE="$PUBLIC_ACCESS_MODE" \
   ./scripts/check-public-access.sh "$PUBLIC_HOST"
 ```
 
+This check also verifies that backend and model services remain private, `Ingress/frontend` routes only to `Service/frontend`, and no alternate Ingress targets frontend, backend, or Ollama services.
+
 Verify NetworkPolicy resources and CNI evidence:
 
 ```bash
