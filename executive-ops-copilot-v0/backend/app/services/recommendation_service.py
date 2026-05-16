@@ -50,7 +50,7 @@ class RecommendationService:
             trace = _trace(NATIVE_AI_RUNTIME, "meeting_resolution_agent", "not_configured", [])
             raise ServiceError(
                 "ai_model_not_configured",
-                "OpenAI model configuration is required before generating recommendations.",
+                "The model is offline. Check with your admin before running this request.",
                 status_code=503,
                 ai_trace=trace,
             )

@@ -13,6 +13,8 @@ def get_native_agent_runner(runner_class):
     model_config = current_model_client_kwargs(settings)
     if settings.agent_runtime != "native":
         return None
+    if not model_config["api_key"]:
+        return None
     return runner_class(**model_config, timeout_seconds=settings.ai_agent_timeout_seconds)
 
 

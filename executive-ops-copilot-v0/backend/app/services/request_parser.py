@@ -80,7 +80,7 @@ class RequestParser:
         trace = _native_trace("meeting_request_parser_agent", status="not_configured")
         raise ServiceError(
             "ai_model_not_configured",
-            "OpenAI model configuration is required before parsing requests.",
+            "The model is offline. Check with your admin before running this request.",
             status_code=503,
             ai_trace=trace,
         )

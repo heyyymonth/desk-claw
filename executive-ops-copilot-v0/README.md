@@ -75,7 +75,7 @@ Backend:
 - `AI_PROVIDER`: must be `openai` for runtime behavior.
 - `AI_MODEL`: model name used by the native agent runner.
 - `AI_API_ENDPOINT`: provider endpoint override.
-- `OPENAI_API_KEY`: required for request parsing, recommendation generation, and draft generation.
+- `OPENAI_API_KEY`: required for request parsing, recommendation generation, and draft generation. The app can start without it, but model-backed requests return a smooth admin-facing offline error instead of a parsed response.
 - `AGENT_RUNTIME`: defaults to `native`.
 - `AI_AGENT_TIMEOUT_SECONDS`: model request timeout.
 - `WARM_MODEL_ON_STARTUP`: set `true` to warm the configured model at startup.

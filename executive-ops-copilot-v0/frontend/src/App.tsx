@@ -28,6 +28,12 @@ export function App() {
       }
       return api.parseRequest(rawText);
     },
+    onMutate: () => {
+      setParsed(undefined);
+      setRecommendation(undefined);
+      setDraft(undefined);
+      setNextSteps([]);
+    },
     onSuccess: (response) => {
       setParsed(response.parsed_request);
       setRecommendation(response.recommendation);
@@ -78,9 +84,12 @@ export function App() {
               Run agent
             </button>
             {runMutation.error ? (
-              <div role="alert" className="mt-3 flex gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-                <AlertCircle size={17} aria-hidden="true" />
-                {message(runMutation.error, 'Request failed.')}
+              <div role="alert" className="mt-3 flex gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                <AlertCircle size={17} className="mt-0.5 shrink-0" aria-hidden="true" />
+                <div>
+                  <div className="font-semibold">Model offline</div>
+                  <div>{message(runMutation.error, 'Check with your admin before running this request.')}</div>
+                </div>
               </div>
             ) : null}
           </section>

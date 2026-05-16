@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../src/App';
 
 const parseResponse = {
@@ -76,6 +76,48 @@ describe('App', () => {
     await screen.findAllByText('Found a safe slot.');
     await screen.findByText('Propose slot for human review before final send');
     await screen.findByText('Please confirm whether that works on your side.');
+  });
+
+  it('shows a smooth model-offline error without parsed results', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (url.endsWith('/api/health')) {
+          return Promise.resolve(jsonResponse({ status: 'ok', model_provider: 'openai', model: 'gpt-5.5' }));
+        }
+        if (url.endsWith('/api/parse-request')) {
+          return Promise.resolve({
+            ok: false,
+            status: 503,
+            text: () =>
+              Promise.resolve(
+                JSON.stringify({
+                  error: {
+                    code: 'ai_model_not_configured',
+                    message: 'The model is offline. Check with your admin before running this request.',
+                  },
+                }),
+              ),
+          } as Response);
+        }
+        return Promise.reject(new Error(`Unhandled ${url}`));
+      }),
+    );
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: /run agent/i }));
+
+    await screen.findByText('Model offline');
+    await screen.findByText('The model is offline. Check with your admin before running this request.');
+    expect(screen.queryByText('Customer meeting')).not.toBeInTheDocument();
   });
 });
 

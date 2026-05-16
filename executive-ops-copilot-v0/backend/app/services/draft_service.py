@@ -37,7 +37,7 @@ class DraftService:
         trace = _native_trace("meeting_draft_agent", status="not_configured")
         raise ServiceError(
             "ai_model_not_configured",
-            "OpenAI model configuration is required before drafting responses.",
+            "The model is offline. Check with your admin before running this request.",
             status_code=503,
             ai_trace=trace,
         )
@@ -63,4 +63,3 @@ class DraftService:
 
 def _native_trace(agent_name: str, status: str = "used") -> dict:
     return {"runtime": NATIVE_AI_RUNTIME, "agent_name": agent_name, "model_status": status, "tool_calls": []}
-
