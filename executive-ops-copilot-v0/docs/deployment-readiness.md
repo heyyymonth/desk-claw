@@ -4,35 +4,42 @@ This checklist tracks the repo-side and outside-infrastructure work needed befor
 
 ## Current Status
 
-| Area | Status | Evidence |
-| --- | --- | --- |
-| CI test gates | Complete | Backend lint/tests, frontend lint/tests/build, and browser E2E run on pushes and pull requests. |
-| Container publishing | Complete | CI publishes backend and frontend images to GHCR with `latest` and `git-<sha>` tags. |
-| Parallel image builds | Complete | Backend and frontend image builds run as separate CI jobs after the shared gates pass. |
-| Kubernetes image wiring | Complete | `infra/k8s/kustomization.yaml` maps workload placeholders to published GHCR images. |
-| Container image access | Complete | `docs/deployment-image-access.md` documents public vs private GHCR access; `infra/k8s-overlays/private-ghcr` and `scripts/create-ghcr-pull-secret.sh` support private package pulls. |
-| Runtime secret contract | Complete | `desk-ai-secrets` is documented and wired into backend pods without committing real values. |
-| Public entry point | Complete | Frontend is exposed through Ingress; backend remains private behind the frontend `/api` proxy. |
-| Kubernetes manifest validation | Complete | CI runs `scripts/validate-k8s.sh` to render kustomize, run offline schema validation, and check deployment invariants. |
-| Immutable release render path | Complete | `scripts/render-release-k8s.sh` renders production manifests with backend and frontend pinned to the same `git-<sha>` image tag. |
-| Deployed smoke test | Complete | `scripts/smoke-deploy.sh` checks the public frontend root, `/api/health`, default rules, and mock calendar through ingress. |
-| Resource tuning guidance | Complete | `docs/deployment-resource-tuning.md` documents Ollama/backend CPU, memory, GPU, and timeout sizing guidance. |
-| Rollout and rollback runbook | Complete | `docs/deployment-rollout-runbook.md` documents commit-tag promotion, `kubectl rollout status`, smoke verification, and rollback paths. |
-| Network policy baseline | Complete | `infra/k8s/network-policy.yaml` isolates backend and Ollama ingress while `docs/deployment-network-policy.md` captures CNI and ingress-controller hardening steps. |
-| NetworkPolicy enforcement release path | Complete | `REQUIRE_NETWORK_POLICY_ENFORCEMENT=true`, `FRONTEND_INGRESS_POLICY=enabled`, and `scripts/check-network-policy.sh` support CNI evidence checks and frontend ingress isolation once ingress-controller labels are known. |
-| Managed Postgres release path | Complete | Backend persistence supports SQLite and Postgres; CI runs Postgres integration tests; `DATABASE_MODE=postgres`, `DATABASE_SECRET_NAME`, `DATABASE_URL_SECRET_KEY`, `BACKEND_REPLICAS`, and `scripts/check-database-runtime.sh` support cutover verification. |
-| PVC backup and restore runbook | Complete | `docs/deployment-backup-restore.md` documents backend SQLite backups, restore flow, provider snapshots, and Ollama data recovery; `scripts/check-sqlite-backup.sh` verifies backup artifacts and row-count metadata before off-cluster storage or restore drills. |
-| Production auth/session design | Complete | `docs/deployment-auth-session.md` defines OIDC/session/RBAC target state and CI validates public frontend image builds do not bundle admin or actor secrets. |
-| Runtime observability exports | Complete | `GET /metrics` exports backend health, model warmup, AI latency, ADK coverage, tool failure, and telemetry scrape-health metrics; `docs/deployment-observability.md` documents ingress-controller error monitoring. |
-| Provider selection guide | Complete | `docs/deployment-provider-selection.md` captures the EKS/GKE/AKS decision, required cluster capabilities, first-cluster shape, and follow-on deployment work. |
-| Domain and DNS release path | Complete | `docs/deployment-domain-dns.md` documents public host selection, release-time Ingress host rendering, DNS record setup, and `scripts/check-public-dns.sh` verification. |
-| GitHub Pages preview path | Complete | `.github/workflows/pages.yml`, configurable backend `CORS_ALLOWED_ORIGINS`, and `docs/deployment-github-pages.md` support static frontend preview deployment when a separate public HTTPS backend API is already available. |
-| TLS issuing path | Complete | `docs/deployment-tls.md` documents cert-manager, pre-created Secret, and provider-managed certificate modes; `scripts/render-cert-manager-issuer.sh` and `scripts/check-public-tls.sh` support issuance and verification. |
-| Secret management release path | Complete | `docs/deployment-secret-management.md` documents External Secrets and manual fallback paths; `scripts/render-external-secret.sh`, `scripts/check-external-secret.sh`, `scripts/check-runtime-secret.sh`, and `REQUIRE_RUNTIME_SECRET=true` support production verification. |
-| Model hosting release path | Complete | `docs/deployment-model-hosting.md` documents CPU, NVIDIA GPU, and external private model modes; `infra/k8s-overlays/ollama-gpu-nvidia`, `infra/k8s-overlays/external-model`, `MODEL_ENDPOINT_URL`, and `scripts/check-model-runtime.sh` support release-time health, model-pull, and GPU scheduling verification. |
-| Persistent storage release path | Complete | `docs/deployment-storage-policy.md` documents StorageClass and VolumeSnapshotClass selection; `STORAGE_CLASS_NAME`, PVC backup annotations, `scripts/check-storage-policy.sh`, `scripts/check-sqlite-backup.sh`, and `scripts/render-volume-snapshot.sh` support production verification. |
-| Public access controls release path | Complete | `docs/deployment-public-access.md` documents IP allowlist and provider-gated modes; `REQUIRE_PUBLIC_ACCESS_CONTROL=true`, `PUBLIC_ACCESS_MODE`, and `scripts/check-public-access.sh` support release-time ingress and private-service exposure verification. |
-| Local container stack | Present | Docker Compose starts Ollama, backend, and frontend for local validation. |
+This checklist uses separate evidence stages so repo readiness is not confused with a production-proven deployment:
+
+- `Done`: implemented or verified for that evidence stage.
+- `Partial`: useful coverage exists, but the stage is not fully closed.
+- `Pending`: still requires a real environment, owner decision, or live drill.
+- `N/A`: not applicable for that area.
+
+| Area | Repo implemented | CI/local verified | Live cluster verified | Production proven | Evidence / remaining proof |
+| --- | --- | --- | --- | --- | --- |
+| CI test gates | Done | Done | N/A | Done for latest `main` | Backend lint/tests, frontend lint/tests/build, browser E2E, Postgres integration, Kubernetes manifests, and image jobs pass on pushes. |
+| Container publishing | Done | Done | Pending | Pending | CI publishes backend and frontend images to GHCR with `latest` and `git-<sha>` tags; next proof is pulling selected tags from the target cluster. |
+| Parallel image builds | Done | Done | N/A | Done | Backend and frontend image builds run as separate CI jobs after shared gates pass. |
+| Kubernetes image wiring | Done | Done | Pending | Pending | `infra/k8s/kustomization.yaml` maps workload placeholders to published GHCR images; next proof is deployed pods running immutable `git-<sha>` images. |
+| Container image access | Done | Done | Pending | Pending | Public/private GHCR paths are documented and rendered; target cluster must prove anonymous pull or `desk-ai/ghcr-pull-secret` access. |
+| Runtime secret contract | Done | Done | Pending | Pending | `desk-ai-secrets` is documented, rendered, and checked; target cluster must prove ExternalSecret/manual Secret readiness and rotation procedure. |
+| Public entry point | Done | Done | Pending | Pending | Frontend Ingress is rendered and backend stays private by manifest/checker; target cluster must prove ingress controller, DNS, TLS, and exposure checks. |
+| Kubernetes manifest validation | Done | Done | Pending | Pending | CI renders kustomize, validates schemas with kubeconform, and checks repo invariants; live proof is applying the rendered release to the selected cluster. |
+| Immutable release render path | Done | Done | Pending | Pending | `scripts/render-release-k8s.sh` pins backend and frontend to the same `git-<sha>` tag; live proof is promotion using the rendered manifest. |
+| Deployed smoke test | Done | Partial | Pending | Pending | `scripts/smoke-deploy.sh` exists; it must pass against the real public ingress after rollout. |
+| Resource tuning guidance | Done | N/A | Pending | Pending | Ollama/backend CPU, memory, GPU, and timeout guidance exists; proof requires observed load, warmup, and latency data on chosen node shapes. |
+| Rollout and rollback runbook | Done | Partial | Pending | Pending | Runbook exists; production proof requires at least one non-production rollout and rollback drill. |
+| Network policy baseline | Done | Done | Pending | Pending | Baseline policies render and validate; target cluster must prove the selected CNI enforces NetworkPolicy. |
+| NetworkPolicy enforcement release path | Done | Done | Pending | Pending | Release metadata, frontend ingress isolation, and `scripts/check-network-policy.sh` exist; live proof needs real ingress-controller labels and CNI evidence. |
+| Managed Postgres release path | Done | Done | Pending | Pending | Backend supports SQLite/Postgres and CI runs live Postgres integration; production proof needs managed Postgres provisioning, migration, PITR, and canary. |
+| PVC backup and restore runbook | Done | Done | Pending | Pending | Backup/restore docs and `scripts/check-sqlite-backup.sh` exist; proof requires off-cluster backup storage and a restore drill. |
+| Production auth/session design | Partial | Partial | Pending | Pending | OIDC/session/RBAC design exists and CI blocks frontend-bundled admin secrets; implementation is still required before broad public admin access. |
+| Runtime observability exports | Done | Done | Pending | Pending | `/metrics` and docs exist; production proof needs a selected metrics backend, scrape config, dashboards, and alerts. |
+| Provider selection guide | Done | N/A | Pending | Pending | Provider decision guide exists; owner must choose hyperscaler/Kubernetes flavor and record the decision. |
+| Domain and DNS release path | Done | Done | Pending | Pending | Host rendering and `scripts/check-public-dns.sh` exist; proof requires a real domain and DNS record pointing to the live ingress target. |
+| GitHub Pages preview path | Done | Partial | Pending | N/A for primary product | Manual Pages workflow exists for static preview; it requires a separately secured public backend API and is not the production app hosting path. |
+| TLS issuing path | Done | Done | Pending | Pending | Cert-manager/pre-created/provider-managed paths and `scripts/check-public-tls.sh` exist; proof requires real certificate issuance and renewal path. |
+| Secret management release path | Done | Done | Pending | Pending | ExternalSecret/manual fallback, renderers, and live check scripts exist; proof requires provider secret manager or manual Secret in target namespace. |
+| Model hosting release path | Done | Done | Pending | Pending | CPU/GPU/external modes and `scripts/check-model-runtime.sh` exist; proof requires selected model runtime capacity and live warm model checks. |
+| Persistent storage release path | Done | Done | Pending | Pending | StorageClass, VolumeSnapshotClass, PVC, and SQLite backup checks exist; proof requires real StorageClass/snapshot class and restore evidence. |
+| Public access controls release path | Done | Done | Pending | Pending | `ip-allowlist`/`provider-gated` modes and exposure checks exist; proof requires real ingress/WAF/DDoS/identity or allowlist evidence. |
+| Local container stack | Done | Partial | N/A | N/A | Docker Compose supports local validation; it is not a substitute for live Kubernetes proof. |
 
 ## Issues Found While Preparing Deployment
 
@@ -66,7 +73,12 @@ This checklist tracks the repo-side and outside-infrastructure work needed befor
 
 ## Remaining Repo Work
 
-No blocking repo-side deployment readiness items remain in this checklist. The remaining work is environment-specific and listed under outside-repo dependencies.
+No blocking repo-side deployment scaffolding items remain in this checklist. The repo now has supported render, validation, and verification paths for each deployment concern.
+
+| Repo Item | Status | Why It Remains |
+| --- | --- | --- |
+| Production auth/session implementation | Pending | `docs/deployment-auth-session.md` is a design and guardrail, not the implemented OIDC/session/RBAC flow required for broad public admin access. |
+| Live release rehearsal wrapper | Pending | The individual scripts are present, but a single repeatable "fresh cluster from GHCR images" rehearsal command would reduce operator error before the first hyperscaler rollout. |
 
 ## Outside-Repo Dependencies
 
