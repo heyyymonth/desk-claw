@@ -67,7 +67,7 @@ describe('App', () => {
       </QueryClientProvider>,
     );
 
-    await screen.findByText('openai/gpt-5.5 · FastAPI');
+    await screen.findByText('openai/gpt-5.5 · Web Backend');
     await userEvent.clear(screen.getByLabelText('Incoming request'));
     await userEvent.type(screen.getByLabelText('Incoming request'), parseResponse.parsed_request.raw_text);
     await userEvent.click(screen.getByRole('button', { name: /run agent/i }));

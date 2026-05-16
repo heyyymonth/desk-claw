@@ -1,21 +1,33 @@
 # Architecture
 
-The app is a two-service request parser:
+The app now runs as three separate services:
 
-- React frontend: collects raw request text and renders the structured response.
-- FastAPI backend: validates input, runs agent orchestration, and returns parsed intent plus recommended next steps.
+```text
+Frontend
+  -> Web Backend
+  -> AI Backend
+  -> Provider Adapter
+  -> Ollama/OpenAI/Anthropic/Gemini
+```
 
-Runtime flow:
+## Responsibilities
+
+| Service | Owns | Does not own |
+| --- | --- | --- |
+| Frontend | UI, browser interactions, calls to Web Backend | Model calls, provider keys, AI routing |
+| Web Backend | Product APIs, scheduling workflow, validation, guardrails, response shaping | Provider SDKs, provider keys, provider base URLs |
+| AI Backend | Model routing, provider adapters, provider health, retries/fallback, normalized AI responses | Product UI, product DB logic, scheduling business rules |
+
+## Runtime Flow
 
 ```text
 raw text
   -> POST /api/parse-request
-  -> ParseRequestPayload validation
-  -> RequestParser
-  -> native parser agent or deterministic fallback
-  -> RecommendationService planner
-  -> DraftService
-  -> ParseRequestResponse JSON
+  -> Web Backend validation and scheduling workflow
+  -> AI Backend /v1/chat for model-backed JSON steps
+  -> provider adapter
+  -> normalized model response
+  -> guarded Web Backend product response
 ```
 
-The frontend never calls a model provider. Model configuration and API keys stay in the backend environment.
+The compatibility frontend route remains `POST /api/parse-request`. A simple model smoke route is also available at `POST /api/chat`.

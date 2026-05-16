@@ -58,7 +58,7 @@ export function App() {
             <h1 className="mt-1 text-2xl font-bold tracking-tight text-ink">Incoming request to next step</h1>
           </div>
           <div className="rounded-md border border-line bg-white/80 px-3 py-2 text-sm text-steel">
-            {provider}/{model} · FastAPI
+            {provider}/{model} · Web Backend
           </div>
         </header>
 

@@ -1,30 +1,68 @@
 services:
-  backend:
-    build:
-      context: ./backend
-    environment:
-      AI_PROVIDER: ${AI_PROVIDER:-openai}
-      AI_MODEL: ${AI_MODEL:-gpt-5.5}
-      AI_API_ENDPOINT: ${AI_API_ENDPOINT:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      WARM_MODEL_ON_STARTUP: "false"
-      MODEL_WARMUP_TIMEOUT_SECONDS: "30"
-      AI_AGENT_TIMEOUT_SECONDS: "180"
-    ports:
-      - "8000:8000"
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5).read()"]
-      interval: 10s
-      timeout: 5s
-      retries: 24
-
   frontend:
     build:
       context: ./frontend
       args:
         VITE_API_BASE_URL: ""
+    image: app-frontend:local
     depends_on:
-      backend:
+      web-backend:
         condition: service_healthy
     ports:
-      - "5173:80"
+      - "3000:80"
+    environment:
+      WEB_BACKEND_URL: http://web-backend:8000
+
+  web-backend:
+    build:
+      context: ./web_backend
+    image: app-web-backend:local
+    environment:
+      AI_BACKEND_URL: http://ai-backend:9000
+      AGENT_RUNTIME: native
+      WARM_MODEL_ON_STARTUP: "false"
+      MODEL_WARMUP_TIMEOUT_SECONDS: "30"
+      AI_AGENT_TIMEOUT_SECONDS: "180"
+    ports:
+      - "8000:8000"
+    depends_on:
+      ai-backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5).read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 24
+
+  ai-backend:
+    build:
+      context: ./ai_backend
+    image: app-ai-backend:local
+    environment:
+      AI_BACKEND_PORT: 9000
+      DEFAULT_AI_PROVIDER: ${DEFAULT_AI_PROVIDER:-ollama}
+      FALLBACK_AI_PROVIDER: ${FALLBACK_AI_PROVIDER:-openai}
+      AI_REQUEST_TIMEOUT_SECONDS: ${AI_REQUEST_TIMEOUT_SECONDS:-120}
+      OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-https://ollama.com/api}
+      OLLAMA_DEFAULT_MODEL: ${OLLAMA_DEFAULT_MODEL:-gemma4:31b-cloud}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_DEFAULT_MODEL: ${OPENAI_DEFAULT_MODEL:-gpt-5.5}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-https://api.anthropic.com}
+      ANTHROPIC_DEFAULT_MODEL: ${ANTHROPIC_DEFAULT_MODEL:-claude-opus-4-7}
+      ANTHROPIC_VERSION: ${ANTHROPIC_VERSION:-2023-06-01}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_BASE_URL: ${GEMINI_BASE_URL:-https://generativelanguage.googleapis.com}
+      GEMINI_API_VERSION: ${GEMINI_API_VERSION:-v1beta}
+      GEMINI_DEFAULT_MODEL: ${GEMINI_DEFAULT_MODEL:-gemini-3.1-flash-lite}
+      GEMINI_OPENAI_COMPAT_BASE_URL: ${GEMINI_OPENAI_COMPAT_BASE_URL:-https://generativelanguage.googleapis.com/v1beta/openai/}
+      GEMINI_USE_OPENAI_COMPAT: ${GEMINI_USE_OPENAI_COMPAT:-false}
+    ports:
+      - "9000:9000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9000/health', timeout=5).read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 24

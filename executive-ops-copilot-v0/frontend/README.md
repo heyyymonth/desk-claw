@@ -2,7 +2,7 @@
 
 React + TypeScript UI for submitting raw request text and displaying the structured parser response.
 
-The frontend calls FastAPI only. It does not call model providers directly.
+The frontend calls the Web Backend only. It does not call the AI Backend or model providers directly.
 
 ```bash
 npm install

@@ -33,7 +33,7 @@ describe('api client', () => {
     );
   });
 
-  it('surfaces FastAPI error messages instead of raw JSON', async () => {
+  it('surfaces Web Backend error messages instead of raw JSON', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(() =>
