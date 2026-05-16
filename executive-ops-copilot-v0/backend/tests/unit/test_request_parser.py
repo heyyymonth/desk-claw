@@ -48,6 +48,37 @@ def test_parse_request_falls_back_without_adk_runner():
     assert "requester" in parsed.intent.missing_fields
 
 
+def test_parse_request_normalizes_adk_output_with_grounded_entities_and_windows():
+    raw_text = (
+        "Hi Morgan's team, can you find 30 minutes this week for Dana Patel from Atlas Finance "
+        "to discuss renewal risk and contract timing with Morgan? Tuesday afternoon or Wednesday "
+        "morning works best. Please include Priya from Legal if possible."
+    )
+    adk_output = {
+        "raw_text": raw_text,
+        "intent": {
+            "title": "Legal HR meeting",
+            "requester": "Atlas Finance",
+            "duration_minutes": 30,
+            "priority": "high",
+            "attendees": [],
+            "preferred_windows": [],
+            "constraints": ["morning", "afternoon"],
+            "missing_fields": [],
+            "meeting_type": "legal_hr",
+            "sensitivity": "high",
+        },
+    }
+
+    parsed = RequestParser(agent_runner=StubParserAgent(adk_output)).parse(raw_text)
+
+    assert parsed.intent.requester == "Dana Patel"
+    assert {"Dana Patel", "Morgan", "Priya"}.issubset(set(parsed.intent.attendees))
+    assert parsed.intent.meeting_type == "customer"
+    assert parsed.intent.sensitivity == "medium"
+    assert len(parsed.intent.preferred_windows) == 2
+
+
 def test_parse_request_reports_unavailable_adk_runner():
     with pytest.raises(Exception) as exc:
         RequestParser(agent_runner=StubParserAgent(error=AgentRuntimeError("timeout"))).parse("Need time")

@@ -113,20 +113,31 @@ scheduling_agent_definition = AgentDefinition(
 request_parser_agent_definition = AgentDefinition(
     name="meeting_request_parser_agent",
     framework="google-adk",
-    role="Extract structured meeting intent from raw scheduling requests using the configured ADK model.",
+    role="Extract structured meeting intent, entities, and time preferences from raw scheduling requests.",
     objective=(
-        "Produce a strict ParsedMeetingRequest JSON object from raw intake text while preserving "
-        "requester, priority, meeting type, sensitivity, missing fields, and scheduling constraints."
+        "Produce a strict ParsedMeetingRequest JSON object from raw intake text while preserving people, "
+        "accounts, requester, priority, meeting type, preferred windows, sensitivity, missing fields, "
+        "and scheduling constraints."
     ),
     planning_goal=(
-        "Use the extraction tool for grounded V0 labels, then reason only within the schema and return valid JSON."
+        "Ground entity and time evidence with independent tools, then use the final extraction tool to return valid JSON."
     ),
     tools=[
         AgentToolDefinition(
+            name="extract_meeting_entities",
+            goal="Identify people, requester, account or company names, attendees, and meeting-type evidence.",
+            description="Uses deterministic entity extraction before the parser commits to schema labels.",
+        ),
+        AgentToolDefinition(
+            name="extract_time_preferences",
+            goal="Identify weekday, relative-date, and day-part preferred windows.",
+            description="Converts phrasing like Tuesday afternoon or next week morning into TimeWindow payloads.",
+        ),
+        AgentToolDefinition(
             name="extract_meeting_intent",
-            goal="Ground parse labels and missing fields from raw request text.",
-            description="Returns ParsedMeetingRequest-shaped JSON using local V0 parsing guardrails.",
-        )
+            goal="Ground parse labels, entities, time windows, and missing fields from raw request text.",
+            description="Returns ParsedMeetingRequest-shaped JSON using local V0 parsing guardrails and entity evidence.",
+        ),
     ],
 )
 
@@ -161,8 +172,10 @@ ADK_AGENT_INSTRUCTION = (
 REQUEST_PARSER_AGENT_INSTRUCTION = (
     f"{request_parser_agent_definition.objective}\n"
     f"{request_parser_agent_definition.planning_goal}\n\n"
-    "You must call extract_meeting_intent with the raw request text. Return only a JSON object matching "
-    "ParsedMeetingRequest. Do not invent attendees, times, or authorization. Use local context only."
+    "When supported, call extract_meeting_entities and extract_time_preferences in the same tool-calling turn because "
+    "they are independent. Then call extract_meeting_intent with the raw request text and the JSON evidence from those "
+    "tools. Return only the final ParsedMeetingRequest JSON object. Do not invent attendees, times, or authorization. "
+    "A person mentioned as 'from Legal' is an attendee or department signal, not automatically a legal_hr meeting."
 )
 
 
@@ -661,14 +674,46 @@ def select_resolution_strategy(parsed_request_json: str, analysis_json: str, ris
     }
 
 
-def extract_meeting_intent(raw_text: str) -> dict:
-    """Extract a strict ParsedMeetingRequest from raw scheduling text.
+def extract_meeting_entities(raw_text: str) -> dict:
+    """Extract people, requester, organizations, and attendee evidence from scheduling text.
 
     Args:
         raw_text: Raw inbound meeting request text.
     """
+    from app.services.request_parser import extract_entity_evidence
+
+    return extract_entity_evidence(raw_text)
+
+
+def extract_time_preferences(raw_text: str) -> dict:
+    """Extract weekday, relative-date, and day-part preferred windows from scheduling text.
+
+    Args:
+        raw_text: Raw inbound meeting request text.
+    """
+    from app.services.request_parser import extract_time_preference_evidence
+
+    return extract_time_preference_evidence(raw_text)
+
+
+def extract_meeting_intent(
+    raw_text: str,
+    entity_evidence_json: str = "",
+    time_evidence_json: str = "",
+) -> dict:
+    """Extract a strict ParsedMeetingRequest from raw scheduling text.
+
+    Args:
+        raw_text: Raw inbound meeting request text.
+        entity_evidence_json: Optional JSON object returned by extract_meeting_entities.
+        time_evidence_json: Optional JSON object returned by extract_time_preferences.
+    """
     from app.services.request_parser import fallback_parse
 
+    # The parser recomputes deterministic evidence so this tool is stable even when the
+    # model omits the optional evidence arguments.
+    _loads_json_object(entity_evidence_json) if entity_evidence_json else None
+    _loads_json_object(time_evidence_json) if time_evidence_json else None
     return fallback_parse(raw_text).model_dump(mode="json")
 
 
@@ -744,7 +789,7 @@ def create_adk_request_parser_agent(model: str = DEFAULT_ADK_MODEL, ollama_base_
         name=request_parser_agent_definition.name,
         description=request_parser_agent_definition.role,
         instruction=REQUEST_PARSER_AGENT_INSTRUCTION,
-        tools=[extract_meeting_intent],
+        tools=[extract_meeting_entities, extract_time_preferences, extract_meeting_intent],
     )
 
 
@@ -860,6 +905,7 @@ def _run_agent_operation(operation: str, payload: dict) -> dict:
                 },
                 max_llm_calls=4,
                 return_on_tool_response=True,
+                return_on_tool_names={"resolve_scheduling_plan"},
             )
             return {"output": output, "tool_calls": tool_calls}
         finally:
@@ -871,8 +917,9 @@ def _run_agent_operation(operation: str, payload: dict) -> dict:
             app_name=app_name,
             session_prefix="parse",
             payload={"task": "Parse this raw scheduling request.", "raw_text": payload["raw_text"]},
-            max_llm_calls=4,
+            max_llm_calls=6,
             return_on_tool_response=True,
+            return_on_tool_names={"extract_meeting_intent"},
         )
         return {"output": output, "tool_calls": tool_calls}
     if operation == "draft":
@@ -888,6 +935,7 @@ def _run_agent_operation(operation: str, payload: dict) -> dict:
             },
             max_llm_calls=4,
             return_on_tool_response=True,
+            return_on_tool_names={"compose_guarded_draft"},
         )
         return {"output": output, "tool_calls": tool_calls}
     raise AgentRuntimeError(f"Unsupported ADK operation: {operation}")
@@ -905,6 +953,7 @@ def _run_adk_json_with_tool_calls(
     payload: dict,
     max_llm_calls: int,
     return_on_tool_response: bool = False,
+    return_on_tool_names: set[str] | None = None,
 ) -> tuple[dict, list[str]]:
     try:
         from google.adk.runners import RunConfig, Runner
@@ -931,12 +980,21 @@ def _run_adk_json_with_tool_calls(
     )
     for event in events:
         tool_calls.extend(_tool_call_names_from_event(event))
-        tool_responses.extend(_tool_response_objects_from_event(event))
-        if return_on_tool_response and tool_responses:
+        response_entries = _tool_response_entries_from_event(event)
+        tool_responses.extend(response for _name, response in response_entries)
+        matching_response = next(
+            (
+                response
+                for name, response in response_entries
+                if return_on_tool_names is None or name in return_on_tool_names
+            ),
+            None,
+        )
+        if return_on_tool_response and matching_response is not None:
             close = getattr(events, "close", None)
             if close:
                 close()
-            return tool_responses[-1], _dedupe(tool_calls)
+            return matching_response, _dedupe(tool_calls)
         if event.content is None:
             continue
         for part in event.content.parts or []:
@@ -964,7 +1022,11 @@ def _tool_call_names_from_event(event) -> list[str]:
 
 
 def _tool_response_objects_from_event(event) -> list[dict]:
-    responses: list[dict] = []
+    return [response for _name, response in _tool_response_entries_from_event(event)]
+
+
+def _tool_response_entries_from_event(event) -> list[tuple[str, dict]]:
+    responses: list[tuple[str, dict]] = []
     content = getattr(event, "content", None)
     if content is None:
         return responses
@@ -974,7 +1036,7 @@ def _tool_response_objects_from_event(event) -> list[dict]:
             continue
         payload = getattr(function_response, "response", None)
         if isinstance(payload, dict):
-            responses.append(payload)
+            responses.append((getattr(function_response, "name", "") or "", payload))
     return responses
 
 
