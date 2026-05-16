@@ -34,7 +34,13 @@ class DraftService:
                 ) from exc
             return self._guard_draft(recommendation, draft), trace
 
-        return self._deterministic_draft(recommendation, "not_configured"), _fallback_trace()
+        trace = _native_trace("meeting_draft_agent", status="not_configured")
+        raise ServiceError(
+            "ai_model_not_configured",
+            "OpenAI model configuration is required before drafting responses.",
+            status_code=503,
+            ai_trace=trace,
+        )
 
     def _guard_draft(self, recommendation: Recommendation, draft: DraftResponse) -> DraftResponse:
         if recommendation.decision != "schedule":
@@ -58,6 +64,3 @@ class DraftService:
 def _native_trace(agent_name: str, status: str = "used") -> dict:
     return {"runtime": NATIVE_AI_RUNTIME, "agent_name": agent_name, "model_status": status, "tool_calls": []}
 
-
-def _fallback_trace() -> dict:
-    return {"runtime": "deterministic", "agent_name": None, "model_status": "not_configured", "tool_calls": []}

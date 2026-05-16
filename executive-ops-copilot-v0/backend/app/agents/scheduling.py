@@ -181,7 +181,7 @@ scheduling_agent_definition = AgentDefinition(
         AgentToolDefinition(
             name="select_resolution_strategy",
             goal="Choose schedule, clarify, defer, or decline with a safe action and rationale.",
-            description="Applies deterministic V0 decision policy to the tool outputs.",
+            description="Applies backend V0 guardrail policy to the tool outputs.",
         ),
     ],
 )
@@ -196,12 +196,12 @@ request_parser_agent_definition = AgentDefinition(
         "accounts, requester, priority, meeting type, preferred windows, sensitivity, missing fields, "
         "and scheduling constraints."
     ),
-    planning_goal="Ground model parsing with deterministic entity and time-evidence tools before schema validation.",
+    planning_goal="Ground model parsing with backend entity and time-evidence tools before schema validation.",
     tools=[
         AgentToolDefinition(
             name="extract_meeting_entities",
             goal="Identify people, requester, account or company names, attendees, and meeting-type evidence.",
-            description="Uses deterministic entity extraction before the parser commits to schema labels.",
+            description="Uses backend entity extraction before the parser commits to schema labels.",
         ),
         AgentToolDefinition(
             name="extract_time_preferences",
@@ -220,7 +220,7 @@ draft_agent_definition = AgentDefinition(
         "Generate a concise DraftResponse JSON object that reflects the recommendation decision, "
         "safe action, risk posture, and available slots without leaking sensitive context."
     ),
-    planning_goal="Start from the guarded deterministic draft, then only improve wording while preserving safety fields.",
+    planning_goal="Start from the guarded backend draft, then only improve wording while preserving safety fields.",
     tools=[
         AgentToolDefinition(
             name="compose_guarded_draft",
@@ -241,7 +241,7 @@ PARSER_INSTRUCTION = (
 
 SCHEDULING_INSTRUCTION = (
     "Return only JSON matching the scheduling plan fields. You may improve confidence and rationale, but the backend "
-    "will preserve deterministic decision, risk_level, safe_action, and slot guardrails. Do not write calendars, send "
+    "will preserve backend decision, risk_level, safe_action, and slot guardrails. Do not write calendars, send "
     "email, or propose external actions."
 )
 

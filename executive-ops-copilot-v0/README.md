@@ -17,7 +17,7 @@ React frontend
   -> FastAPI API layer
   -> request validation
   -> RequestParser service
-  -> native agent runners and deterministic tools
+  -> native OpenAI-backed agent runners and backend guardrail tools
   -> RecommendationService
   -> DraftService
   -> structured JSON response
@@ -28,7 +28,7 @@ The services stay decoupled:
 - `frontend/`: single request-entry UI.
 - `backend/app/api/`: HTTP routes and request/response wiring.
 - `backend/app/services/`: parser, recommendation, draft, rules, calendar analysis, risk classification, model warmup.
-- `backend/app/agents/`: native agent definitions, model client adapters, and deterministic tool orchestration.
+- `backend/app/agents/`: native agent definitions, OpenAI model client adapter, and backend guardrail tool orchestration.
 - `backend/app/llm/schemas.py`: shared backend response schemas.
 
 ## Request/Response Flow
@@ -72,11 +72,11 @@ cd executive-ops-copilot-v0
 
 Backend:
 
-- `AI_PROVIDER`: `openai`, `anthropic`, `gemini`, or `mock`. Only `openai` and deterministic `mock` are currently wired for runtime behavior.
+- `AI_PROVIDER`: must be `openai` for runtime behavior.
 - `AI_MODEL`: model name used by the native agent runner.
 - `AI_API_ENDPOINT`: provider endpoint override.
-- `OPENAI_API_KEY`: required only when `AI_PROVIDER=openai`.
-- `AGENT_RUNTIME`: defaults to `native`; set `mock` provider for deterministic local behavior.
+- `OPENAI_API_KEY`: required for request parsing, recommendation generation, and draft generation.
+- `AGENT_RUNTIME`: defaults to `native`.
 - `AI_AGENT_TIMEOUT_SECONDS`: model request timeout.
 - `WARM_MODEL_ON_STARTUP`: set `true` to warm the configured model at startup.
 - `CORS_ALLOWED_ORIGINS`: comma-separated frontend origins.
@@ -130,14 +130,14 @@ Response:
     "risk_level": "low",
     "safe_action": "ask_for_missing_context",
     "proposed_slots": [],
-    "model_status": "not_configured"
+    "model_status": "used"
   },
   "draft_response": {
     "subject": "Meeting request",
     "body": "Thanks for reaching out. We need a bit more information before proposing a time.",
     "tone": "concise",
     "draft_type": "clarify",
-    "model_status": "not_configured"
+    "model_status": "used"
   },
   "next_steps": ["Ask for missing context"]
 }
@@ -149,7 +149,7 @@ Response:
 - The backend exposes only `/api/health` and `/api/parse-request` for the runtime app.
 - Set `OPENAI_API_KEY` only on the backend service.
 - Keep the frontend static; it should only know the backend URL.
-- Start with `AI_PROVIDER=mock` for deterministic smoke tests, then switch to `openai` when the backend secret is configured.
+- Start with `AI_PROVIDER=openai`; the app should fail clearly when the backend model secret is not configured.
 - GitHub Actions validates Docker builds on normal pushes and pull requests.
 - GHCR images are published only when a version tag like `v0.1.0` is pushed.
 

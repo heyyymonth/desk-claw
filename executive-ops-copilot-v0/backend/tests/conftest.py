@@ -14,8 +14,9 @@ sys.path.insert(0, str(BACKEND_DIR))
 def test_env(monkeypatch):
     get_settings.cache_clear()
     reset_ai_model_config_override()
-    monkeypatch.setenv("AI_PROVIDER", "mock")
-    monkeypatch.setenv("AI_MODEL", "deterministic")
+    monkeypatch.setenv("AI_PROVIDER", "openai")
+    monkeypatch.setenv("AI_MODEL", "gpt-5.5")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
     yield
     reset_ai_model_config_override()
     get_settings.cache_clear()

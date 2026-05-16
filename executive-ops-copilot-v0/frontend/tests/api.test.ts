@@ -85,14 +85,14 @@ function parseResponse() {
       risk_level: 'low',
       safe_action: 'ask_for_missing_context',
       proposed_slots: [],
-      model_status: 'not_configured',
+      model_status: 'used',
     },
     draft_response: {
       subject: 'Meeting request',
       body: 'Thanks for reaching out. We need a bit more information before proposing a time.',
       tone: 'concise',
       draft_type: 'clarify',
-      model_status: 'not_configured',
+      model_status: 'used',
     },
     next_steps: ['Ask for missing context', 'More context is needed.'],
   };

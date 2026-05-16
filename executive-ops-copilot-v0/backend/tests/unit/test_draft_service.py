@@ -51,12 +51,16 @@ def test_draft_service_validates_llm_output():
     assert draft.model_status == "used"
 
 
-def test_draft_service_falls_back_without_native_runner():
-    draft = DraftService().generate(recommendation("decline"))
+def test_draft_service_requires_native_runner():
+    try:
+        DraftService().generate(recommendation("decline"))
+    except Exception as exc:
+        assert getattr(exc, "code", None) == "ai_model_not_configured"
+        assert exc.ai_trace["runtime"] == "native-agent"
+        assert exc.ai_trace["model_status"] == "not_configured"
+    else:
+        raise AssertionError("missing native runner should surface as a service error")
 
-    assert draft.tone == "firm"
-    assert draft.model_status == "not_configured"
-    assert "not able" in draft.body.lower()
 
 
 def test_draft_service_guardrails_defer_draft_from_llm():
@@ -79,7 +83,7 @@ def test_draft_service_guardrails_defer_draft_from_llm():
     assert "9:00 AM" not in draft.body
 
 
-def test_draft_service_reports_unavailable_native_runner_without_deterministic_fallback():
+def test_draft_service_reports_unavailable_native_runner_without_fallback():
     service = DraftService(agent_runner=StubDraftAgent(error=AgentRuntimeError("timeout")))
 
     try:

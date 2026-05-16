@@ -1,8 +1,50 @@
 from fastapi.testclient import TestClient
 
+from app.api.deps import get_draft_service, get_recommendation_service, get_request_parser
+from app.llm.schemas import DraftResponse, ParsedMeetingRequest, Recommendation
 from app.main import create_app
+from app.services.request_parser import fallback_parse
 
-client = TestClient(create_app())
+
+class StubParser:
+    def parse(self, raw_text: str) -> ParsedMeetingRequest:
+        return fallback_parse(raw_text)
+
+
+class StubRecommender:
+    def generate(self, parsed_request, rules, calendar_blocks) -> Recommendation:
+        return Recommendation.model_validate(
+            {
+                "decision": "clarify" if parsed_request.intent.missing_fields else "schedule",
+                "confidence": 0.7,
+                "rationale": ["Model-backed test double returned a valid recommendation."],
+                "risks": [],
+                "risk_level": "low",
+                "safe_action": "propose_slot_for_human_review_before_final_send",
+                "proposed_slots": [],
+                "model_status": "used",
+            }
+        )
+
+
+class StubDrafter:
+    def generate(self, recommendation) -> DraftResponse:
+        return DraftResponse.model_validate(
+            {
+                "subject": "Meeting request",
+                "body": "Thanks for reaching out. We will review and confirm the next step.",
+                "tone": "concise",
+                "draft_type": "clarify",
+                "model_status": "used",
+            }
+        )
+
+
+app = create_app()
+app.dependency_overrides[get_request_parser] = lambda: StubParser()
+app.dependency_overrides[get_recommendation_service] = lambda: StubRecommender()
+app.dependency_overrides[get_draft_service] = lambda: StubDrafter()
+client = TestClient(app)
 
 
 def test_health_endpoint_contract():

@@ -46,30 +46,34 @@ class RecommendationService:
         rules: ExecutiveRules,
         calendar_blocks: list[CalendarBlock],
     ) -> tuple[Recommendation, dict]:
-        plan = self.agent_planner.plan(parsed_request, rules, calendar_blocks)
-        model_status = "not_configured"
-        trace = _trace("deterministic", plan.agent_name, model_status, [])
-        if self.agent_runner is not None:
-            try:
-                if hasattr(self.agent_runner, "plan_with_trace"):
-                    plan, trace = self.agent_runner.plan_with_trace(parsed_request, rules, calendar_blocks)
-                else:
-                    plan = self.agent_runner.plan(parsed_request, rules, calendar_blocks)
-                    trace = _trace(NATIVE_AI_RUNTIME, plan.agent_name, "used", [])
-                model_status = "used"
-            except AgentRuntimeError as exc:
-                model_status = "unavailable"
-                trace = _trace(NATIVE_AI_RUNTIME, plan.agent_name, model_status, [])
-                raise ServiceError(
-                    "ai_model_unavailable",
-                    "Configured native recommendation model is unavailable.",
-                    status_code=502,
-                    ai_trace=trace,
-                ) from exc
+        if self.agent_runner is None:
+            trace = _trace(NATIVE_AI_RUNTIME, "meeting_resolution_agent", "not_configured", [])
+            raise ServiceError(
+                "ai_model_not_configured",
+                "OpenAI model configuration is required before generating recommendations.",
+                status_code=503,
+                ai_trace=trace,
+            )
 
-        deterministic = create_recommendation_from_plan(plan, model_status=model_status)
+        try:
+            if hasattr(self.agent_runner, "plan_with_trace"):
+                plan, trace = self.agent_runner.plan_with_trace(parsed_request, rules, calendar_blocks)
+            else:
+                plan = self.agent_runner.plan(parsed_request, rules, calendar_blocks)
+                trace = _trace(NATIVE_AI_RUNTIME, plan.agent_name, "used", [])
+            model_status = "used"
+        except AgentRuntimeError as exc:
+            trace = _trace(NATIVE_AI_RUNTIME, "meeting_resolution_agent", "unavailable", [])
+            raise ServiceError(
+                "ai_model_unavailable",
+                "Configured native recommendation model is unavailable.",
+                status_code=502,
+                ai_trace=trace,
+            ) from exc
 
-        return deterministic, trace
+        recommendation = create_recommendation_from_plan(plan, model_status=model_status)
+
+        return recommendation, trace
 
 
 def _trace(runtime: str, agent_name: str | None, model_status: str, tool_calls: list[str]) -> dict:

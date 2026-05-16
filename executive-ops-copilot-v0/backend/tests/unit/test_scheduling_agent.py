@@ -85,7 +85,7 @@ def test_request_parser_agent_definition_uses_grounding_tools():
         "extract_meeting_entities",
         "extract_time_preferences",
     ]
-    assert "deterministic entity and time-evidence tools" in request_parser_agent_definition.planning_goal
+    assert "backend entity and time-evidence tools" in request_parser_agent_definition.planning_goal
 
 
 def test_planner_records_tool_calls_and_schedules_open_slot():

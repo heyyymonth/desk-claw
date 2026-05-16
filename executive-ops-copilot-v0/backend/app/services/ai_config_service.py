@@ -3,23 +3,10 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from app.agents import (
-    DEFAULT_ANTHROPIC_MODEL,
-    DEFAULT_GEMINI_MODEL,
-    DEFAULT_MODEL_ENDPOINTS,
-    DEFAULT_OPENAI_MODEL,
-)
+from app.agents import DEFAULT_MODEL_ENDPOINTS, DEFAULT_OPENAI_MODEL
 from app.core.settings import Settings
 
-ModelProvider = Literal["openai", "anthropic", "gemini", "mock"]
-
-PROVIDER_DEFAULT_MODELS = {
-    "openai": DEFAULT_OPENAI_MODEL,
-    "anthropic": DEFAULT_ANTHROPIC_MODEL,
-    "gemini": DEFAULT_GEMINI_MODEL,
-    "mock": "deterministic",
-}
-
+ModelProvider = Literal["openai"]
 
 class AiProviderOption(BaseModel):
     provider: ModelProvider
@@ -52,6 +39,8 @@ def get_ai_model_config(settings: Settings) -> AiModelConfig:
     if _OVERRIDE:
         base.update(deepcopy(_OVERRIDE))
     provider = base["provider"]
+    if provider != "openai":
+        provider = "openai"
     endpoint = base.get("endpoint") or DEFAULT_MODEL_ENDPOINTS.get(provider, "")
     return AiModelConfig(
         provider=provider,
@@ -86,10 +75,11 @@ def reset_ai_model_config_override() -> None:
 
 
 def _base_config(settings: Settings) -> dict:
+    provider = settings.ai_provider if settings.ai_provider == "openai" else "openai"
     return {
-        "provider": settings.ai_provider,
-        "model": settings.ai_model or PROVIDER_DEFAULT_MODELS.get(settings.ai_provider, DEFAULT_OPENAI_MODEL),
-        "endpoint": settings.ai_api_endpoint or DEFAULT_MODEL_ENDPOINTS.get(settings.ai_provider, ""),
+        "provider": provider,
+        "model": settings.ai_model if provider == settings.ai_provider else DEFAULT_OPENAI_MODEL,
+        "endpoint": settings.ai_api_endpoint or DEFAULT_MODEL_ENDPOINTS.get(provider, ""),
     }
 
 
@@ -101,28 +91,7 @@ def _provider_options(settings: Settings) -> list[AiProviderOption]:
             endpoint=DEFAULT_MODEL_ENDPOINTS["openai"],
             linked=bool(settings.openai_api_key),
             notes="Linked now through OPENAI_API_KEY and the Responses API.",
-        ),
-        AiProviderOption(
-            provider="anthropic",
-            default_model=DEFAULT_ANTHROPIC_MODEL,
-            endpoint=DEFAULT_MODEL_ENDPOINTS["anthropic"],
-            linked=False,
-            notes="Decoupled placeholder; no Anthropic key is read by this V0 implementation.",
-        ),
-        AiProviderOption(
-            provider="gemini",
-            default_model=DEFAULT_GEMINI_MODEL,
-            endpoint=DEFAULT_MODEL_ENDPOINTS["gemini"],
-            linked=False,
-            notes="Decoupled placeholder; no Gemini key is read by this V0 implementation.",
-        ),
-        AiProviderOption(
-            provider="mock",
-            default_model="deterministic",
-            endpoint="",
-            linked=True,
-            notes="Deterministic local fallback for tests and demos.",
-        ),
+        )
     ]
 
 

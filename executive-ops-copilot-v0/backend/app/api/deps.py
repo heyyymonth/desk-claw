@@ -11,7 +11,7 @@ from app.services.rules_engine import RulesEngine
 def get_native_agent_runner(runner_class):
     settings = get_settings()
     model_config = current_model_client_kwargs(settings)
-    if settings.agent_runtime != "native" or model_config["provider"] == "mock":
+    if settings.agent_runtime != "native":
         return None
     return runner_class(**model_config, timeout_seconds=settings.ai_agent_timeout_seconds)
 

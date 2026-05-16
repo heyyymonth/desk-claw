@@ -39,13 +39,13 @@ def test_parse_request_uses_valid_native_output():
     assert parsed.intent.duration_minutes == 30
 
 
-def test_parse_request_falls_back_without_native_runner():
-    parsed = RequestParser().parse("Need 45 min with Finance next week")
+def test_parse_request_requires_native_runner():
+    with pytest.raises(Exception) as exc:
+        RequestParser().parse("Need 45 min with Finance next week")
 
-    assert parsed.raw_text == "Need 45 min with Finance next week"
-    assert parsed.intent.duration_minutes == 45
-    assert parsed.intent.priority == "normal"
-    assert "requester" in parsed.intent.missing_fields
+    assert getattr(exc.value, "code", None) == "ai_model_not_configured"
+    assert exc.value.ai_trace["runtime"] == "native-agent"
+    assert exc.value.ai_trace["model_status"] == "not_configured"
 
 
 def test_parse_request_normalizes_native_output_with_grounded_entities_and_windows():
@@ -79,7 +79,7 @@ def test_parse_request_normalizes_native_output_with_grounded_entities_and_windo
     assert len(parsed.intent.preferred_windows) == 2
 
 
-def test_parse_request_reports_unavailable_native_runner_without_deterministic_fallback():
+def test_parse_request_reports_unavailable_native_runner_without_fallback():
     with pytest.raises(Exception) as exc:
         RequestParser(agent_runner=StubParserAgent(error=AgentRuntimeError("timeout"))).parse_with_trace(
             "Please schedule 30 minutes for Dana Patel from Atlas Finance with Morgan Tuesday afternoon."

@@ -30,14 +30,14 @@ const parseResponse = {
     risk_level: 'low',
     proposed_slots: [{ start: '2026-05-11T11:00:00-07:00', end: '2026-05-11T11:30:00-07:00', reason: 'Open' }],
     safe_action: 'propose_slot_for_human_review_before_final_send',
-    model_status: 'not_configured',
+    model_status: 'used',
   },
   draft_response: {
     subject: 'Re: Customer meeting',
     body: 'Please confirm whether that works on your side.',
     tone: 'warm',
     draft_type: 'accept',
-    model_status: 'not_configured',
+    model_status: 'used',
   },
   next_steps: ['Propose slot for human review before final send', 'Found a safe slot.'],
 };
@@ -48,7 +48,7 @@ describe('App', () => {
       'fetch',
       vi.fn((url: string) => {
         if (url.endsWith('/api/health')) {
-          return Promise.resolve(jsonResponse({ status: 'ok', model_provider: 'mock', model: 'deterministic' }));
+          return Promise.resolve(jsonResponse({ status: 'ok', model_provider: 'openai', model: 'gpt-5.5' }));
         }
         if (url.endsWith('/api/parse-request')) return Promise.resolve(jsonResponse(parseResponse));
         return Promise.reject(new Error(`Unhandled ${url}`));
@@ -67,7 +67,7 @@ describe('App', () => {
       </QueryClientProvider>,
     );
 
-    await screen.findByText('mock/deterministic · FastAPI');
+    await screen.findByText('openai/gpt-5.5 · FastAPI');
     await userEvent.clear(screen.getByLabelText('Incoming request'));
     await userEvent.type(screen.getByLabelText('Incoming request'), parseResponse.parsed_request.raw_text);
     await userEvent.click(screen.getByRole('button', { name: /run agent/i }));

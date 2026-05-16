@@ -49,7 +49,7 @@ def rules():
     )
 
 
-def test_recommendation_falls_back_when_calendar_has_no_slot():
+def test_recommendation_requires_native_runner():
     blocks = [
         CalendarBlock(
             title="Booked",
@@ -59,14 +59,16 @@ def test_recommendation_falls_back_when_calendar_has_no_slot():
         )
     ]
 
-    recommendation = RecommendationService().generate(parsed_request(), rules(), blocks)
+    try:
+        RecommendationService().generate(parsed_request(), rules(), blocks)
+    except Exception as exc:
+        assert getattr(exc, "code", None) == "ai_model_not_configured"
+        assert exc.ai_trace["runtime"] == "native-agent"
+        assert exc.ai_trace["model_status"] == "not_configured"
+    else:
+        raise AssertionError("missing native runner should surface as a service error")
 
-    assert recommendation.decision == "defer"
-    assert recommendation.proposed_slots == []
-    assert recommendation.model_status == "not_configured"
-
-
-def test_recommendation_guardrails_rationale_for_escalation():
+def test_recommendation_guardrails_rationale_for_escalation_with_native_runner():
     request = parsed_request().model_copy(
         update={
             "intent": parsed_request().intent.model_copy(
@@ -78,12 +80,14 @@ def test_recommendation_guardrails_rationale_for_escalation():
             )
         }
     )
-    recommendation = RecommendationService().generate(request, rules(), [])
+    plan = SchedulingAgentPlanner().plan(request, rules(), [])
+    recommendation = RecommendationService(agent_runner=StubAgentRunner(plan=plan)).generate(request, rules(), [])
 
     assert recommendation.decision == "defer"
     assert recommendation.proposed_slots == []
     assert recommendation.rationale == ["Human escalation is required before replying or scheduling."]
     assert recommendation.risk_level == "high"
+    assert recommendation.model_status == "used"
 
 
 def test_recommendation_prefers_native_agent_runner_when_configured():
@@ -97,7 +101,7 @@ def test_recommendation_prefers_native_agent_runner_when_configured():
     assert recommendation.rationale == plan.rationale
 
 
-def test_recommendation_reports_unavailable_native_runner_without_deterministic_fallback():
+def test_recommendation_reports_unavailable_native_runner_without_fallback():
     runner = StubAgentRunner(error=AgentRuntimeError("native unavailable"))
 
     try:

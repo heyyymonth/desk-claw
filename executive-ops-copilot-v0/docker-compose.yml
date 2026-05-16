@@ -3,10 +3,10 @@ services:
     build:
       context: ./backend
     environment:
-      AI_PROVIDER: ${AI_PROVIDER:-mock}
-      AI_MODEL: ${AI_MODEL:-deterministic}
+      AI_PROVIDER: ${AI_PROVIDER:-openai}
+      AI_MODEL: ${AI_MODEL:-gpt-5.5}
       AI_API_ENDPOINT: ${AI_API_ENDPOINT:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?OPENAI_API_KEY is required}
       WARM_MODEL_ON_STARTUP: "false"
       MODEL_WARMUP_TIMEOUT_SECONDS: "30"
       AI_AGENT_TIMEOUT_SECONDS: "180"
