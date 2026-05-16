@@ -1,5 +1,5 @@
 from datetime import datetime, time
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
 
@@ -127,6 +127,14 @@ class RuleViolation(StrictModel):
 
 class ParseRequestPayload(StrictModel):
     raw_text: str = Field(min_length=1)
+
+    @model_validator(mode="before")
+    @classmethod
+    def accept_text_alias(cls, value: Any) -> Any:
+        if isinstance(value, dict) and "raw_text" not in value and "text" in value:
+            value = {**value, "raw_text": value["text"]}
+            value.pop("text", None)
+        return value
 
 
 class ParseRequestResponse(StrictModel):

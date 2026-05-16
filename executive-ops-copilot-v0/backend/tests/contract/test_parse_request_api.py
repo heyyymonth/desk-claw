@@ -27,6 +27,16 @@ def test_parse_request_endpoint_returns_structured_response():
     assert body["next_steps"]
 
 
+def test_parse_request_endpoint_accepts_text_alias():
+    response = client.post(
+        "/api/parse-request",
+        json={"text": "I need to schedule a 30 minute sync with Sarah next week."},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["parsed_request"]["raw_text"] == "I need to schedule a 30 minute sync with Sarah next week."
+
+
 def test_old_split_workflow_endpoints_are_not_exposed():
     assert client.post("/api/requests/parse", json={"raw_text": "Need time."}).status_code == 404
     assert client.post("/api/recommendations/generate", json={}).status_code == 404
