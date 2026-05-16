@@ -244,6 +244,8 @@ Verify that the selected model runtime is warm and wired through ADK:
 MODEL_HOSTING_MODE="$MODEL_HOSTING_MODE" ./scripts/check-model-runtime.sh "$PUBLIC_URL"
 ```
 
+For in-cluster CPU or GPU modes, this also verifies `Deployment/ollama` is `Available` and `Job/ollama-pull-gemma4` completed. For GPU mode, it verifies the selected deployment carries the expected GPU node selector, toleration, and `nvidia.com/gpu` limit.
+
 Verify StorageClass, snapshot class, PVC binding, and backup annotations:
 
 ```bash

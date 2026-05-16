@@ -12,6 +12,11 @@ Environment:
   MODEL_HOSTING_MODE=in-cluster|gpu|external
   NAMESPACE=desk-ai
   SKIP_CLUSTER_CHECK=false
+  EXPECTED_GPU_NODE_SELECTOR=desk-ai/model-runtime=ollama-gpu
+  GPU_TOLERATION_KEY=desk-ai/model-runtime
+  GPU_TOLERATION_VALUE=ollama-gpu
+  GPU_RESOURCE_NAME=nvidia.com/gpu
+  GPU_RESOURCE_QUANTITY=1
   KUBECTL=kubectl
   CURL=curl
 USAGE
@@ -32,6 +37,11 @@ EXPECTED_MODEL="${EXPECTED_MODEL:-gemma4:latest}"
 MODEL_HOSTING_MODE="${MODEL_HOSTING_MODE:-in-cluster}"
 NAMESPACE="${NAMESPACE:-desk-ai}"
 SKIP_CLUSTER_CHECK="${SKIP_CLUSTER_CHECK:-false}"
+EXPECTED_GPU_NODE_SELECTOR="${EXPECTED_GPU_NODE_SELECTOR:-desk-ai/model-runtime=ollama-gpu}"
+GPU_TOLERATION_KEY="${GPU_TOLERATION_KEY:-desk-ai/model-runtime}"
+GPU_TOLERATION_VALUE="${GPU_TOLERATION_VALUE:-ollama-gpu}"
+GPU_RESOURCE_NAME="${GPU_RESOURCE_NAME:-nvidia.com/gpu}"
+GPU_RESOURCE_QUANTITY="${GPU_RESOURCE_QUANTITY:-1}"
 KUBECTL="${KUBECTL:-kubectl}"
 CURL="${CURL:-curl}"
 
@@ -55,6 +65,11 @@ case "$SKIP_CLUSTER_CHECK" in
     exit 1
     ;;
 esac
+
+if [[ "$MODEL_HOSTING_MODE" == "gpu" && "$EXPECTED_GPU_NODE_SELECTOR" != *=* ]]; then
+  echo "EXPECTED_GPU_NODE_SELECTOR must use key=value format." >&2
+  exit 1
+fi
 
 HEALTH_JSON="$("$CURL" -fsS "$BASE_URL/api/health")"
 
@@ -103,8 +118,76 @@ if [[ "$MODEL_HOSTING_MODE" == "external" ]]; then
   done
   echo "External model mode has no in-cluster Ollama runtime resources."
 else
-  "$KUBECTL" -n "$NAMESPACE" get deployment/ollama >/dev/null
+  OLLAMA_DEPLOYMENT_JSON="$("$KUBECTL" -n "$NAMESPACE" get deployment/ollama -o json)"
   "$KUBECTL" -n "$NAMESPACE" get service/ollama >/dev/null
-  "$KUBECTL" -n "$NAMESPACE" get job/ollama-pull-gemma4 >/dev/null
+  MODEL_PULL_JOB_JSON="$("$KUBECTL" -n "$NAMESPACE" get job/ollama-pull-gemma4 -o json)"
+
+  printf '%s' "$OLLAMA_DEPLOYMENT_JSON" | MODEL_HOSTING_MODE="$MODEL_HOSTING_MODE" EXPECTED_GPU_NODE_SELECTOR="$EXPECTED_GPU_NODE_SELECTOR" GPU_TOLERATION_KEY="$GPU_TOLERATION_KEY" GPU_TOLERATION_VALUE="$GPU_TOLERATION_VALUE" GPU_RESOURCE_NAME="$GPU_RESOURCE_NAME" GPU_RESOURCE_QUANTITY="$GPU_RESOURCE_QUANTITY" ruby -rjson -e '
+    deployment = JSON.parse(STDIN.read)
+    mode = ENV.fetch("MODEL_HOSTING_MODE")
+    errors = []
+
+    available = deployment.dig("status", "conditions").to_a.find { |condition| condition["type"] == "Available" }
+    unless available && available["status"] == "True"
+      reason = available&.dig("reason")
+      message = available&.dig("message")
+      detail = [reason, message].compact.reject(&:empty?).join(": ")
+      errors << "Deployment/ollama is not Available#{detail.empty? ? "" : " (#{detail})"}."
+    end
+
+    spec = deployment.dig("spec", "template", "spec") || {}
+    containers = spec["containers"].to_a
+    ollama_container = containers.find { |container| container["name"] == "ollama" }
+    errors << "Deployment/ollama is missing container named ollama." unless ollama_container
+
+    if mode == "gpu"
+      selector_key, selector_value = ENV.fetch("EXPECTED_GPU_NODE_SELECTOR").split("=", 2)
+      node_selector = spec["nodeSelector"] || {}
+      unless node_selector[selector_key] == selector_value
+        errors << "Deployment/ollama nodeSelector #{selector_key.inspect} is #{node_selector[selector_key].inspect}, expected #{selector_value.inspect}."
+      end
+
+      toleration_key = ENV.fetch("GPU_TOLERATION_KEY")
+      toleration_value = ENV.fetch("GPU_TOLERATION_VALUE")
+      toleration = spec["tolerations"].to_a.find do |entry|
+        entry["key"] == toleration_key && entry["value"] == toleration_value && entry["effect"] == "NoSchedule"
+      end
+      errors << "Deployment/ollama is missing NoSchedule toleration #{toleration_key}=#{toleration_value}." unless toleration
+
+      if ollama_container
+        resource_name = ENV.fetch("GPU_RESOURCE_NAME")
+        expected_quantity = ENV.fetch("GPU_RESOURCE_QUANTITY")
+        limits = ollama_container.dig("resources", "limits") || {}
+        unless limits[resource_name].to_s == expected_quantity
+          errors << "Deployment/ollama GPU limit #{resource_name.inspect} is #{limits[resource_name].inspect}, expected #{expected_quantity.inspect}."
+        end
+      end
+    end
+
+    unless errors.empty?
+      warn "Model runtime cluster check failed:"
+      errors.each { |error| warn "- #{error}" }
+      exit 1
+    end
+
+    puts "In-cluster Ollama deployment is Available."
+    puts "GPU Ollama scheduling constraints are present." if mode == "gpu"
+  '
+
+  printf '%s' "$MODEL_PULL_JOB_JSON" | ruby -rjson -e '
+    job = JSON.parse(STDIN.read)
+    complete = job.dig("status", "conditions").to_a.find { |condition| condition["type"] == "Complete" }
+    succeeded = job.dig("status", "succeeded").to_i
+    unless (complete && complete["status"] == "True") || succeeded.positive?
+      reason = complete&.dig("reason")
+      message = complete&.dig("message")
+      detail = [reason, message].compact.reject(&:empty?).join(": ")
+      warn "Job/ollama-pull-gemma4 is not complete#{detail.empty? ? "" : " (#{detail})"}."
+      exit 1
+    end
+
+    puts "Ollama model-pull job completed."
+  '
+
   echo "In-cluster Ollama runtime resources are present."
 fi

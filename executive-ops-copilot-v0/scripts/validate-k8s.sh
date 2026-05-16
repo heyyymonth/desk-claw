@@ -903,7 +903,7 @@ grep -q "Deployment backend references Secret desk-ai-secrets" "$RUNTIME_SECRET_
 }
 
 MODEL_RUNTIME_FAKE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/desk-ai-model-runtime-check.XXXXXX")"
-trap 'rm -rf "$TLS_CHECK_FAKE_DIR" "$RUNTIME_SECRET_FAKE_DIR" "$MODEL_RUNTIME_FAKE_DIR"' EXIT
+trap 'rm -rf "$TLS_CHECK_FAKE_DIR" "$EXTERNAL_SECRET_FAKE_DIR" "$RUNTIME_SECRET_FAKE_DIR" "$MODEL_RUNTIME_FAKE_DIR"' EXIT
 
 cat > "$MODEL_RUNTIME_FAKE_DIR/curl" <<'SH'
 #!/usr/bin/env bash
@@ -922,17 +922,54 @@ JSON
 esac
 SH
 
-chmod +x "$MODEL_RUNTIME_FAKE_DIR/curl"
+cat > "$MODEL_RUNTIME_FAKE_DIR/kubectl" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
 
-CURL="$MODEL_RUNTIME_FAKE_DIR/curl" SKIP_CLUSTER_CHECK=true "$ROOT_DIR/scripts/check-model-runtime.sh" https://desk-ai.example.test > "$MODEL_RUNTIME_CHECK_OUTPUT"
+case "$*" in
+  *"get deployment/ollama -o json"*)
+    cat <<'JSON'
+{"kind":"Deployment","metadata":{"name":"ollama"},"spec":{"template":{"spec":{"nodeSelector":{"desk-ai/model-runtime":"ollama-gpu"},"tolerations":[{"key":"desk-ai/model-runtime","operator":"Equal","value":"ollama-gpu","effect":"NoSchedule"}],"containers":[{"name":"ollama","resources":{"limits":{"cpu":"8","memory":"32Gi","nvidia.com/gpu":"1"}}}]}}},"status":{"conditions":[{"type":"Available","status":"True"}],"readyReplicas":1}}
+JSON
+    ;;
+  *"get service/ollama"*)
+    cat <<'JSON'
+{"kind":"Service","metadata":{"name":"ollama"}}
+JSON
+    ;;
+  *"get job/ollama-pull-gemma4 -o json"*)
+    cat <<'JSON'
+{"kind":"Job","metadata":{"name":"ollama-pull-gemma4"},"status":{"succeeded":1,"conditions":[{"type":"Complete","status":"True"}]}}
+JSON
+    ;;
+  *)
+    echo "unexpected kubectl args: $*" >&2
+    exit 1
+    ;;
+esac
+SH
+
+chmod +x "$MODEL_RUNTIME_FAKE_DIR/curl" "$MODEL_RUNTIME_FAKE_DIR/kubectl"
+
+CURL="$MODEL_RUNTIME_FAKE_DIR/curl" KUBECTL="$MODEL_RUNTIME_FAKE_DIR/kubectl" MODEL_HOSTING_MODE=gpu "$ROOT_DIR/scripts/check-model-runtime.sh" https://desk-ai.example.test > "$MODEL_RUNTIME_CHECK_OUTPUT"
 
 grep -q "Model runtime health passed" "$MODEL_RUNTIME_CHECK_OUTPUT" || {
   echo "Model runtime check did not validate the fake backend health payload." >&2
   exit 1
 }
 
+grep -q "GPU Ollama scheduling constraints are present" "$MODEL_RUNTIME_CHECK_OUTPUT" || {
+  echo "Model runtime check did not validate fake GPU scheduling constraints." >&2
+  exit 1
+}
+
+grep -q "Ollama model-pull job completed" "$MODEL_RUNTIME_CHECK_OUTPUT" || {
+  echo "Model runtime check did not validate fake model-pull job completion." >&2
+  exit 1
+}
+
 STORAGE_CHECK_FAKE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/desk-ai-storage-check.XXXXXX")"
-trap 'rm -rf "$TLS_CHECK_FAKE_DIR" "$RUNTIME_SECRET_FAKE_DIR" "$MODEL_RUNTIME_FAKE_DIR" "$STORAGE_CHECK_FAKE_DIR"' EXIT
+trap 'rm -rf "$TLS_CHECK_FAKE_DIR" "$EXTERNAL_SECRET_FAKE_DIR" "$RUNTIME_SECRET_FAKE_DIR" "$MODEL_RUNTIME_FAKE_DIR" "$STORAGE_CHECK_FAKE_DIR"' EXIT
 
 cat > "$STORAGE_CHECK_FAKE_DIR/kubectl" <<'SH'
 #!/usr/bin/env bash
@@ -974,7 +1011,7 @@ grep -q "Storage policy check passed" "$STORAGE_CHECK_OUTPUT" || {
 }
 
 STORAGE_POSTGRES_CHECK_FAKE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/desk-ai-storage-postgres-check.XXXXXX")"
-trap 'rm -rf "$TLS_CHECK_FAKE_DIR" "$RUNTIME_SECRET_FAKE_DIR" "$MODEL_RUNTIME_FAKE_DIR" "$STORAGE_CHECK_FAKE_DIR" "$STORAGE_POSTGRES_CHECK_FAKE_DIR"' EXIT
+trap 'rm -rf "$TLS_CHECK_FAKE_DIR" "$EXTERNAL_SECRET_FAKE_DIR" "$RUNTIME_SECRET_FAKE_DIR" "$MODEL_RUNTIME_FAKE_DIR" "$STORAGE_CHECK_FAKE_DIR" "$STORAGE_POSTGRES_CHECK_FAKE_DIR"' EXIT
 
 cat > "$STORAGE_POSTGRES_CHECK_FAKE_DIR/kubectl" <<'SH'
 #!/usr/bin/env bash
@@ -1011,7 +1048,7 @@ grep -q "Postgres database mode has no backend-data PVC" "$STORAGE_POSTGRES_CHEC
 }
 
 PUBLIC_ACCESS_CHECK_FAKE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/desk-ai-public-access-check.XXXXXX")"
-trap 'rm -rf "$TLS_CHECK_FAKE_DIR" "$RUNTIME_SECRET_FAKE_DIR" "$MODEL_RUNTIME_FAKE_DIR" "$STORAGE_CHECK_FAKE_DIR" "$STORAGE_POSTGRES_CHECK_FAKE_DIR" "$PUBLIC_ACCESS_CHECK_FAKE_DIR"' EXIT
+trap 'rm -rf "$TLS_CHECK_FAKE_DIR" "$EXTERNAL_SECRET_FAKE_DIR" "$RUNTIME_SECRET_FAKE_DIR" "$MODEL_RUNTIME_FAKE_DIR" "$STORAGE_CHECK_FAKE_DIR" "$STORAGE_POSTGRES_CHECK_FAKE_DIR" "$PUBLIC_ACCESS_CHECK_FAKE_DIR"' EXIT
 
 cat > "$PUBLIC_ACCESS_CHECK_FAKE_DIR/kubectl" <<'SH'
 #!/usr/bin/env bash
@@ -1040,7 +1077,7 @@ grep -q "Public access check passed" "$PUBLIC_ACCESS_CHECK_OUTPUT" || {
 }
 
 NETWORK_POLICY_CHECK_FAKE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/desk-ai-network-policy-check.XXXXXX")"
-trap 'rm -rf "$TLS_CHECK_FAKE_DIR" "$RUNTIME_SECRET_FAKE_DIR" "$MODEL_RUNTIME_FAKE_DIR" "$STORAGE_CHECK_FAKE_DIR" "$STORAGE_POSTGRES_CHECK_FAKE_DIR" "$PUBLIC_ACCESS_CHECK_FAKE_DIR" "$NETWORK_POLICY_CHECK_FAKE_DIR"' EXIT
+trap 'rm -rf "$TLS_CHECK_FAKE_DIR" "$EXTERNAL_SECRET_FAKE_DIR" "$RUNTIME_SECRET_FAKE_DIR" "$MODEL_RUNTIME_FAKE_DIR" "$STORAGE_CHECK_FAKE_DIR" "$STORAGE_POSTGRES_CHECK_FAKE_DIR" "$PUBLIC_ACCESS_CHECK_FAKE_DIR" "$NETWORK_POLICY_CHECK_FAKE_DIR"' EXIT
 
 cat > "$NETWORK_POLICY_CHECK_FAKE_DIR/kubectl" <<'SH'
 #!/usr/bin/env bash
@@ -1087,7 +1124,7 @@ grep -q "NetworkPolicy check passed" "$NETWORK_POLICY_CHECK_OUTPUT" || {
 }
 
 DATABASE_RUNTIME_CHECK_FAKE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/desk-ai-database-runtime-check.XXXXXX")"
-trap 'rm -rf "$TLS_CHECK_FAKE_DIR" "$RUNTIME_SECRET_FAKE_DIR" "$MODEL_RUNTIME_FAKE_DIR" "$STORAGE_CHECK_FAKE_DIR" "$STORAGE_POSTGRES_CHECK_FAKE_DIR" "$PUBLIC_ACCESS_CHECK_FAKE_DIR" "$NETWORK_POLICY_CHECK_FAKE_DIR" "$DATABASE_RUNTIME_CHECK_FAKE_DIR"' EXIT
+trap 'rm -rf "$TLS_CHECK_FAKE_DIR" "$EXTERNAL_SECRET_FAKE_DIR" "$RUNTIME_SECRET_FAKE_DIR" "$MODEL_RUNTIME_FAKE_DIR" "$STORAGE_CHECK_FAKE_DIR" "$STORAGE_POSTGRES_CHECK_FAKE_DIR" "$PUBLIC_ACCESS_CHECK_FAKE_DIR" "$NETWORK_POLICY_CHECK_FAKE_DIR" "$DATABASE_RUNTIME_CHECK_FAKE_DIR"' EXIT
 
 cat > "$DATABASE_RUNTIME_CHECK_FAKE_DIR/curl" <<'SH'
 #!/usr/bin/env bash

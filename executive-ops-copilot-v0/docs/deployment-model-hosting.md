@@ -138,7 +138,9 @@ The checker validates:
 - Ollama is configured;
 - ADK is using `ollama_chat/gemma4:latest`;
 - backend warmup reports `model_warmup.status: ready`;
-- the expected in-cluster Ollama resources exist or are absent for the selected mode.
+- the expected in-cluster Ollama resources exist or are absent for the selected mode;
+- in-cluster Ollama deployment is `Available` and `ollama-pull-gemma4` completed;
+- GPU mode has the expected node selector, `NoSchedule` toleration, and `nvidia.com/gpu: "1"` limit.
 
 ## Failure Responses
 
