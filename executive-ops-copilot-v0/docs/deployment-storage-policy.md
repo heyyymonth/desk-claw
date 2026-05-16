@@ -92,6 +92,13 @@ The checker validates:
 - `backend-data` is bound to the selected StorageClass and has backup annotations;
 - `ollama-data` is bound in in-cluster model modes and absent in external model mode.
 
+For SQLite-backed releases, verify the backup artifact itself before storing it off-cluster or using it in a restore drill:
+
+```bash
+ROW_COUNTS_OUTPUT="$BACKUP_DIR/sqlite-row-counts.txt" ./scripts/check-sqlite-backup.sh "$BACKUP_DIR/deskclaw.db.gz"
+./scripts/check-sqlite-backup.sh "$BACKUP_DIR/deskclaw.db.gz" "$BACKUP_DIR/sqlite-row-counts.txt"
+```
+
 ## Snapshot Rendering
 
 Use `scripts/render-volume-snapshot.sh` to create provider CSI snapshots when the selected cluster supports the snapshot CRDs and driver.
@@ -126,7 +133,7 @@ Do not accept public user data until:
 
 - the production release manifest pins the chosen StorageClass;
 - `scripts/check-storage-policy.sh` passes after rollout;
-- the SQLite backup path in `docs/deployment-backup-restore.md` has been tested;
+- the SQLite backup path in `docs/deployment-backup-restore.md` has been tested and `scripts/check-sqlite-backup.sh` passes on the backup artifact;
 - at least one restore drill has completed in a non-production namespace or disposable cluster;
 - snapshot support is proven if snapshots are part of the stated RTO.
 

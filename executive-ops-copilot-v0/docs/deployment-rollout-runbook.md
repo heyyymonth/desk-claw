@@ -256,6 +256,13 @@ MODEL_HOSTING_MODE="$MODEL_HOSTING_MODE" \
   ./scripts/check-storage-policy.sh "$STORAGE_CLASS_NAME"
 ```
 
+For SQLite-backed releases, create the pre-release backup from `docs/deployment-backup-restore.md` and verify it before continuing:
+
+```bash
+ROW_COUNTS_OUTPUT="$BACKUP_DIR/sqlite-row-counts.txt" ./scripts/check-sqlite-backup.sh "$BACKUP_DIR/deskclaw.db.gz"
+./scripts/check-sqlite-backup.sh "$BACKUP_DIR/deskclaw.db.gz" "$BACKUP_DIR/sqlite-row-counts.txt"
+```
+
 Verify public access controls on the deployed Ingress:
 
 ```bash

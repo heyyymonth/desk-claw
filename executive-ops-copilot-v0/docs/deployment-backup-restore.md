@@ -51,30 +51,15 @@ raise SystemExit(0 if result == "ok" else 1)
 
 kubectl -n "$NS" exec "$BACKEND_POD" -- cat /tmp/deskclaw-backup.db > "$BACKUP_DIR/deskclaw.db"
 gzip -9 "$BACKUP_DIR/deskclaw.db"
+./scripts/check-sqlite-backup.sh "$BACKUP_DIR/deskclaw.db.gz"
 ```
 
 Record the release tag and row counts with the backup:
 
 ```bash
 kubectl -n "$NS" get deployment backend -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}' > "$BACKUP_DIR/backend-image.txt"
-
-python3 - "$BACKUP_DIR/deskclaw.db.gz" > "$BACKUP_DIR/sqlite-row-counts.txt" <<'PY'
-import gzip
-import shutil
-import sqlite3
-import sys
-import tempfile
-
-source = sys.argv[1]
-with tempfile.NamedTemporaryFile() as tmp:
-    with gzip.open(source, "rb") as gz:
-        shutil.copyfileobj(gz, tmp)
-    tmp.flush()
-    con = sqlite3.connect(tmp.name)
-    for table in ("decisions", "app_users", "ai_audit_log", "decision_log"):
-        count = con.execute(f"select count(*) from {table}").fetchone()[0]
-        print(f"{table}={count}")
-PY
+ROW_COUNTS_OUTPUT="$BACKUP_DIR/sqlite-row-counts.txt" ./scripts/check-sqlite-backup.sh "$BACKUP_DIR/deskclaw.db.gz"
+./scripts/check-sqlite-backup.sh "$BACKUP_DIR/deskclaw.db.gz" "$BACKUP_DIR/sqlite-row-counts.txt"
 ```
 
 Move `$BACKUP_DIR` to encrypted off-cluster storage after it is created.
@@ -126,6 +111,8 @@ Use this when restoring the current SQLite-backed deployment. If a Postgres cana
 
    ```bash
    gunzip -c ./deskclaw.db.gz | kubectl -n "$NS" exec -i backend-data-restore -- sh -c 'cat > /app/data/deskclaw.db'
+
+   ./scripts/check-sqlite-backup.sh ./deskclaw.db.gz ./sqlite-row-counts.txt
 
    kubectl -n "$NS" exec backend-data-restore -- python -c '
 import sqlite3

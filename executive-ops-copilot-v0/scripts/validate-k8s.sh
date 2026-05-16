@@ -32,6 +32,7 @@ RUNTIME_SECRET_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-runtime-secret-check.out"
 MODEL_RUNTIME_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-model-runtime-check.out"
 STORAGE_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-storage-check.out"
 STORAGE_POSTGRES_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-storage-postgres-check.out"
+SQLITE_BACKUP_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-sqlite-backup-check.out"
 PUBLIC_ACCESS_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-public-access-check.out"
 NETWORK_POLICY_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-network-policy-check.out"
 DATABASE_RUNTIME_CHECK_OUTPUT="${TMPDIR:-/tmp}/desk-ai-database-runtime-check.out"
@@ -477,6 +478,7 @@ for script in \
   "$ROOT_DIR/scripts/check-public-dns.sh" \
   "$ROOT_DIR/scripts/check-public-tls.sh" \
   "$ROOT_DIR/scripts/check-runtime-secret.sh" \
+  "$ROOT_DIR/scripts/check-sqlite-backup.sh" \
   "$ROOT_DIR/scripts/check-storage-policy.sh" \
   "$ROOT_DIR/scripts/render-cert-manager-issuer.sh" \
   "$ROOT_DIR/scripts/render-external-secret.sh" \
@@ -1047,8 +1049,53 @@ grep -q "Postgres database mode has no backend-data PVC" "$STORAGE_POSTGRES_CHEC
   exit 1
 }
 
+SQLITE_BACKUP_CHECK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/desk-ai-sqlite-backup-check.XXXXXX")"
+trap 'rm -rf "$TLS_CHECK_FAKE_DIR" "$EXTERNAL_SECRET_FAKE_DIR" "$RUNTIME_SECRET_FAKE_DIR" "$MODEL_RUNTIME_FAKE_DIR" "$STORAGE_CHECK_FAKE_DIR" "$STORAGE_POSTGRES_CHECK_FAKE_DIR" "$SQLITE_BACKUP_CHECK_DIR"' EXIT
+
+python3 - "$SQLITE_BACKUP_CHECK_DIR/deskclaw.db" "$SQLITE_BACKUP_CHECK_DIR/deskclaw.db.gz" <<'PY'
+import gzip
+import shutil
+import sqlite3
+import sys
+
+db_path = sys.argv[1]
+gz_path = sys.argv[2]
+
+connection = sqlite3.connect(db_path)
+connection.executescript(
+    """
+    CREATE TABLE decisions (id TEXT PRIMARY KEY);
+    CREATE TABLE app_users (actor_id TEXT PRIMARY KEY);
+    CREATE TABLE ai_audit_log (id TEXT PRIMARY KEY);
+    CREATE TABLE decision_log (id INTEGER PRIMARY KEY AUTOINCREMENT);
+    INSERT INTO decisions (id) VALUES ('decision-1');
+    INSERT INTO app_users (actor_id) VALUES ('actor-1');
+    INSERT INTO ai_audit_log (id) VALUES ('audit-1');
+    INSERT INTO decision_log DEFAULT VALUES;
+    """
+)
+connection.commit()
+connection.close()
+
+with open(db_path, "rb") as source, gzip.open(gz_path, "wb") as target:
+    shutil.copyfileobj(source, target)
+PY
+
+ROW_COUNTS_OUTPUT="$SQLITE_BACKUP_CHECK_DIR/sqlite-row-counts.txt" "$ROOT_DIR/scripts/check-sqlite-backup.sh" "$SQLITE_BACKUP_CHECK_DIR/deskclaw.db.gz" > "$SQLITE_BACKUP_CHECK_OUTPUT"
+"$ROOT_DIR/scripts/check-sqlite-backup.sh" "$SQLITE_BACKUP_CHECK_DIR/deskclaw.db.gz" "$SQLITE_BACKUP_CHECK_DIR/sqlite-row-counts.txt" >> "$SQLITE_BACKUP_CHECK_OUTPUT"
+
+grep -q "SQLite backup check passed" "$SQLITE_BACKUP_CHECK_OUTPUT" || {
+  echo "SQLite backup check did not validate the fake backup artifact." >&2
+  exit 1
+}
+
+grep -q "ai_audit_log=1" "$SQLITE_BACKUP_CHECK_DIR/sqlite-row-counts.txt" || {
+  echo "SQLite backup check did not write expected row-count metadata." >&2
+  exit 1
+}
+
 PUBLIC_ACCESS_CHECK_FAKE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/desk-ai-public-access-check.XXXXXX")"
-trap 'rm -rf "$TLS_CHECK_FAKE_DIR" "$EXTERNAL_SECRET_FAKE_DIR" "$RUNTIME_SECRET_FAKE_DIR" "$MODEL_RUNTIME_FAKE_DIR" "$STORAGE_CHECK_FAKE_DIR" "$STORAGE_POSTGRES_CHECK_FAKE_DIR" "$PUBLIC_ACCESS_CHECK_FAKE_DIR"' EXIT
+trap 'rm -rf "$TLS_CHECK_FAKE_DIR" "$EXTERNAL_SECRET_FAKE_DIR" "$RUNTIME_SECRET_FAKE_DIR" "$MODEL_RUNTIME_FAKE_DIR" "$STORAGE_CHECK_FAKE_DIR" "$STORAGE_POSTGRES_CHECK_FAKE_DIR" "$SQLITE_BACKUP_CHECK_DIR" "$PUBLIC_ACCESS_CHECK_FAKE_DIR"' EXIT
 
 cat > "$PUBLIC_ACCESS_CHECK_FAKE_DIR/kubectl" <<'SH'
 #!/usr/bin/env bash
@@ -1077,7 +1124,7 @@ grep -q "Public access check passed" "$PUBLIC_ACCESS_CHECK_OUTPUT" || {
 }
 
 NETWORK_POLICY_CHECK_FAKE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/desk-ai-network-policy-check.XXXXXX")"
-trap 'rm -rf "$TLS_CHECK_FAKE_DIR" "$EXTERNAL_SECRET_FAKE_DIR" "$RUNTIME_SECRET_FAKE_DIR" "$MODEL_RUNTIME_FAKE_DIR" "$STORAGE_CHECK_FAKE_DIR" "$STORAGE_POSTGRES_CHECK_FAKE_DIR" "$PUBLIC_ACCESS_CHECK_FAKE_DIR" "$NETWORK_POLICY_CHECK_FAKE_DIR"' EXIT
+trap 'rm -rf "$TLS_CHECK_FAKE_DIR" "$EXTERNAL_SECRET_FAKE_DIR" "$RUNTIME_SECRET_FAKE_DIR" "$MODEL_RUNTIME_FAKE_DIR" "$STORAGE_CHECK_FAKE_DIR" "$STORAGE_POSTGRES_CHECK_FAKE_DIR" "$SQLITE_BACKUP_CHECK_DIR" "$PUBLIC_ACCESS_CHECK_FAKE_DIR" "$NETWORK_POLICY_CHECK_FAKE_DIR"' EXIT
 
 cat > "$NETWORK_POLICY_CHECK_FAKE_DIR/kubectl" <<'SH'
 #!/usr/bin/env bash
@@ -1124,7 +1171,7 @@ grep -q "NetworkPolicy check passed" "$NETWORK_POLICY_CHECK_OUTPUT" || {
 }
 
 DATABASE_RUNTIME_CHECK_FAKE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/desk-ai-database-runtime-check.XXXXXX")"
-trap 'rm -rf "$TLS_CHECK_FAKE_DIR" "$EXTERNAL_SECRET_FAKE_DIR" "$RUNTIME_SECRET_FAKE_DIR" "$MODEL_RUNTIME_FAKE_DIR" "$STORAGE_CHECK_FAKE_DIR" "$STORAGE_POSTGRES_CHECK_FAKE_DIR" "$PUBLIC_ACCESS_CHECK_FAKE_DIR" "$NETWORK_POLICY_CHECK_FAKE_DIR" "$DATABASE_RUNTIME_CHECK_FAKE_DIR"' EXIT
+trap 'rm -rf "$TLS_CHECK_FAKE_DIR" "$EXTERNAL_SECRET_FAKE_DIR" "$RUNTIME_SECRET_FAKE_DIR" "$MODEL_RUNTIME_FAKE_DIR" "$STORAGE_CHECK_FAKE_DIR" "$STORAGE_POSTGRES_CHECK_FAKE_DIR" "$SQLITE_BACKUP_CHECK_DIR" "$PUBLIC_ACCESS_CHECK_FAKE_DIR" "$NETWORK_POLICY_CHECK_FAKE_DIR" "$DATABASE_RUNTIME_CHECK_FAKE_DIR"' EXIT
 
 cat > "$DATABASE_RUNTIME_CHECK_FAKE_DIR/curl" <<'SH'
 #!/usr/bin/env bash

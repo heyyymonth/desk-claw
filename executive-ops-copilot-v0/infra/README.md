@@ -225,7 +225,7 @@ For public exposure, review `../docs/deployment-resource-tuning.md` before choos
 - For managed Postgres, render with `DATABASE_MODE=postgres` so the backend reads `DATABASE_URL` from `desk-ai-secrets`, removes the SQLite PVC mount, and can scale with `BACKEND_REPLICAS` after canary verification.
 - Pin production PVCs with `STORAGE_CLASS_NAME` during release rendering and verify with `./scripts/check-storage-policy.sh`; see `../docs/deployment-storage-policy.md`.
 - Render production public ingress with `REQUIRE_PUBLIC_ACCESS_CONTROL=true` and verify with `./scripts/check-public-access.sh`; see `../docs/deployment-public-access.md`.
-- Back up `backend-data` before releases, migrations, and storage changes. Use `../docs/deployment-backup-restore.md` until managed Postgres backup/PITR replaces SQLite backups.
+- Back up `backend-data` before releases, migrations, and storage changes. Verify SQLite backup artifacts with `./scripts/check-sqlite-backup.sh`; use `../docs/deployment-backup-restore.md` until managed Postgres backup/PITR replaces SQLite backups.
 - Ollama model storage is mounted on a PVC so the model pull survives pod restarts. Treat `ollama-data` as recreatable model cache unless recovery time requires provider snapshots.
 - Do not ship `VITE_ADMIN_API_KEY` or `VITE_ACTOR_AUTH_TOKEN` in public frontend builds. CI validates this for the public frontend image. Those Vite variables are only for local V0 inspection until real login/session auth replaces the admin key path; see `../docs/deployment-auth-session.md`.
 - The frontend nginx proxy assumes the backend service name is `backend` in the same namespace.
