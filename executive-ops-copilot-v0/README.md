@@ -150,6 +150,20 @@ Response:
 - Set `OPENAI_API_KEY` only on the backend service.
 - Keep the frontend static; it should only know the backend URL.
 - Start with `AI_PROVIDER=mock` for deterministic smoke tests, then switch to `openai` when the backend secret is configured.
+- GitHub Actions validates Docker builds on normal pushes and pull requests.
+- GHCR images are published only when a version tag like `v0.1.0` is pushed.
+
+Published image names:
+
+- `ghcr.io/heyyymonth/desk-claw-backend:<tag>`
+- `ghcr.io/heyyymonth/desk-claw-frontend:<tag>`
+
+Create a release image set:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
 
 ## Development Notes
 

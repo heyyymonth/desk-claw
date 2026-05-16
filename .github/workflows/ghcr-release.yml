@@ -1,0 +1,60 @@
+name: GHCR Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: ghcr-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish-images:
+    name: Publish images
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set image names
+        run: |
+          repository="${GITHUB_REPOSITORY,,}"
+          echo "BACKEND_IMAGE=ghcr.io/${repository}-backend" >> "$GITHUB_ENV"
+          echo "FRONTEND_IMAGE=ghcr.io/${repository}-frontend" >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish backend image
+        uses: docker/build-push-action@v7
+        with:
+          context: executive-ops-copilot-v0/backend
+          file: executive-ops-copilot-v0/backend/Dockerfile
+          push: true
+          tags: ${{ env.BACKEND_IMAGE }}:${{ github.ref_name }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,scope=backend,mode=max
+
+      - name: Publish frontend image
+        uses: docker/build-push-action@v7
+        with:
+          context: executive-ops-copilot-v0/frontend
+          file: executive-ops-copilot-v0/frontend/Dockerfile
+          push: true
+          build-args: |
+            VITE_API_BASE_URL=
+          tags: ${{ env.FRONTEND_IMAGE }}:${{ github.ref_name }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,scope=frontend,mode=max
