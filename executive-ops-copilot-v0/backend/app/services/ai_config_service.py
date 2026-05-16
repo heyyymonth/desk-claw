@@ -127,7 +127,7 @@ def _provider_options(settings: Settings) -> list[AiProviderOption]:
 
 
 def _api_key_configured(provider: str, settings: Settings) -> bool:
-    return provider == "mock" or bool(_api_key_for_provider(provider, settings))
+    return bool(_api_key_for_provider(provider, settings))
 
 
 def _api_key_for_provider(provider: str, settings: Settings) -> str | None:

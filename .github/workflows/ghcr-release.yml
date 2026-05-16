@@ -43,6 +43,7 @@ jobs:
           context: executive-ops-copilot-v0/backend
           file: executive-ops-copilot-v0/backend/Dockerfile
           push: true
+          platforms: linux/amd64,linux/arm64
           tags: ${{ env.BACKEND_IMAGE }}:${{ github.ref_name }}
           cache-from: type=gha,scope=backend
           cache-to: type=gha,scope=backend,mode=max
@@ -53,6 +54,7 @@ jobs:
           context: executive-ops-copilot-v0/frontend
           file: executive-ops-copilot-v0/frontend/Dockerfile
           push: true
+          platforms: linux/amd64,linux/arm64
           build-args: |
             VITE_API_BASE_URL=
           tags: ${{ env.FRONTEND_IMAGE }}:${{ github.ref_name }}
