@@ -79,11 +79,15 @@ def test_parse_request_normalizes_adk_output_with_grounded_entities_and_windows(
     assert len(parsed.intent.preferred_windows) == 2
 
 
-def test_parse_request_reports_unavailable_adk_runner():
+def test_parse_request_reports_unavailable_adk_runner_without_deterministic_fallback():
     with pytest.raises(Exception) as exc:
-        RequestParser(agent_runner=StubParserAgent(error=AgentRuntimeError("timeout"))).parse("Need time")
+        RequestParser(agent_runner=StubParserAgent(error=AgentRuntimeError("timeout"))).parse_with_trace(
+            "Please schedule 30 minutes for Dana Patel from Atlas Finance with Morgan Tuesday afternoon."
+        )
 
     assert getattr(exc.value, "code", None) == "adk_model_unavailable"
+    assert exc.value.ai_trace["runtime"] == "google-adk"
+    assert exc.value.ai_trace["model_status"] == "unavailable"
 
 
 def test_parsed_request_rejects_invalid_priority():

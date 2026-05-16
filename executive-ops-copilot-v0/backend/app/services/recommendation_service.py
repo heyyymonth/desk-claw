@@ -4,6 +4,7 @@ from app.agents.scheduling import (
     SchedulingAgentPlanner,
     create_recommendation_from_plan,
 )
+from app.core.errors import ServiceError
 from app.llm.schemas import CalendarBlock, ExecutiveRules, ParsedMeetingRequest, Recommendation
 from app.services.calendar_analyzer import CalendarAnalyzer
 from app.services.risk_classifier import RiskClassifier
@@ -55,9 +56,15 @@ class RecommendationService:
                     plan = self.agent_runner.plan(parsed_request, rules, calendar_blocks)
                     trace = _trace("google-adk", plan.agent_name, "used", [])
                 model_status = "used"
-            except AgentRuntimeError:
+            except AgentRuntimeError as exc:
                 model_status = "unavailable"
                 trace = _trace("google-adk", plan.agent_name, model_status, [])
+                raise ServiceError(
+                    "adk_model_unavailable",
+                    "Configured ADK recommendation agent is unavailable.",
+                    status_code=502,
+                    ai_trace=trace,
+                ) from exc
 
         deterministic = create_recommendation_from_plan(plan, model_status=model_status)
 

@@ -120,7 +120,7 @@ request_parser_agent_definition = AgentDefinition(
         "and scheduling constraints."
     ),
     planning_goal=(
-        "Ground entity and time evidence with independent tools, then use the final extraction tool to return valid JSON."
+        "Ground entity and time evidence with independent tools, then return model-produced ParsedMeetingRequest JSON."
     ),
     tools=[
         AgentToolDefinition(
@@ -132,11 +132,6 @@ request_parser_agent_definition = AgentDefinition(
             name="extract_time_preferences",
             goal="Identify weekday, relative-date, and day-part preferred windows.",
             description="Converts phrasing like Tuesday afternoon or next week morning into TimeWindow payloads.",
-        ),
-        AgentToolDefinition(
-            name="extract_meeting_intent",
-            goal="Ground parse labels, entities, time windows, and missing fields from raw request text.",
-            description="Returns ParsedMeetingRequest-shaped JSON using local V0 parsing guardrails and entity evidence.",
         ),
     ],
 )
@@ -172,9 +167,10 @@ ADK_AGENT_INSTRUCTION = (
 REQUEST_PARSER_AGENT_INSTRUCTION = (
     f"{request_parser_agent_definition.objective}\n"
     f"{request_parser_agent_definition.planning_goal}\n\n"
-    "When supported, call extract_meeting_entities and extract_time_preferences in the same tool-calling turn because "
-    "they are independent. Then call extract_meeting_intent with the raw request text and the JSON evidence from those "
-    "tools. Return only the final ParsedMeetingRequest JSON object. Do not invent attendees, times, or authorization. "
+    "Use extract_meeting_entities and extract_time_preferences to gather evidence from the raw request. These tools "
+    "are independent, so call them in the same turn when the model supports parallel tool calls. After reviewing the "
+    "tool results, the model must produce the final ParsedMeetingRequest JSON object itself. Do not invent attendees, "
+    "times, authorization, or return prose. If the tool evidence is insufficient, mark missing fields in the JSON. "
     "A person mentioned as 'from Legal' is an attendee or department signal, not automatically a legal_hr meeting."
 )
 
@@ -696,27 +692,6 @@ def extract_time_preferences(raw_text: str) -> dict:
     return extract_time_preference_evidence(raw_text)
 
 
-def extract_meeting_intent(
-    raw_text: str,
-    entity_evidence_json: str = "",
-    time_evidence_json: str = "",
-) -> dict:
-    """Extract a strict ParsedMeetingRequest from raw scheduling text.
-
-    Args:
-        raw_text: Raw inbound meeting request text.
-        entity_evidence_json: Optional JSON object returned by extract_meeting_entities.
-        time_evidence_json: Optional JSON object returned by extract_time_preferences.
-    """
-    from app.services.request_parser import fallback_parse
-
-    # The parser recomputes deterministic evidence so this tool is stable even when the
-    # model omits the optional evidence arguments.
-    _loads_json_object(entity_evidence_json) if entity_evidence_json else None
-    _loads_json_object(time_evidence_json) if time_evidence_json else None
-    return fallback_parse(raw_text).model_dump(mode="json")
-
-
 def compose_guarded_draft(recommendation_json: str) -> dict:
     """Compose a safe draft response from a scheduling recommendation.
 
@@ -789,7 +764,7 @@ def create_adk_request_parser_agent(model: str = DEFAULT_ADK_MODEL, ollama_base_
         name=request_parser_agent_definition.name,
         description=request_parser_agent_definition.role,
         instruction=REQUEST_PARSER_AGENT_INSTRUCTION,
-        tools=[extract_meeting_entities, extract_time_preferences, extract_meeting_intent],
+        tools=[extract_meeting_entities, extract_time_preferences],
     )
 
 
@@ -918,8 +893,6 @@ def _run_agent_operation(operation: str, payload: dict) -> dict:
             session_prefix="parse",
             payload={"task": "Parse this raw scheduling request.", "raw_text": payload["raw_text"]},
             max_llm_calls=6,
-            return_on_tool_response=True,
-            return_on_tool_names={"extract_meeting_intent"},
         )
         return {"output": output, "tool_calls": tool_calls}
     if operation == "draft":

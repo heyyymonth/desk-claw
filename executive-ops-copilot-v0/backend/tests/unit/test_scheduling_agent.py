@@ -13,7 +13,6 @@ from app.agents.scheduling import (
     create_adk_root_agent,
     default_adk_model_name,
     extract_meeting_entities,
-    extract_meeting_intent,
     extract_time_preferences,
     inspect_calendar_conflicts,
     local_adk_model_name,
@@ -76,7 +75,6 @@ def test_request_parser_agent_definition_uses_parallelizable_evidence_tools():
     assert [tool.name for tool in request_parser_agent_definition.tools] == [
         "extract_meeting_entities",
         "extract_time_preferences",
-        "extract_meeting_intent",
     ]
     assert "independent tools" in request_parser_agent_definition.planning_goal
 
@@ -201,7 +199,7 @@ def test_adk_agents_default_to_local_gemma4_but_accept_other_models():
     assert DEFAULT_ADK_MODEL == "ollama_chat/gemma4:latest"
     parser_agent = create_adk_request_parser_agent()
     assert parser_agent.name == "meeting_request_parser_agent"
-    assert len(parser_agent.tools) == 3
+    assert len(parser_agent.tools) == 2
     assert create_adk_draft_agent().name == "meeting_draft_agent"
     assert create_adk_root_agent("gemini-2.0-flash").name == "meeting_resolution_agent"
 
@@ -251,23 +249,6 @@ def test_adk_runner_merges_model_reasoning_with_guardrails():
     assert merged.proposed_slots
 
 
-def test_request_parser_tool_returns_schema_payload():
-    payload = extract_meeting_intent("From Alex at Acme: urgent customer escalation for 30 minutes today")
-
-    parsed = ParsedMeetingRequest.model_validate(payload)
-    assert parsed.intent.meeting_type == "customer"
-    assert parsed.intent.priority == "urgent"
-
-
-def test_request_parser_runner_validates_adk_output():
-    output = extract_meeting_intent("Need 45 min with Finance next week")
-
-    parsed = ParsedMeetingRequest.model_validate(output)
-
-    assert parsed.intent.duration_minutes == 45
-    assert parsed.intent.priority == "normal"
-
-
 def test_request_parser_entity_and_time_tools_ground_customer_renewal_request():
     raw_text = (
         "Hi Morgan's team, can you find 30 minutes this week for Dana Patel from Atlas Finance "
@@ -276,19 +257,14 @@ def test_request_parser_entity_and_time_tools_ground_customer_renewal_request():
     )
 
     entities = extract_meeting_entities(raw_text)
-    times = extract_time_preferences(raw_text)
-    parsed = ParsedMeetingRequest.model_validate(
-        extract_meeting_intent(raw_text, json.dumps(entities), json.dumps(times))
-    )
+    time_preferences = extract_time_preferences(raw_text)
 
     assert entities["requester"] == "Dana Patel"
     assert "Atlas Finance" in entities["organizations"]
-    assert {"Dana Patel", "Morgan", "Priya"}.issubset(set(parsed.intent.attendees))
-    assert parsed.intent.requester == "Dana Patel"
-    assert parsed.intent.title == "Atlas Finance renewal discussion"
-    assert parsed.intent.meeting_type == "customer"
-    assert parsed.intent.sensitivity == "medium"
-    assert len(parsed.intent.preferred_windows) == 2
-    assert {window.start.weekday() for window in parsed.intent.preferred_windows} == {1, 2}
-    assert parsed.intent.preferred_windows[0].start.hour == 13
-    assert parsed.intent.preferred_windows[1].start.hour == 9
+    assert {"Dana Patel", "Morgan", "Priya"}.issubset(set(entities["attendees"]))
+    assert entities["title"] == "Atlas Finance renewal discussion"
+    assert entities["meeting_type"] == "customer"
+    assert entities["sensitivity"] == "medium"
+    assert len(time_preferences["preferred_windows"]) == 2
+    assert time_preferences["preferred_windows"][0]["start"] == "2026-05-12T13:00:00-07:00"
+    assert time_preferences["preferred_windows"][1]["start"] == "2026-05-13T09:00:00-07:00"

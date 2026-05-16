@@ -97,10 +97,15 @@ def test_recommendation_prefers_adk_agent_runner_when_configured():
     assert recommendation.rationale == plan.rationale
 
 
-def test_recommendation_falls_back_when_adk_agent_runner_is_unavailable():
+def test_recommendation_reports_unavailable_adk_runner_without_deterministic_fallback():
     runner = StubAgentRunner(error=AgentRuntimeError("ADK unavailable"))
 
-    recommendation = RecommendationService(agent_runner=runner).generate(parsed_request(), rules(), [])
-
-    assert recommendation.decision == "schedule"
-    assert recommendation.model_status == "unavailable"
+    try:
+        RecommendationService(agent_runner=runner).generate(parsed_request(), rules(), [])
+    except Exception as exc:
+        assert getattr(exc, "code", None) == "adk_model_unavailable"
+        assert exc.ai_trace["runtime"] == "google-adk"
+        assert exc.ai_trace["model_status"] == "unavailable"
+        assert exc.ai_trace["agent_name"] == "meeting_resolution_agent"
+    else:
+        raise AssertionError("ADK runner failure should surface as a service error")

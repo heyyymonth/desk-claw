@@ -79,12 +79,14 @@ def test_draft_service_guardrails_defer_draft_from_llm():
     assert "9:00 AM" not in draft.body
 
 
-def test_draft_service_reports_unavailable_adk_runner():
+def test_draft_service_reports_unavailable_adk_runner_without_deterministic_fallback():
     service = DraftService(agent_runner=StubDraftAgent(error=AgentRuntimeError("timeout")))
 
     try:
-        service.generate(recommendation())
+        service.generate_with_trace(recommendation())
     except Exception as exc:
         assert getattr(exc, "code", None) == "adk_model_unavailable"
+        assert exc.ai_trace["runtime"] == "google-adk"
+        assert exc.ai_trace["model_status"] == "unavailable"
     else:
-        raise AssertionError("ADK runner failure should surface as service error")
+        raise AssertionError("ADK runner failure should surface as a service error")
