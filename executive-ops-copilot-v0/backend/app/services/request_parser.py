@@ -3,7 +3,7 @@ from datetime import datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from app.agents.scheduling import AdkRequestParserAgentRunner, AgentRuntimeError
+from app.agents.scheduling import NATIVE_AI_RUNTIME, AgentRuntimeError, NativeRequestParserAgentRunner
 from app.core.errors import ServiceError
 from app.llm.schemas import MeetingIntent, ParsedMeetingRequest
 
@@ -53,7 +53,7 @@ _PERSON_STOPWORDS = {
 
 
 class RequestParser:
-    def __init__(self, agent_runner: AdkRequestParserAgentRunner | None = None) -> None:
+    def __init__(self, agent_runner: NativeRequestParserAgentRunner | None = None) -> None:
         self.agent_runner = agent_runner
 
     def parse(self, raw_text: str) -> ParsedMeetingRequest:
@@ -67,13 +67,13 @@ class RequestParser:
                     parsed, trace = self.agent_runner.parse_with_trace(raw_text)
                 else:
                     parsed = self.agent_runner.parse(raw_text)
-                    trace = _adk_trace("meeting_request_parser_agent")
+                    trace = _native_trace("meeting_request_parser_agent")
                 return parsed.model_copy(update={"intent": _normalize_intent(raw_text, parsed.intent)}), trace
             except AgentRuntimeError as exc:
-                trace = _adk_trace("meeting_request_parser_agent", status="unavailable")
+                trace = _native_trace("meeting_request_parser_agent", status="unavailable")
                 raise ServiceError(
-                    "adk_model_unavailable",
-                    "Configured ADK parser is unavailable.",
+                    "ai_model_unavailable",
+                    "Configured native parser model is unavailable.",
                     status_code=502,
                     ai_trace=trace,
                 ) from exc
@@ -133,8 +133,8 @@ def extract_time_preference_evidence(raw_text: str, timezone_name: str = DEFAULT
     }
 
 
-def _adk_trace(agent_name: str, status: str = "used") -> dict:
-    return {"runtime": "google-adk", "agent_name": agent_name, "model_status": status, "tool_calls": []}
+def _native_trace(agent_name: str, status: str = "used") -> dict:
+    return {"runtime": NATIVE_AI_RUNTIME, "agent_name": agent_name, "model_status": status, "tool_calls": []}
 
 
 def _fallback_trace() -> dict:

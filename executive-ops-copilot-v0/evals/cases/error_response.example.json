@@ -1,7 +1,0 @@
-{
-  "error": {
-    "code": "validation_error",
-    "message": "raw_text is required.",
-    "field": "raw_text"
-  }
-}

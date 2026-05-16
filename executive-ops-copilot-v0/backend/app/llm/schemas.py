@@ -1,6 +1,5 @@
 from datetime import datetime, time
 from typing import Literal
-from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
 
@@ -8,7 +7,6 @@ Priority = Literal["low", "normal", "high", "urgent"]
 Decision = Literal["schedule", "decline", "clarify", "defer"]
 RiskLevel = Literal["low", "medium", "high"]
 ModelStatus = Literal["used", "unavailable", "invalid_output", "not_configured"]
-FeedbackAction = Literal["accept", "edit", "reject", "mark_wrong"]
 MeetingType = Literal["intro", "internal", "customer", "investor", "candidate", "vendor", "partner", "board", "legal_hr", "personal", "other"]
 DraftType = Literal["accept", "decline", "clarify", "defer"]
 
@@ -127,34 +125,12 @@ class RuleViolation(StrictModel):
     message: str
 
 
-class DecisionFeedback(StrictModel):
-    action: FeedbackAction
-    recommendation_id: str | None = None
-    notes: str | None = None
-
-
-class DecisionLogEntry(DecisionFeedback):
-    id: str = Field(default_factory=lambda: str(uuid4()))
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-
-
 class ParseRequestPayload(StrictModel):
     raw_text: str = Field(min_length=1)
 
 
-class RecommendationPayload(StrictModel):
+class ParseRequestResponse(StrictModel):
     parsed_request: ParsedMeetingRequest
-    rules: ExecutiveRules
-    calendar_blocks: list[CalendarBlock] = Field(default_factory=list)
-
-
-class DraftPayload(StrictModel):
     recommendation: Recommendation
-
-
-class DecisionsResponse(StrictModel):
-    decisions: list[DecisionLogEntry]
-
-
-class CalendarResponse(StrictModel):
-    blocks: list[CalendarBlock]
+    draft_response: DraftResponse
+    next_steps: list[str] = Field(min_length=1)

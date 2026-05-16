@@ -1,10 +1,29 @@
-from app.llm.schemas import ExecutiveRules, RuleViolation
-from app.services.rules import default_rules as app_default_rules
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+from app.llm.schemas import ExecutiveRules, ProtectedBlock, RuleViolation, WorkingHours
 
 
 class RulesEngine:
     def default_rules(self) -> ExecutiveRules:
-        return ExecutiveRules.model_validate(app_default_rules().model_dump())
+        tz = ZoneInfo("America/Los_Angeles")
+        return ExecutiveRules(
+            executive_name="Executive",
+            timezone="America/Los_Angeles",
+            working_hours=WorkingHours(start="09:00", end="17:00"),
+            protected_blocks=[
+                ProtectedBlock(
+                    label="Focus block",
+                    start=datetime(2026, 5, 11, 9, 0, tzinfo=tz),
+                    end=datetime(2026, 5, 11, 11, 0, tzinfo=tz),
+                )
+            ],
+            preferences=[
+                "Prefer customer and investor requests before 2 PM.",
+                "Ask for clarification when requester, purpose, or duration is missing.",
+                "Do not perform external calendar or email actions automatically.",
+            ],
+        )
 
     def validate(self, rules: ExecutiveRules) -> list[RuleViolation]:
         violations: list[RuleViolation] = []

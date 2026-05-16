@@ -2,11 +2,10 @@ FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    DATABASE_URL=sqlite:////app/data/deskclaw.db \
-    LLM_MODE=ollama \
-    OLLAMA_BASE_URL=http://ollama:11434 \
-    OLLAMA_MODEL=gemma4:latest \
-    WARM_OLLAMA_ON_STARTUP=true
+    AI_PROVIDER=mock \
+    AI_MODEL=deterministic \
+    AI_API_ENDPOINT= \
+    WARM_MODEL_ON_STARTUP=false
 
 WORKDIR /app
 
@@ -18,7 +17,7 @@ COPY app ./app
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir .
 
-RUN mkdir -p /app/data && chown -R app:app /app
+RUN chown -R app:app /app
 USER app
 
 EXPOSE 8000

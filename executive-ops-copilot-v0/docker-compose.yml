@@ -1,50 +1,17 @@
 services:
-  ollama:
-    image: ollama/ollama:latest
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama-data:/root/.ollama
-    healthcheck:
-      test: ["CMD", "ollama", "list"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-
-  ollama-model:
-    image: ollama/ollama:latest
-    depends_on:
-      ollama:
-        condition: service_healthy
-    environment:
-      OLLAMA_HOST: http://ollama:11434
-      OLLAMA_MODEL: gemma4:latest
-    entrypoint: ["/bin/sh", "-c"]
-    command: ["ollama pull \"$${OLLAMA_MODEL}\""]
-    volumes:
-      - ollama-data:/root/.ollama
-    restart: "no"
-
   backend:
     build:
       context: ./backend
-    depends_on:
-      ollama:
-        condition: service_healthy
-      ollama-model:
-        condition: service_completed_successfully
     environment:
-      DATABASE_URL: sqlite:////app/data/deskclaw.db
-      LLM_MODE: ollama
-      OLLAMA_BASE_URL: http://ollama:11434
-      OLLAMA_MODEL: gemma4:latest
-      WARM_OLLAMA_ON_STARTUP: "true"
-      OLLAMA_WARMUP_TIMEOUT_SECONDS: "240"
-      ADK_AGENT_TIMEOUT_SECONDS: "180"
+      AI_PROVIDER: ${AI_PROVIDER:-mock}
+      AI_MODEL: ${AI_MODEL:-deterministic}
+      AI_API_ENDPOINT: ${AI_API_ENDPOINT:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      WARM_MODEL_ON_STARTUP: "false"
+      MODEL_WARMUP_TIMEOUT_SECONDS: "30"
+      AI_AGENT_TIMEOUT_SECONDS: "180"
     ports:
       - "8000:8000"
-    volumes:
-      - backend-data:/app/data
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5).read()"]
       interval: 10s
@@ -61,7 +28,3 @@ services:
         condition: service_healthy
     ports:
       - "5173:80"
-
-volumes:
-  backend-data:
-  ollama-data:

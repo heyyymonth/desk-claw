@@ -1,6 +1,7 @@
 from app.agents.scheduling import (
-    AdkSchedulingAgentRunner,
+    NATIVE_AI_RUNTIME,
     AgentRuntimeError,
+    NativeSchedulingAgentRunner,
     SchedulingAgentPlanner,
     create_recommendation_from_plan,
 )
@@ -18,7 +19,7 @@ class RecommendationService:
         risk_classifier: RiskClassifier | None = None,
         rules_engine: RulesEngine | None = None,
         agent_planner: SchedulingAgentPlanner | None = None,
-        agent_runner: AdkSchedulingAgentRunner | None = None,
+        agent_runner: NativeSchedulingAgentRunner | None = None,
     ) -> None:
         self.agent_runner = agent_runner
         self.calendar_analyzer = calendar_analyzer or CalendarAnalyzer()
@@ -54,14 +55,14 @@ class RecommendationService:
                     plan, trace = self.agent_runner.plan_with_trace(parsed_request, rules, calendar_blocks)
                 else:
                     plan = self.agent_runner.plan(parsed_request, rules, calendar_blocks)
-                    trace = _trace("google-adk", plan.agent_name, "used", [])
+                    trace = _trace(NATIVE_AI_RUNTIME, plan.agent_name, "used", [])
                 model_status = "used"
             except AgentRuntimeError as exc:
                 model_status = "unavailable"
-                trace = _trace("google-adk", plan.agent_name, model_status, [])
+                trace = _trace(NATIVE_AI_RUNTIME, plan.agent_name, model_status, [])
                 raise ServiceError(
-                    "adk_model_unavailable",
-                    "Configured ADK recommendation agent is unavailable.",
+                    "ai_model_unavailable",
+                    "Configured native recommendation model is unavailable.",
                     status_code=502,
                     ai_trace=trace,
                 ) from exc

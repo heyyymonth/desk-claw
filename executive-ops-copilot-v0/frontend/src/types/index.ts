@@ -2,6 +2,7 @@ export type Priority = 'low' | 'normal' | 'high' | 'urgent';
 export type Decision = 'schedule' | 'decline' | 'clarify' | 'defer';
 export type RiskLevel = 'low' | 'medium' | 'high';
 export type ModelStatus = 'used' | 'unavailable' | 'invalid_output' | 'not_configured';
+export type ModelProvider = 'openai' | 'anthropic' | 'gemini' | 'mock';
 export type DraftTone = 'concise' | 'warm' | 'firm';
 export type FeedbackDecision = 'accepted' | 'edited' | 'rejected' | 'wrong';
 export type MeetingType =
@@ -84,6 +85,13 @@ export interface DraftResponse {
   model_status: ModelStatus;
 }
 
+export interface ParseRequestResponse {
+  parsed_request: MeetingRequest;
+  recommendation: Recommendation;
+  draft_response: DraftResponse;
+  next_steps: string[];
+}
+
 export interface CalendarContext {
   timezone?: string;
   availability?: TimeWindow[];
@@ -103,67 +111,8 @@ export interface DecisionLogEntry {
 
 export interface HealthStatus {
   status?: string;
-  backend?: string;
-  ollama?: ModelStatus | 'available' | 'unknown' | 'configured';
-  model_status?: ModelStatus;
   model?: string;
-  adk_model?: string;
+  model_provider?: ModelProvider;
   model_runtime?: string;
-}
-
-export interface AiOperationMetric {
-  operation: string;
-  total: number;
-  success_rate: number;
-  adk_coverage: number;
-  avg_latency_ms: number;
-  tool_calls_avg: number;
-  model_status_counts: Record<string, number>;
-}
-
-export interface AiEventSummary {
-  id: string;
-  created_at: string;
-  operation: string;
-  model_name: string;
-  model_status: ModelStatus;
-  runtime: string;
-  agent_name?: string | null;
-  latency_ms: number;
-  status: string;
-  error_code?: string | null;
-  tool_calls: string[];
-}
-
-export interface AiToolMetric {
-  tool_name: string;
-  calls: number;
-  failure_count: number;
-  success_rate: number;
-  avg_latency_ms: number;
-  failure_reasons: Record<string, number>;
-}
-
-export interface AiInsight {
-  severity: 'info' | 'warning' | 'critical';
-  title: string;
-  detail: string;
-  operation?: string;
-  agent_name?: string | null;
-  reason: string;
-}
-
-export interface AiMetrics {
-  total_events: number;
-  success_rate: number;
-  adk_coverage: number;
-  tool_call_coverage: number;
-  avg_latency_ms: number;
-  p95_latency_ms: number;
-  model_status_counts: Record<string, number>;
-  operation_metrics: AiOperationMetric[];
-  tool_metrics: AiToolMetric[];
-  insights: AiInsight[];
-  slowest_events: AiEventSummary[];
-  recent_failures: AiEventSummary[];
+  api_key_configured?: boolean;
 }

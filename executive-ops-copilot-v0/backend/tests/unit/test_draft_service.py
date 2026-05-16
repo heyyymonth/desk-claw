@@ -51,7 +51,7 @@ def test_draft_service_validates_llm_output():
     assert draft.model_status == "used"
 
 
-def test_draft_service_falls_back_without_adk_runner():
+def test_draft_service_falls_back_without_native_runner():
     draft = DraftService().generate(recommendation("decline"))
 
     assert draft.tone == "firm"
@@ -79,14 +79,14 @@ def test_draft_service_guardrails_defer_draft_from_llm():
     assert "9:00 AM" not in draft.body
 
 
-def test_draft_service_reports_unavailable_adk_runner_without_deterministic_fallback():
+def test_draft_service_reports_unavailable_native_runner_without_deterministic_fallback():
     service = DraftService(agent_runner=StubDraftAgent(error=AgentRuntimeError("timeout")))
 
     try:
         service.generate_with_trace(recommendation())
     except Exception as exc:
-        assert getattr(exc, "code", None) == "adk_model_unavailable"
-        assert exc.ai_trace["runtime"] == "google-adk"
+        assert getattr(exc, "code", None) == "ai_model_unavailable"
+        assert exc.ai_trace["runtime"] == "native-agent"
         assert exc.ai_trace["model_status"] == "unavailable"
     else:
-        raise AssertionError("ADK runner failure should surface as a service error")
+        raise AssertionError("native runner failure should surface as a service error")

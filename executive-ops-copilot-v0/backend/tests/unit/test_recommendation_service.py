@@ -86,7 +86,7 @@ def test_recommendation_guardrails_rationale_for_escalation():
     assert recommendation.risk_level == "high"
 
 
-def test_recommendation_prefers_adk_agent_runner_when_configured():
+def test_recommendation_prefers_native_agent_runner_when_configured():
     plan = SchedulingAgentPlanner().plan(parsed_request(), rules(), [])
     runner = StubAgentRunner(plan=plan)
 
@@ -97,15 +97,15 @@ def test_recommendation_prefers_adk_agent_runner_when_configured():
     assert recommendation.rationale == plan.rationale
 
 
-def test_recommendation_reports_unavailable_adk_runner_without_deterministic_fallback():
-    runner = StubAgentRunner(error=AgentRuntimeError("ADK unavailable"))
+def test_recommendation_reports_unavailable_native_runner_without_deterministic_fallback():
+    runner = StubAgentRunner(error=AgentRuntimeError("native unavailable"))
 
     try:
         RecommendationService(agent_runner=runner).generate(parsed_request(), rules(), [])
     except Exception as exc:
-        assert getattr(exc, "code", None) == "adk_model_unavailable"
-        assert exc.ai_trace["runtime"] == "google-adk"
+        assert getattr(exc, "code", None) == "ai_model_unavailable"
+        assert exc.ai_trace["runtime"] == "native-agent"
         assert exc.ai_trace["model_status"] == "unavailable"
         assert exc.ai_trace["agent_name"] == "meeting_resolution_agent"
     else:
-        raise AssertionError("ADK runner failure should surface as a service error")
+        raise AssertionError("native runner failure should surface as a service error")

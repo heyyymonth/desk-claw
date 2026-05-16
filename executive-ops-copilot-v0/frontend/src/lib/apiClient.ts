@@ -1,16 +1,6 @@
 const DEFAULT_API_BASE_URL =
   typeof window === 'undefined' ? 'http://localhost:8000' : `${window.location.protocol}//${window.location.hostname}:8000`;
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL === undefined ? DEFAULT_API_BASE_URL : import.meta.env.VITE_API_BASE_URL;
-const ADMIN_API_KEY = import.meta.env.VITE_ADMIN_API_KEY;
-const ACTOR_AUTH_TOKEN = import.meta.env.VITE_ACTOR_AUTH_TOKEN;
-
-export type ActorIdentity = { actorId: string; email?: string; name?: string };
-
-let currentActorIdentity: ActorIdentity | undefined;
-
-export function setActorIdentity(actor: ActorIdentity) {
-  currentActorIdentity = actor;
-}
 
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -26,22 +16,6 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   return response.json() as Promise<T>;
-}
-
-export function adminHeaders(): HeadersInit {
-  return ADMIN_API_KEY ? { 'X-DeskAI-Admin-Key': ADMIN_API_KEY } : {};
-}
-
-export function actorHeaders(): HeadersInit {
-  if (!ACTOR_AUTH_TOKEN || !currentActorIdentity) {
-    return {};
-  }
-  return {
-    'X-DeskAI-Actor-Token': ACTOR_AUTH_TOKEN,
-    'X-Actor-Id': currentActorIdentity.actorId,
-    ...(currentActorIdentity.email ? { 'X-Actor-Email': currentActorIdentity.email } : {}),
-    ...(currentActorIdentity.name ? { 'X-Actor-Name': currentActorIdentity.name } : {}),
-  };
 }
 
 async function errorMessage(response: Response): Promise<string> {

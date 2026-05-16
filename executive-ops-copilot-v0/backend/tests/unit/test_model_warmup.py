@@ -1,65 +1,50 @@
-import json
-
 import pytest
 
+from app.agents import ModelResponse
 from app.core.settings import Settings
 from app.services import model_warmup
-from app.services.model_warmup import ModelWarmupError, warm_ollama_model
+from app.services.model_warmup import ModelWarmupError, warm_model
 
 
-class StubResponse:
-    def __init__(self, payload: dict) -> None:
-        self.payload = payload
+class StubModelClient:
+    def __init__(self, response: ModelResponse | None = None, error: Exception | None = None) -> None:
+        self.response = response
+        self.error = error
+        self.calls = []
 
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        return False
-
-    def read(self) -> bytes:
-        return json.dumps(self.payload).encode("utf-8")
+    def complete_json(self, *, system_prompt, payload, timeout_seconds):
+        self.calls.append({"system_prompt": system_prompt, "payload": payload, "timeout_seconds": timeout_seconds})
+        if self.error:
+            raise self.error
+        return self.response
 
 
 def test_warmup_skips_when_disabled(monkeypatch):
-    monkeypatch.setenv("WARM_OLLAMA_ON_STARTUP", "false")
+    monkeypatch.setenv("WARM_MODEL_ON_STARTUP", "false")
 
-    assert warm_ollama_model(Settings()) == {"status": "skipped", "reason": "warmup_disabled"}
+    assert warm_model(Settings()) == {"status": "skipped", "reason": "warmup_disabled"}
 
 
-def test_warmup_reports_load_timing(monkeypatch):
-    monkeypatch.setenv("LLM_MODE", "ollama")
-    monkeypatch.setenv("WARM_OLLAMA_ON_STARTUP", "true")
+def test_warmup_reports_provider_model_and_latency(monkeypatch):
+    monkeypatch.setenv("WARM_MODEL_ON_STARTUP", "true")
+    monkeypatch.setenv("MODEL_WARMUP_TIMEOUT_SECONDS", "12")
+    client = StubModelClient(ModelResponse(output={"ok": True}, model_name="gpt-5.5", provider="openai"))
 
-    def fake_urlopen(request, timeout):
-        assert request.full_url == "http://localhost:11434/api/chat"
-        assert timeout == 180
-        return StubResponse(
-            {
-                "model": "gemma4:latest",
-                "total_duration": 2_500_000_000,
-                "load_duration": 1_000_000_000,
-            }
-        )
+    monkeypatch.setattr(model_warmup, "build_model_client", lambda **kwargs: client)
 
-    monkeypatch.setattr(model_warmup.urllib.request, "urlopen", fake_urlopen)
-
-    result = warm_ollama_model(Settings())
+    result = warm_model(Settings())
 
     assert result["status"] == "ready"
-    assert result["model"] == "gemma4:latest"
-    assert result["ollama_total_seconds"] == 2.5
-    assert result["ollama_load_seconds"] == 1.0
+    assert result["provider"] == "openai"
+    assert result["model"] == "gpt-5.5"
+    assert result["elapsed_seconds"] >= 0
+    assert client.calls[0]["timeout_seconds"] == 12
 
 
-def test_warmup_surfaces_ollama_failure(monkeypatch):
-    monkeypatch.setenv("LLM_MODE", "ollama")
-    monkeypatch.setenv("WARM_OLLAMA_ON_STARTUP", "true")
+def test_warmup_surfaces_model_failure(monkeypatch):
+    monkeypatch.setenv("WARM_MODEL_ON_STARTUP", "true")
+    client = StubModelClient(error=OSError("connection refused"))
+    monkeypatch.setattr(model_warmup, "build_model_client", lambda **kwargs: client)
 
-    def fake_urlopen(request, timeout):
-        raise OSError("connection refused")
-
-    monkeypatch.setattr(model_warmup.urllib.request, "urlopen", fake_urlopen)
-
-    with pytest.raises(ModelWarmupError, match="Ollama warmup failed"):
-        warm_ollama_model(Settings())
+    with pytest.raises(ModelWarmupError, match="Model warmup failed"):
+        warm_model(Settings())

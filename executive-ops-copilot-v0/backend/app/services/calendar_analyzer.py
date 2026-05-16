@@ -1,17 +1,9 @@
 from datetime import timedelta
 
 from app.llm.schemas import CalendarAnalysis, CalendarBlock, ProposedSlot, TimeWindow
-from app.services.calendar import mock_calendar
 
 
 class CalendarAnalyzer:
-    @staticmethod
-    def mock_blocks() -> list[CalendarBlock]:
-        return [
-            CalendarBlock(title=event.title, start=event.start, end=event.end, busy=True)
-            for event in mock_calendar()
-        ]
-
     def analyze(
         self,
         request_windows: list[TimeWindow],

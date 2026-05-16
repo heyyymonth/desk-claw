@@ -1,10 +1,15 @@
-from app.agents.scheduling import AdkDraftAgentRunner, AgentRuntimeError, deterministic_draft_response
+from app.agents.scheduling import (
+    NATIVE_AI_RUNTIME,
+    AgentRuntimeError,
+    NativeDraftAgentRunner,
+    deterministic_draft_response,
+)
 from app.core.errors import ServiceError
 from app.llm.schemas import DraftResponse, Recommendation
 
 
 class DraftService:
-    def __init__(self, agent_runner: AdkDraftAgentRunner | None = None) -> None:
+    def __init__(self, agent_runner: NativeDraftAgentRunner | None = None) -> None:
         self.agent_runner = agent_runner
 
     def generate(self, recommendation: Recommendation) -> DraftResponse:
@@ -18,12 +23,12 @@ class DraftService:
                     draft, trace = self.agent_runner.generate_with_trace(recommendation)
                 else:
                     draft = self.agent_runner.generate(recommendation)
-                    trace = _adk_trace("meeting_draft_agent")
+                    trace = _native_trace("meeting_draft_agent")
             except AgentRuntimeError as exc:
-                trace = _adk_trace("meeting_draft_agent", status="unavailable")
+                trace = _native_trace("meeting_draft_agent", status="unavailable")
                 raise ServiceError(
-                    "adk_model_unavailable",
-                    "Configured ADK draft agent is unavailable.",
+                    "ai_model_unavailable",
+                    "Configured native draft model is unavailable.",
                     status_code=502,
                     ai_trace=trace,
                 ) from exc
@@ -50,8 +55,8 @@ class DraftService:
         return deterministic_draft_response(recommendation, model_status)
 
 
-def _adk_trace(agent_name: str, status: str = "used") -> dict:
-    return {"runtime": "google-adk", "agent_name": agent_name, "model_status": status, "tool_calls": []}
+def _native_trace(agent_name: str, status: str = "used") -> dict:
+    return {"runtime": NATIVE_AI_RUNTIME, "agent_name": agent_name, "model_status": status, "tool_calls": []}
 
 
 def _fallback_trace() -> dict:

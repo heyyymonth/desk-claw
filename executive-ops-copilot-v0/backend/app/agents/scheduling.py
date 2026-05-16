@@ -1,12 +1,10 @@
-import contextlib
-import io
 import json
-import multiprocessing
-import os
-import queue
-import threading
+import re
+import urllib.error
+import urllib.request
+from dataclasses import dataclass
 from datetime import datetime, timedelta
-from uuid import uuid4
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field, ValidationError
@@ -29,9 +27,17 @@ from app.services.calendar_analyzer import CalendarAnalyzer
 from app.services.risk_classifier import RiskClassifier
 from app.services.rules_engine import RulesEngine
 
-DEFAULT_OLLAMA_MODEL = "gemma4:latest"
-DEFAULT_ADK_MODEL = f"ollama_chat/{DEFAULT_OLLAMA_MODEL}"
-_SCHEDULING_TOOL_PAYLOADS: dict[str, dict] = {}
+DEFAULT_MODEL_PROVIDER = "openai"
+DEFAULT_OPENAI_MODEL = "gpt-5.5"
+DEFAULT_ANTHROPIC_MODEL = "claude-opus-4-7"
+DEFAULT_GEMINI_MODEL = "gemini-3-pro-preview"
+DEFAULT_MODEL_NAME = DEFAULT_OPENAI_MODEL
+DEFAULT_MODEL_ENDPOINTS = {
+    "openai": "https://api.openai.com/v1/responses",
+    "anthropic": "https://api.anthropic.com/v1/messages",
+    "gemini": "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+}
+NATIVE_AI_RUNTIME = "native-agent"
 
 
 class AgentToolDefinition(BaseModel):
@@ -73,10 +79,81 @@ class AgentRuntimeError(RuntimeError):
     pass
 
 
+@dataclass(frozen=True)
+class ModelResponse:
+    output: dict[str, Any]
+    model_name: str
+    provider: str
+
+
+class ModelClient:
+    def complete_json(self, *, system_prompt: str, payload: dict[str, Any], timeout_seconds: float) -> ModelResponse:
+        raise NotImplementedError
+
+
+class OpenAIModelClient(ModelClient):
+    def __init__(
+        self,
+        model: str = DEFAULT_MODEL_NAME,
+        api_key: str | None = None,
+        endpoint: str = DEFAULT_MODEL_ENDPOINTS["openai"],
+    ) -> None:
+        self.model = model
+        self.api_key = api_key
+        self.endpoint = endpoint
+
+    def complete_json(self, *, system_prompt: str, payload: dict[str, Any], timeout_seconds: float) -> ModelResponse:
+        if not self.api_key:
+            raise AgentRuntimeError("OPENAI_API_KEY is not configured.")
+        request_payload = {
+            "model": self.model,
+            "input": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": json.dumps(payload, default=str)},
+            ],
+            "text": {"format": {"type": "json_object"}},
+        }
+        request = urllib.request.Request(
+            self.endpoint,
+            data=json.dumps(request_payload).encode("utf-8"),
+            headers={"Content-Type": "application/json", "Authorization": f"Bearer {self.api_key}"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+                body = json.loads(response.read().decode("utf-8"))
+        except (OSError, urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+            raise AgentRuntimeError(f"OpenAI model request failed for {self.model}: {exc}") from exc
+
+        content = _openai_response_text(body)
+        return ModelResponse(output=_loads_json_object(content), model_name=body.get("model", self.model), provider="openai")
+
+
+class UnsupportedProviderModelClient(ModelClient):
+    def __init__(self, provider: str, model: str) -> None:
+        self.provider = provider
+        self.model = model
+
+    def complete_json(self, *, system_prompt: str, payload: dict[str, Any], timeout_seconds: float) -> ModelResponse:
+        raise AgentRuntimeError(f"Provider {self.provider!r} is configured but not linked for model calls yet.")
+
+
+def build_model_client(
+    *,
+    provider: str = DEFAULT_MODEL_PROVIDER,
+    model: str = DEFAULT_MODEL_NAME,
+    api_key: str | None = None,
+    endpoint: str | None = None,
+) -> ModelClient:
+    if provider == "openai":
+        return OpenAIModelClient(model=model, api_key=api_key, endpoint=endpoint or DEFAULT_MODEL_ENDPOINTS["openai"])
+    return UnsupportedProviderModelClient(provider=provider, model=model)
+
+
 scheduling_agent_definition = AgentDefinition(
     name="meeting_resolution_agent",
-    framework="google-adk",
-    role="Resolve meeting clashes and scheduling tradeoffs for executive assistants by reasoning through tool calls.",
+    framework=NATIVE_AI_RUNTIME,
+    role="Resolve meeting clashes and scheduling tradeoffs for executive assistants with repo-owned tool calls.",
     objective=(
         "Plan a safe human-reviewed scheduling action by inspecting request intent, calendar conflicts, "
         "executive rules, urgency, sensitivity, and available alternatives."
@@ -112,16 +189,14 @@ scheduling_agent_definition = AgentDefinition(
 
 request_parser_agent_definition = AgentDefinition(
     name="meeting_request_parser_agent",
-    framework="google-adk",
+    framework=NATIVE_AI_RUNTIME,
     role="Extract structured meeting intent, entities, and time preferences from raw scheduling requests.",
     objective=(
         "Produce a strict ParsedMeetingRequest JSON object from raw intake text while preserving people, "
         "accounts, requester, priority, meeting type, preferred windows, sensitivity, missing fields, "
         "and scheduling constraints."
     ),
-    planning_goal=(
-        "Ground entity and time evidence with independent tools, then return model-produced ParsedMeetingRequest JSON."
-    ),
+    planning_goal="Ground model parsing with deterministic entity and time-evidence tools before schema validation.",
     tools=[
         AgentToolDefinition(
             name="extract_meeting_entities",
@@ -139,15 +214,13 @@ request_parser_agent_definition = AgentDefinition(
 
 draft_agent_definition = AgentDefinition(
     name="meeting_draft_agent",
-    framework="google-adk",
-    role="Draft human-reviewable meeting replies from scheduling recommendations using the configured ADK model.",
+    framework=NATIVE_AI_RUNTIME,
+    role="Draft human-reviewable meeting replies from scheduling recommendations using the configured model.",
     objective=(
         "Generate a concise DraftResponse JSON object that reflects the recommendation decision, "
         "safe action, risk posture, and available slots without leaking sensitive context."
     ),
-    planning_goal=(
-        "Use the guarded draft tool first, then only improve wording while preserving draft_type and safety constraints."
-    ),
+    planning_goal="Start from the guarded deterministic draft, then only improve wording while preserving safety fields.",
     tools=[
         AgentToolDefinition(
             name="compose_guarded_draft",
@@ -158,37 +231,84 @@ draft_agent_definition = AgentDefinition(
 )
 
 
-ADK_AGENT_INSTRUCTION = (
-    "You are meeting_resolution_agent. Call resolve_scheduling_plan exactly once with payload_id copied exactly "
-    "from the user JSON. Return only the tool response JSON. Do not write calendars or send email."
+PARSER_INSTRUCTION = (
+    "Return only one minified JSON object matching ParsedMeetingRequest. Use the supplied entity_evidence and "
+    "time_evidence. Do not invent attendees, times, authorization, or prose. Arrays must be arrays, never null. "
+    "Valid priority values are low, normal, high, urgent. Valid meeting_type values are intro, internal, customer, "
+    "investor, candidate, vendor, partner, board, legal_hr, personal, other. Valid sensitivity values are low, "
+    "medium, high."
+)
+
+SCHEDULING_INSTRUCTION = (
+    "Return only JSON matching the scheduling plan fields. You may improve confidence and rationale, but the backend "
+    "will preserve deterministic decision, risk_level, safe_action, and slot guardrails. Do not write calendars, send "
+    "email, or propose external actions."
+)
+
+DRAFT_INSTRUCTION = (
+    "Return only JSON matching DraftResponse. Preserve draft_type and model_status from the guarded draft unless the "
+    "body wording improves clarity without changing the scheduling decision. Do not expose sensitive details."
 )
 
 
-REQUEST_PARSER_AGENT_INSTRUCTION = (
-    f"{request_parser_agent_definition.objective}\n"
-    f"{request_parser_agent_definition.planning_goal}\n\n"
-    "Use extract_meeting_entities and extract_time_preferences to gather evidence from the raw request. These tools "
-    "are independent, so call them in the same turn when the model supports parallel tool calls. After reviewing the "
-    "tool results, the model must produce the final ParsedMeetingRequest JSON object itself. Do not invent attendees, "
-    "times, authorization, or return prose. If the tool evidence is insufficient, mark missing fields in the JSON. "
-    "A person mentioned as 'from Legal' is an attendee or department signal, not automatically a legal_hr meeting."
-)
+def local_model_name() -> str:
+    return DEFAULT_MODEL_NAME
 
 
-DRAFT_AGENT_INSTRUCTION = (
-    f"{draft_agent_definition.objective}\n"
-    f"{draft_agent_definition.planning_goal}\n\n"
-    "You must call compose_guarded_draft with the recommendation JSON before returning. Return only a JSON object "
-    "matching DraftResponse. Do not expose hidden sensitive details and do not propose slots unless present."
-)
+def default_model_name() -> str:
+    return DEFAULT_MODEL_NAME
 
 
-def local_adk_model_name() -> str:
-    return DEFAULT_ADK_MODEL
+class NativeRequestParserAgentRunner:
+    def __init__(
+        self,
+        model: str = DEFAULT_MODEL_NAME,
+        provider: str = DEFAULT_MODEL_PROVIDER,
+        api_key: str | None = None,
+        endpoint: str | None = None,
+        timeout_seconds: float = 45.0,
+        model_client: ModelClient | None = None,
+    ) -> None:
+        self.provider = provider
+        self.model = model
+        self.timeout_seconds = timeout_seconds
+        self.model_client = model_client or build_model_client(
+            provider=provider,
+            model=model,
+            api_key=api_key,
+            endpoint=endpoint,
+        )
 
+    def parse(self, raw_text: str) -> ParsedMeetingRequest:
+        parsed, _trace = self.parse_with_trace(raw_text)
+        return parsed
 
-def default_adk_model_name() -> str:
-    return DEFAULT_ADK_MODEL
+    def parse_with_trace(self, raw_text: str) -> tuple[ParsedMeetingRequest, dict]:
+        entity_evidence = extract_meeting_entities(raw_text)
+        time_evidence = extract_time_preferences(raw_text)
+        tool_calls = ["extract_meeting_entities", "extract_time_preferences"]
+        try:
+            response = self.model_client.complete_json(
+                system_prompt=PARSER_INSTRUCTION,
+                payload={
+                    "task": "Parse this raw scheduling request.",
+                    "raw_text": raw_text,
+                    "entity_evidence": entity_evidence,
+                    "time_evidence": time_evidence,
+                },
+                timeout_seconds=self.timeout_seconds,
+            )
+            parsed = ParsedMeetingRequest.model_validate(_coerce_parsed_request_output(raw_text, response.output))
+            trace = _native_trace(
+                request_parser_agent_definition.name,
+                "used",
+                tool_calls,
+                model=response.model_name,
+                provider=response.provider,
+            )
+            return parsed, trace
+        except (AgentRuntimeError, ValidationError) as exc:
+            raise AgentRuntimeError("Native request parser could not complete.") from exc
 
 
 class SchedulingAgentPlanner:
@@ -281,18 +401,25 @@ class SchedulingAgentPlanner:
         return risks
 
 
-class AdkSchedulingAgentRunner:
+class NativeSchedulingAgentRunner:
     def __init__(
         self,
-        model: str,
-        ollama_base_url: str | None = None,
-        app_name: str = "desk_ai_scheduling",
+        model: str = DEFAULT_MODEL_NAME,
+        provider: str = DEFAULT_MODEL_PROVIDER,
+        api_key: str | None = None,
+        endpoint: str | None = None,
         timeout_seconds: float = 45.0,
+        model_client: ModelClient | None = None,
     ) -> None:
+        self.provider = provider
         self.model = model
-        self.ollama_base_url = ollama_base_url
-        self.app_name = app_name
         self.timeout_seconds = timeout_seconds
+        self.model_client = model_client or build_model_client(
+            provider=provider,
+            model=model,
+            api_key=api_key,
+            endpoint=endpoint,
+        )
 
     def plan(
         self,
@@ -311,65 +438,30 @@ class AdkSchedulingAgentRunner:
     ) -> tuple[AgentPlanningResult, dict]:
         deterministic_plan = SchedulingAgentPlanner().plan(parsed_request, rules, calendar_blocks)
         try:
-            result = _run_agent_process(
-                "schedule",
-                {
-                    "model": self.model,
-                    "ollama_base_url": self.ollama_base_url,
-                    "app_name": self.app_name,
+            response = self.model_client.complete_json(
+                system_prompt=SCHEDULING_INSTRUCTION,
+                payload={
+                    "task": "Improve the explanation for this guarded scheduling plan.",
                     "parsed_request": parsed_request.model_dump(mode="json"),
                     "rules": rules.model_dump(mode="json"),
                     "calendar_blocks": [block.model_dump(mode="json") for block in calendar_blocks],
+                    "tool_plan": deterministic_plan.model_dump(mode="json"),
                 },
-                self.timeout_seconds,
-                "ADK scheduling agent timed out.",
-                "ADK scheduling agent could not complete a planning run.",
+                timeout_seconds=self.timeout_seconds,
             )
-            output = result["output"]
-            plan = self._merge_model_output(output, deterministic_plan)
-            trace = _agent_run_trace(
-                agent_name=scheduling_agent_definition.name,
-                app_name=self.app_name,
-                model=self.model,
-                tool_calls=result["tool_calls"],
+            plan = self._merge_model_output(response.output, deterministic_plan)
+            return plan, _native_trace(
+                scheduling_agent_definition.name,
+                "used",
+                [call.tool_name for call in deterministic_plan.tool_calls],
+                model=response.model_name,
+                provider=response.provider,
             )
-            return plan, trace
-        except AgentRuntimeError:
-            raise
-
-    def _run_agent(
-        self,
-        agent,
-        parsed_request: ParsedMeetingRequest,
-        rules: ExecutiveRules,
-        calendar_blocks: list[CalendarBlock],
-    ) -> dict:
-        planner_payload = {
-            "parsed_request": parsed_request.model_dump(mode="json"),
-            "rules": rules.model_dump(mode="json"),
-            "calendar_blocks": [block.model_dump(mode="json") for block in calendar_blocks],
-        }
-        payload_id = uuid4().hex
-        _SCHEDULING_TOOL_PAYLOADS[payload_id] = planner_payload
-        try:
-            output, _tool_calls = _run_adk_json_with_tool_calls(
-                agent=agent,
-                app_name=self.app_name,
-                session_prefix="scheduling",
-                payload={
-                    "task": "Resolve this meeting request with tool-backed reasoning.",
-                    "payload_id": payload_id,
-                },
-                max_llm_calls=4,
-                return_on_tool_response=True,
-            )
-            return output
-        finally:
-            _SCHEDULING_TOOL_PAYLOADS.pop(payload_id, None)
+        except (AgentRuntimeError, ValidationError) as exc:
+            raise AgentRuntimeError("Native scheduling agent could not complete.") from exc
 
     def _merge_model_output(self, output: dict, deterministic_plan: AgentPlanningResult) -> AgentPlanningResult:
-        model_decision = output.get("decision", deterministic_plan.decision)
-        decision = model_decision if model_decision == deterministic_plan.decision else deterministic_plan.decision
+        decision = output.get("decision") if output.get("decision") == deterministic_plan.decision else deterministic_plan.decision
         proposed_slots = output.get("proposed_slots", deterministic_plan.proposed_slots)
         if decision != "schedule":
             proposed_slots = []
@@ -396,119 +488,52 @@ class AdkSchedulingAgentRunner:
             return deterministic_plan
 
 
-class AdkRequestParserAgentRunner:
+class NativeDraftAgentRunner:
     def __init__(
         self,
-        model: str = DEFAULT_ADK_MODEL,
-        ollama_base_url: str | None = None,
-        app_name: str = "desk_ai_request_parser",
+        model: str = DEFAULT_MODEL_NAME,
+        provider: str = DEFAULT_MODEL_PROVIDER,
+        api_key: str | None = None,
+        endpoint: str | None = None,
         timeout_seconds: float = 45.0,
+        model_client: ModelClient | None = None,
     ) -> None:
+        self.provider = provider
         self.model = model
-        self.ollama_base_url = ollama_base_url
-        self.app_name = app_name
         self.timeout_seconds = timeout_seconds
-
-    def parse(self, raw_text: str) -> ParsedMeetingRequest:
-        parsed, _trace = self.parse_with_trace(raw_text)
-        return parsed
-
-    def parse_with_trace(self, raw_text: str) -> tuple[ParsedMeetingRequest, dict]:
-        try:
-            result = _run_agent_process(
-                "parse",
-                {
-                    "model": self.model,
-                    "ollama_base_url": self.ollama_base_url,
-                    "app_name": self.app_name,
-                    "raw_text": raw_text,
-                },
-                self.timeout_seconds,
-                "ADK request parser timed out.",
-                "ADK request parser could not complete.",
-            )
-            output = result["output"]
-            parsed = ParsedMeetingRequest.model_validate(output)
-            trace = _agent_run_trace(
-                agent_name=request_parser_agent_definition.name,
-                app_name=self.app_name,
-                model=self.model,
-                tool_calls=result["tool_calls"],
-            )
-            return parsed, trace
-        except AgentRuntimeError:
-            raise
-        except Exception as exc:
-            raise AgentRuntimeError("ADK request parser could not complete.") from exc
-
-    def _run_parse(self, raw_text: str) -> dict:
-        agent = create_adk_request_parser_agent(self.model, self.ollama_base_url)
-        return _run_adk_json(
-            agent=agent,
-            app_name=self.app_name,
-            session_prefix="parse",
-            payload={"task": "Parse this raw scheduling request.", "raw_text": raw_text},
-            max_llm_calls=4,
+        self.model_client = model_client or build_model_client(
+            provider=provider,
+            model=model,
+            api_key=api_key,
+            endpoint=endpoint,
         )
-
-
-class AdkDraftAgentRunner:
-    def __init__(
-        self,
-        model: str = DEFAULT_ADK_MODEL,
-        ollama_base_url: str | None = None,
-        app_name: str = "desk_ai_draft",
-        timeout_seconds: float = 45.0,
-    ) -> None:
-        self.model = model
-        self.ollama_base_url = ollama_base_url
-        self.app_name = app_name
-        self.timeout_seconds = timeout_seconds
 
     def generate(self, recommendation: Recommendation) -> DraftResponse:
         draft, _trace = self.generate_with_trace(recommendation)
         return draft
 
     def generate_with_trace(self, recommendation: Recommendation) -> tuple[DraftResponse, dict]:
+        guarded = deterministic_draft_response(recommendation, "used")
         try:
-            result = _run_agent_process(
-                "draft",
-                {
-                    "model": self.model,
-                    "ollama_base_url": self.ollama_base_url,
-                    "app_name": self.app_name,
+            response = self.model_client.complete_json(
+                system_prompt=DRAFT_INSTRUCTION,
+                payload={
+                    "task": "Improve this safe draft response without changing its decision semantics.",
                     "recommendation": recommendation.model_dump(mode="json"),
+                    "guarded_draft": guarded.model_dump(mode="json"),
                 },
-                self.timeout_seconds,
-                "ADK draft agent timed out.",
-                "ADK draft agent could not complete.",
+                timeout_seconds=self.timeout_seconds,
             )
-            output = result["output"]
-            draft = DraftResponse.model_validate(output)
-            trace = _agent_run_trace(
-                agent_name=draft_agent_definition.name,
-                app_name=self.app_name,
-                model=self.model,
-                tool_calls=result["tool_calls"],
+            draft = DraftResponse.model_validate(response.output)
+            return draft, _native_trace(
+                draft_agent_definition.name,
+                "used",
+                ["compose_guarded_draft"],
+                model=response.model_name,
+                provider=response.provider,
             )
-            return draft, trace
-        except AgentRuntimeError:
-            raise
-        except Exception as exc:
-            raise AgentRuntimeError("ADK draft agent could not complete.") from exc
-
-    def _run_generate(self, recommendation: Recommendation) -> dict:
-        agent = create_adk_draft_agent(self.model, self.ollama_base_url)
-        return _run_adk_json(
-            agent=agent,
-            app_name=self.app_name,
-            session_prefix="draft",
-            payload={
-                "task": "Generate a safe human-reviewable draft response.",
-                "recommendation": recommendation.model_dump(mode="json"),
-            },
-            max_llm_calls=4,
-        )
+        except (AgentRuntimeError, ValidationError) as exc:
+            raise AgentRuntimeError("Native draft agent could not complete.") from exc
 
 
 def create_recommendation_from_plan(plan: AgentPlanningResult, model_status: str = "not_configured") -> Recommendation:
@@ -524,15 +549,8 @@ def create_recommendation_from_plan(plan: AgentPlanningResult, model_status: str
     )
 
 
-def resolve_scheduling_plan(payload_id: str) -> dict:
-    """Resolve a scheduling request using the deterministic planner as an ADK tool boundary.
-
-    Args:
-        payload_id: Short id for the request payload registered by the backend before the ADK run.
-    """
-    payload = _SCHEDULING_TOOL_PAYLOADS.get(payload_id)
-    if payload is None:
-        payload = _loads_json_object(payload_id)
+def resolve_scheduling_plan(payload_id_or_json: str) -> dict:
+    payload = _loads_json_object(payload_id_or_json)
     parsed_request = ParsedMeetingRequest.model_validate(payload["parsed_request"])
     rules = ExecutiveRules.model_validate(payload["rules"])
     calendar_blocks = [CalendarBlock.model_validate(block) for block in payload.get("calendar_blocks", [])]
@@ -545,7 +563,6 @@ def inspect_calendar_conflicts_tool(
     calendar_blocks: list[CalendarBlock],
     duration_minutes: int,
 ) -> dict:
-    """Identify overlapping busy blocks and candidate open slots for a meeting request."""
     analysis = CalendarAnalyzer().analyze(request_windows, calendar_blocks, duration_minutes)
     return analysis.model_dump(mode="json")
 
@@ -555,59 +572,29 @@ def inspect_calendar_conflicts(
     calendar_blocks_json: str,
     duration_minutes: int,
 ) -> dict:
-    """Inspect requested meeting windows against busy calendar blocks and return conflicts plus open slots.
-
-    Args:
-        request_windows_json: JSON array of requested time windows with start and end datetimes.
-        calendar_blocks_json: JSON array of calendar blocks with title, start, end, and busy fields.
-        duration_minutes: Requested meeting duration in minutes.
-    """
-    request_windows = _loads_json_array(request_windows_json)
-    calendar_blocks = _loads_json_array(calendar_blocks_json)
-    windows = [TimeWindow.model_validate(window) for window in request_windows]
-    blocks = [CalendarBlock.model_validate(block) for block in calendar_blocks]
+    windows = [TimeWindow.model_validate(window) for window in _loads_json_array(request_windows_json)]
+    blocks = [CalendarBlock.model_validate(block) for block in _loads_json_array(calendar_blocks_json)]
     return inspect_calendar_conflicts_tool(windows, blocks, duration_minutes)
 
 
 def validate_scheduling_rules_tool(rules: ExecutiveRules) -> dict:
-    """Validate executive scheduling rules before proposing a calendar action."""
     violations = RulesEngine().validate(rules)
     return {"violations": [violation.model_dump(mode="json") for violation in violations]}
 
 
 def validate_scheduling_rules(rules_json: str) -> dict:
-    """Validate executive working hours, protected blocks, and scheduling preferences before action.
-
-    Args:
-        rules_json: JSON object containing executive scheduling rules.
-    """
-    rules = _loads_json_object(rules_json)
-    return validate_scheduling_rules_tool(ExecutiveRules.model_validate(rules))
+    return validate_scheduling_rules_tool(ExecutiveRules.model_validate(_loads_json_object(rules_json)))
 
 
 def classify_priority_and_risk_tool(parsed_request: ParsedMeetingRequest, analysis: CalendarAnalysis) -> dict:
-    """Classify missing-context, calendar-conflict, and priority risks."""
     risks = RiskClassifier().classify(parsed_request, analysis)
     return {"risks": [risk.model_dump(mode="json") for risk in risks]}
 
 
-def classify_priority_and_risk(
-    parsed_request_json: str,
-    analysis_json: str,
-    rule_violations_json: str,
-) -> dict:
-    """Classify meeting risk using request intent, calendar analysis, and rule violations.
-
-    Args:
-        parsed_request_json: JSON object containing the parsed meeting request.
-        analysis_json: JSON object returned by inspect_calendar_conflicts.
-        rule_violations_json: JSON array from validate_scheduling_rules violations.
-    """
-    parsed_request = _loads_json_object(parsed_request_json)
-    analysis = _loads_json_object(analysis_json)
+def classify_priority_and_risk(parsed_request_json: str, analysis_json: str, rule_violations_json: str) -> dict:
+    request = ParsedMeetingRequest.model_validate(_loads_json_object(parsed_request_json))
+    calendar_analysis = CalendarAnalysis.model_validate(_loads_json_object(analysis_json))
     rule_violations = _loads_json_array(rule_violations_json)
-    request = ParsedMeetingRequest.model_validate(parsed_request)
-    calendar_analysis = CalendarAnalysis.model_validate(analysis)
     risks = RiskClassifier().classify(request, calendar_analysis)
     for violation in rule_violations or []:
         message = violation.get("message")
@@ -623,14 +610,10 @@ def classify_priority_and_risk(
         risks.append(Risk(level="medium", message="Request has moderate sensitivity and should be reviewed."))
     if "travel" in request.intent.constraints:
         risks.append(Risk(level="medium", message="Travel context can affect availability and timezone assumptions."))
-    return {
-        "risks": [risk.model_dump(mode="json") for risk in risks],
-        "risk_level": _risk_level(risks, request),
-    }
+    return {"risks": [risk.model_dump(mode="json") for risk in risks], "risk_level": _risk_level(risks, request)}
 
 
 def select_resolution_strategy_tool(parsed_request: ParsedMeetingRequest, analysis: CalendarAnalysis) -> dict:
-    """Select schedule, clarify, defer, or decline for a human-reviewed scheduling workflow."""
     decision = _decision(parsed_request, analysis)
     return {
         "decision": decision,
@@ -641,63 +624,36 @@ def select_resolution_strategy_tool(parsed_request: ParsedMeetingRequest, analys
 
 
 def select_resolution_strategy(parsed_request_json: str, analysis_json: str, risks_json: str) -> dict:
-    """Choose schedule, clarify, defer, or decline with human-review guardrails.
-
-    Args:
-        parsed_request_json: JSON object containing the parsed meeting request.
-        analysis_json: JSON object returned by inspect_calendar_conflicts.
-        risks_json: JSON array returned by classify_priority_and_risk.
-    """
-    parsed_request = _loads_json_object(parsed_request_json)
-    analysis = _loads_json_object(analysis_json)
-    risks = _loads_json_array(risks_json)
-    request = ParsedMeetingRequest.model_validate(parsed_request)
-    calendar_analysis = CalendarAnalysis.model_validate(analysis)
-    risk_models = [Risk.model_validate(risk) for risk in risks]
+    request = ParsedMeetingRequest.model_validate(_loads_json_object(parsed_request_json))
+    calendar_analysis = CalendarAnalysis.model_validate(_loads_json_object(analysis_json))
+    risks = [Risk.model_validate(risk) for risk in _loads_json_array(risks_json)]
     decision = _decision(request, calendar_analysis)
     return {
         "decision": decision,
         "confidence": _confidence(decision, calendar_analysis),
         "rationale": _rationale(request, calendar_analysis),
-        "risks": [risk.model_dump(mode="json") for risk in risk_models],
-        "risk_level": _risk_level(risk_models, request),
+        "risks": [risk.model_dump(mode="json") for risk in risks],
+        "risk_level": _risk_level(risks, request),
         "safe_action": _safe_action(request, decision),
-        "proposed_slots": [
-            slot.model_dump(mode="json") for slot in calendar_analysis.open_slots[:3]
-        ]
+        "proposed_slots": [slot.model_dump(mode="json") for slot in calendar_analysis.open_slots[:3]]
         if decision == "schedule"
         else [],
     }
 
 
 def extract_meeting_entities(raw_text: str) -> dict:
-    """Extract people, requester, organizations, and attendee evidence from scheduling text.
-
-    Args:
-        raw_text: Raw inbound meeting request text.
-    """
     from app.services.request_parser import extract_entity_evidence
 
     return extract_entity_evidence(raw_text)
 
 
 def extract_time_preferences(raw_text: str) -> dict:
-    """Extract weekday, relative-date, and day-part preferred windows from scheduling text.
-
-    Args:
-        raw_text: Raw inbound meeting request text.
-    """
     from app.services.request_parser import extract_time_preference_evidence
 
     return extract_time_preference_evidence(raw_text)
 
 
 def compose_guarded_draft(recommendation_json: str) -> dict:
-    """Compose a safe draft response from a scheduling recommendation.
-
-    Args:
-        recommendation_json: JSON object matching the Recommendation schema.
-    """
     recommendation = Recommendation.model_validate(_loads_json_object(recommendation_json))
     return deterministic_draft_response(recommendation, "used").model_dump(mode="json")
 
@@ -737,284 +693,99 @@ def deterministic_draft_response(recommendation: Recommendation, model_status: s
     )
 
 
-def create_adk_root_agent(model: str = DEFAULT_ADK_MODEL, ollama_base_url: str | None = None):
-    try:
-        from google.adk.agents import Agent
-    except ImportError as exc:
-        raise RuntimeError("Install google-adk to instantiate the ADK root agent.") from exc
-
-    agent_model = _adk_model(model, ollama_base_url)
-    return Agent(
-        model=agent_model,
-        name=scheduling_agent_definition.name,
-        description=scheduling_agent_definition.role,
-        instruction=ADK_AGENT_INSTRUCTION,
-        tools=[resolve_scheduling_plan],
-    )
-
-
-def create_adk_request_parser_agent(model: str = DEFAULT_ADK_MODEL, ollama_base_url: str | None = None):
-    try:
-        from google.adk.agents import Agent
-    except ImportError as exc:
-        raise RuntimeError("Install google-adk to instantiate the ADK request parser agent.") from exc
-
-    return Agent(
-        model=_adk_model(model, ollama_base_url),
-        name=request_parser_agent_definition.name,
-        description=request_parser_agent_definition.role,
-        instruction=REQUEST_PARSER_AGENT_INSTRUCTION,
-        tools=[extract_meeting_entities, extract_time_preferences],
-    )
-
-
-def create_adk_draft_agent(model: str = DEFAULT_ADK_MODEL, ollama_base_url: str | None = None):
-    try:
-        from google.adk.agents import Agent
-    except ImportError as exc:
-        raise RuntimeError("Install google-adk to instantiate the ADK draft agent.") from exc
-
-    return Agent(
-        model=_adk_model(model, ollama_base_url),
-        name=draft_agent_definition.name,
-        description=draft_agent_definition.role,
-        instruction=DRAFT_AGENT_INSTRUCTION,
-        tools=[compose_guarded_draft],
-    )
-
-
-def _adk_model(model: str, ollama_base_url: str | None = None):
-    if model.startswith("ollama_chat/"):
-        if ollama_base_url:
-            os.environ["OLLAMA_API_BASE"] = ollama_base_url
-        try:
-            from google.adk.models.lite_llm import LiteLlm
-        except ImportError as exc:
-            raise RuntimeError("Install google-adk with litellm support to use Ollama-hosted ADK models.") from exc
-        return LiteLlm(model=model)
-    return model
-
-
-def _agent_run_trace(agent_name: str, app_name: str, model: str, tool_calls: list[str]) -> dict:
+def _native_trace(
+    agent_name: str,
+    status: str,
+    tool_calls: list[str],
+    model: str | None = None,
+    provider: str | None = None,
+) -> dict:
     return {
-        "runtime": "google-adk",
+        "runtime": NATIVE_AI_RUNTIME,
         "agent_name": agent_name,
-        "app_name": app_name,
+        "model_status": status,
         "model": model,
-        "model_status": "used",
+        "provider": provider,
         "tool_calls": tool_calls,
     }
 
 
-def _run_agent_process(
-    operation: str,
-    payload: dict,
-    timeout_seconds: float,
-    timeout_message: str,
-    failure_message: str,
-) -> dict:
-    context = multiprocessing.get_context("spawn")
-    result_queue = context.Queue(maxsize=1)
-    process = context.Process(target=_agent_process_entrypoint, args=(operation, payload, result_queue))
-    process.start()
-    process.join(timeout_seconds)
-    if process.is_alive():
-        process.terminate()
-        process.join(5)
-        if process.is_alive():
-            process.kill()
-            process.join()
-        raise AgentRuntimeError(timeout_message)
+def _coerce_parsed_request_output(raw_text: str, output: dict) -> dict:
+    if not isinstance(output, dict):
+        return output
 
-    try:
-        status, result = result_queue.get(timeout=1)
-    except queue.Empty as exc:
-        if process.exitcode == 0:
-            raise AgentRuntimeError(failure_message) from exc
-        raise AgentRuntimeError(f"{failure_message} Exit code: {process.exitcode}.") from exc
+    intent = output.get("intent") if isinstance(output.get("intent"), dict) else {}
+    meeting_request = output.get("meeting_request") if isinstance(output.get("meeting_request"), dict) else {}
 
-    if status == "ok":
-        return result
-    raise AgentRuntimeError(f"{failure_message} {result}")
+    if not intent and not meeting_request:
+        return output
 
+    missing_fields = _string_list(intent.get("missing_fields"))
+    requester = _string_value(intent.get("requester") or meeting_request.get("requester"), "Unknown requester")
+    if requester == "Unknown requester" and "requester" not in missing_fields:
+        missing_fields.append("requester")
 
-def _agent_process_entrypoint(operation: str, payload: dict, result_queue) -> None:
-    stdout = io.StringIO()
-    stderr = io.StringIO()
-    threading.excepthook = lambda args: None
-    try:
-        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-            result_queue.put(("ok", _run_agent_operation(operation, payload)))
-    except Exception as exc:
-        detail = str(exc)
-        captured_stderr = stderr.getvalue().strip()
-        if captured_stderr:
-            detail = f"{detail} {captured_stderr}"
-        result_queue.put(("error", detail))
+    coerced_intent = {
+        "title": _string_value(intent.get("title") or meeting_request.get("subject"), "Meeting request"),
+        "requester": requester,
+        "duration_minutes": _duration_minutes_value(intent.get("duration_minutes") or meeting_request.get("duration"), 30),
+        "priority": _enum_value(intent.get("priority"), {"low", "normal", "high", "urgent"}, "normal"),
+        "meeting_type": _enum_value(
+            intent.get("meeting_type"),
+            {"intro", "internal", "customer", "investor", "candidate", "vendor", "partner", "board", "legal_hr", "personal", "other"},
+            "other",
+        ),
+        "attendees": _string_list(intent.get("attendees") or meeting_request.get("attendees")),
+        "preferred_windows": _time_window_list(intent.get("preferred_windows")),
+        "constraints": _string_list(intent.get("constraints")),
+        "missing_fields": missing_fields,
+        "sensitivity": _enum_value(intent.get("sensitivity"), {"low", "medium", "high"}, "low"),
+    }
+    for key in ("async_candidate", "escalation_required"):
+        if isinstance(intent.get(key), bool):
+            coerced_intent[key] = intent[key]
+    return {"raw_text": _string_value(output.get("raw_text"), raw_text), "intent": coerced_intent}
 
 
-def _run_agent_operation(operation: str, payload: dict) -> dict:
-    model = payload["model"]
-    ollama_base_url = payload.get("ollama_base_url")
-    app_name = payload["app_name"]
-    if operation == "schedule":
-        agent = create_adk_root_agent(model=model, ollama_base_url=ollama_base_url)
-        parsed_request = ParsedMeetingRequest.model_validate(payload["parsed_request"])
-        rules = ExecutiveRules.model_validate(payload["rules"])
-        calendar_blocks = [CalendarBlock.model_validate(block) for block in payload["calendar_blocks"]]
-        planner_payload = {
-            "parsed_request": parsed_request.model_dump(mode="json"),
-            "rules": rules.model_dump(mode="json"),
-            "calendar_blocks": [block.model_dump(mode="json") for block in calendar_blocks],
-        }
-        payload_id = uuid4().hex
-        _SCHEDULING_TOOL_PAYLOADS[payload_id] = planner_payload
-        try:
-            output, tool_calls = _run_adk_json_with_tool_calls(
-                agent=agent,
-                app_name=app_name,
-                session_prefix="scheduling",
-                payload={
-                    "task": "Resolve this meeting request with tool-backed reasoning.",
-                    "payload_id": payload_id,
-                },
-                max_llm_calls=4,
-                return_on_tool_response=True,
-                return_on_tool_names={"resolve_scheduling_plan"},
-            )
-            return {"output": output, "tool_calls": tool_calls}
-        finally:
-            _SCHEDULING_TOOL_PAYLOADS.pop(payload_id, None)
-    if operation == "parse":
-        agent = create_adk_request_parser_agent(model, ollama_base_url)
-        output, tool_calls = _run_adk_json_with_tool_calls(
-            agent=agent,
-            app_name=app_name,
-            session_prefix="parse",
-            payload={"task": "Parse this raw scheduling request.", "raw_text": payload["raw_text"]},
-            max_llm_calls=6,
-        )
-        return {"output": output, "tool_calls": tool_calls}
-    if operation == "draft":
-        agent = create_adk_draft_agent(model, ollama_base_url)
-        recommendation = Recommendation.model_validate(payload["recommendation"])
-        output, tool_calls = _run_adk_json_with_tool_calls(
-            agent=agent,
-            app_name=app_name,
-            session_prefix="draft",
-            payload={
-                "task": "Generate a safe human-reviewable draft response.",
-                "recommendation": recommendation.model_dump(mode="json"),
-            },
-            max_llm_calls=4,
-            return_on_tool_response=True,
-            return_on_tool_names={"compose_guarded_draft"},
-        )
-        return {"output": output, "tool_calls": tool_calls}
-    raise AgentRuntimeError(f"Unsupported ADK operation: {operation}")
+def _string_value(value, default: str) -> str:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return default
 
 
-def _run_adk_json(agent, app_name: str, session_prefix: str, payload: dict, max_llm_calls: int) -> dict:
-    output, _tool_calls = _run_adk_json_with_tool_calls(agent, app_name, session_prefix, payload, max_llm_calls)
-    return output
+def _string_list(value) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
 
 
-def _run_adk_json_with_tool_calls(
-    agent,
-    app_name: str,
-    session_prefix: str,
-    payload: dict,
-    max_llm_calls: int,
-    return_on_tool_response: bool = False,
-    return_on_tool_names: set[str] | None = None,
-) -> tuple[dict, list[str]]:
-    try:
-        from google.adk.runners import RunConfig, Runner
-        from google.adk.sessions import InMemorySessionService
-        from google.genai import types
-    except ImportError as exc:
-        raise AgentRuntimeError("Install google-adk to run the local agent.") from exc
-
-    session_service = InMemorySessionService()
-    user_id = "desk-ai-local-user"
-    session_id = f"{session_prefix}-{uuid4()}"
-    session_service.create_session(app_name=app_name, user_id=user_id, session_id=session_id)
-    runner = Runner(app_name=app_name, agent=agent, session_service=session_service)
-    message = types.Content(role="user", parts=[types.Part.from_text(text=json.dumps(payload))])
-
-    final_text = ""
-    tool_calls: list[str] = []
-    tool_responses: list[dict] = []
-    events = runner.run(
-        user_id=user_id,
-        session_id=session_id,
-        new_message=message,
-        run_config=RunConfig(max_llm_calls=max_llm_calls),
-    )
-    for event in events:
-        tool_calls.extend(_tool_call_names_from_event(event))
-        response_entries = _tool_response_entries_from_event(event)
-        tool_responses.extend(response for _name, response in response_entries)
-        matching_response = next(
-            (
-                response
-                for name, response in response_entries
-                if return_on_tool_names is None or name in return_on_tool_names
-            ),
-            None,
-        )
-        if return_on_tool_response and matching_response is not None:
-            close = getattr(events, "close", None)
-            if close:
-                close()
-            return matching_response, _dedupe(tool_calls)
-        if event.content is None:
-            continue
-        for part in event.content.parts or []:
-            if part.text:
-                final_text = part.text
-
-    if not final_text:
-        if tool_responses:
-            return tool_responses[-1], _dedupe(tool_calls)
-        raise AgentRuntimeError("ADK agent returned no final text.")
-    return _loads_json_object(final_text), _dedupe(tool_calls)
+def _enum_value(value, allowed: set[str], default: str) -> str:
+    if not isinstance(value, str):
+        return default
+    normalized = value.strip().lower().replace(" ", "_").replace("-", "_")
+    if normalized == "medium" and default == "normal":
+        return "normal"
+    return normalized if normalized in allowed else default
 
 
-def _tool_call_names_from_event(event) -> list[str]:
-    names: list[str] = []
-    content = getattr(event, "content", None)
-    if content is None:
-        return names
-    for part in getattr(content, "parts", None) or []:
-        function_call = getattr(part, "function_call", None)
-        name = getattr(function_call, "name", None)
-        if name:
-            names.append(name)
-    return names
+def _duration_minutes_value(value, default: int) -> int:
+    if isinstance(value, int):
+        return max(15, min(240, value))
+    if isinstance(value, str):
+        match = re.search(r"\d{1,3}", value)
+        if match:
+            return max(15, min(240, int(match.group(0))))
+    return default
 
 
-def _tool_response_objects_from_event(event) -> list[dict]:
-    return [response for _name, response in _tool_response_entries_from_event(event)]
-
-
-def _tool_response_entries_from_event(event) -> list[tuple[str, dict]]:
-    responses: list[tuple[str, dict]] = []
-    content = getattr(event, "content", None)
-    if content is None:
-        return responses
-    for part in getattr(content, "parts", None) or []:
-        function_response = getattr(part, "function_response", None)
-        if function_response is None:
-            continue
-        payload = getattr(function_response, "response", None)
-        if isinstance(payload, dict):
-            responses.append((getattr(function_response, "name", "") or "", payload))
-    return responses
-
-
-def _dedupe(values: list[str]) -> list[str]:
-    return list(dict.fromkeys(values))
+def _time_window_list(value) -> list[dict]:
+    if not isinstance(value, list):
+        return []
+    windows = []
+    for item in value:
+        if isinstance(item, dict) and isinstance(item.get("start"), str) and isinstance(item.get("end"), str):
+            windows.append({"start": item["start"], "end": item["end"]})
+    return windows
 
 
 def _loads_json_object(text: str) -> dict:
@@ -1027,17 +798,35 @@ def _loads_json_object(text: str) -> dict:
         start = stripped.find("{")
         end = stripped.rfind("}")
         if start == -1 or end == -1 or end <= start:
-            raise AgentRuntimeError("ADK scheduling agent returned non-JSON output.") from exc
+            raise AgentRuntimeError("Native agent returned non-JSON output.") from exc
         value = json.loads(stripped[start : end + 1])
     if not isinstance(value, dict):
-        raise AgentRuntimeError("ADK scheduling agent returned a non-object JSON payload.")
+        raise AgentRuntimeError("Native agent returned a non-object JSON payload.")
     return value
+
+
+def _openai_response_text(body: dict[str, Any]) -> str:
+    if isinstance(body.get("output_text"), str):
+        return body["output_text"]
+    chunks: list[str] = []
+    for item in body.get("output", []):
+        if not isinstance(item, dict):
+            continue
+        for content in item.get("content", []):
+            if not isinstance(content, dict):
+                continue
+            text = content.get("text")
+            if isinstance(text, str):
+                chunks.append(text)
+    if chunks:
+        return "".join(chunks)
+    raise AgentRuntimeError("OpenAI response did not include text output.")
 
 
 def _loads_json_array(text: str) -> list:
     value = json.loads(text)
     if not isinstance(value, list):
-        raise AgentRuntimeError("ADK tool expected a JSON array payload.")
+        raise AgentRuntimeError("Native tool expected a JSON array payload.")
     return value
 
 
@@ -1065,9 +854,7 @@ def _rationale(parsed_request: ParsedMeetingRequest, analysis: CalendarAnalysis)
     if parsed_request.intent.missing_fields:
         return ["Clarification is needed before proposing a time."]
     if analysis.open_slots:
-        return [
-            f"Found {len(analysis.open_slots)} viable slot(s) for a {parsed_request.intent.duration_minutes}-minute meeting."
-        ]
+        return [f"Found {len(analysis.open_slots)} viable slot(s) for a {parsed_request.intent.duration_minutes}-minute meeting."]
     return ["No viable slot was found in the preferred windows."]
 
 

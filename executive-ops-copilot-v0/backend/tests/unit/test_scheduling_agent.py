@@ -1,21 +1,20 @@
 import json
-from pathlib import Path
 
 from app.agents.scheduling import (
-    DEFAULT_ADK_MODEL,
-    AdkSchedulingAgentRunner,
+    DEFAULT_MODEL_NAME,
+    NATIVE_AI_RUNTIME,
+    ModelResponse,
+    NativeDraftAgentRunner,
+    NativeRequestParserAgentRunner,
+    NativeSchedulingAgentRunner,
     SchedulingAgentPlanner,
-    _tool_call_names_from_event,
-    _tool_response_objects_from_event,
+    _coerce_parsed_request_output,
     classify_priority_and_risk,
-    create_adk_draft_agent,
-    create_adk_request_parser_agent,
-    create_adk_root_agent,
-    default_adk_model_name,
+    default_model_name,
     extract_meeting_entities,
     extract_time_preferences,
     inspect_calendar_conflicts,
-    local_adk_model_name,
+    local_model_name,
     request_parser_agent_definition,
     resolve_scheduling_plan,
     scheduling_agent_definition,
@@ -23,6 +22,16 @@ from app.agents.scheduling import (
     validate_scheduling_rules,
 )
 from app.llm.schemas import CalendarBlock, ExecutiveRules, ParsedMeetingRequest, Recommendation
+
+
+class StubModelClient:
+    def __init__(self, output):
+        self.output = output
+        self.calls = []
+
+    def complete_json(self, *, system_prompt, payload, timeout_seconds):
+        self.calls.append({"system_prompt": system_prompt, "payload": payload, "timeout_seconds": timeout_seconds})
+        return ModelResponse(output=self.output, model_name="gpt-5.5", provider="openai")
 
 
 def parsed_request(**intent_updates):
@@ -59,7 +68,7 @@ def rules():
 
 
 def test_agent_definition_names_goals_and_tools():
-    assert scheduling_agent_definition.framework == "google-adk"
+    assert scheduling_agent_definition.framework == NATIVE_AI_RUNTIME
     assert scheduling_agent_definition.name == "meeting_resolution_agent"
     assert [tool.name for tool in scheduling_agent_definition.tools] == [
         "inspect_calendar_conflicts",
@@ -70,72 +79,13 @@ def test_agent_definition_names_goals_and_tools():
     assert "protected executive focus time" in scheduling_agent_definition.planning_goal
 
 
-def test_request_parser_agent_definition_uses_parallelizable_evidence_tools():
-    assert request_parser_agent_definition.framework == "google-adk"
+def test_request_parser_agent_definition_uses_grounding_tools():
+    assert request_parser_agent_definition.framework == NATIVE_AI_RUNTIME
     assert [tool.name for tool in request_parser_agent_definition.tools] == [
         "extract_meeting_entities",
         "extract_time_preferences",
     ]
-    assert "independent tools" in request_parser_agent_definition.planning_goal
-
-
-def test_adk_runner_timeout_boundary_uses_processes_not_threads():
-    source = Path("app/agents/scheduling.py").read_text()
-
-    assert "ThreadPoolExecutor" not in source
-    assert "multiprocessing.get_context" in source
-    assert "process.terminate()" in source
-
-
-def test_adk_tool_call_trace_reads_function_call_events():
-    event = type(
-        "Event",
-        (),
-        {
-            "content": type(
-                "Content",
-                (),
-                {
-                    "parts": [
-                        type("Part", (), {"function_call": type("FunctionCall", (), {"name": "inspect_calendar_conflicts"})()})(),
-                        type("Part", (), {"function_call": type("FunctionCall", (), {"name": "validate_scheduling_rules"})()})(),
-                    ]
-                },
-            )()
-        },
-    )()
-
-    assert _tool_call_names_from_event(event) == ["inspect_calendar_conflicts", "validate_scheduling_rules"]
-
-
-def test_adk_tool_response_trace_reads_function_response_events():
-    event = type(
-        "Event",
-        (),
-        {
-            "content": type(
-                "Content",
-                (),
-                {
-                    "parts": [
-                        type(
-                            "Part",
-                            (),
-                            {
-                                "function_response": type(
-                                    "FunctionResponse",
-                                    (),
-                                    {"response": {"decision": "schedule"}},
-                                )()
-                            },
-                        )(),
-                    ]
-                },
-            )()
-        },
-    )()
-
-    assert _tool_response_objects_from_event(event) == [{"decision": "schedule"}]
+    assert "deterministic entity and time-evidence tools" in request_parser_agent_definition.planning_goal
 
 
 def test_planner_records_tool_calls_and_schedules_open_slot():
@@ -186,25 +136,13 @@ def test_planner_defers_when_requested_window_is_blocked():
     assert any("conflict" in risk.message for risk in plan.risks)
 
 
-def test_create_adk_root_agent_is_adk_compatible_or_reports_missing_dependency():
-    agent = create_adk_root_agent()
-
-    assert agent.name == "meeting_resolution_agent"
-    assert len(agent.tools) == 1
-
-
-def test_adk_agents_default_to_local_gemma4_but_accept_other_models():
-    assert local_adk_model_name() == "ollama_chat/gemma4:latest"
-    assert default_adk_model_name() == "ollama_chat/gemma4:latest"
-    assert DEFAULT_ADK_MODEL == "ollama_chat/gemma4:latest"
-    parser_agent = create_adk_request_parser_agent()
-    assert parser_agent.name == "meeting_request_parser_agent"
-    assert len(parser_agent.tools) == 2
-    assert create_adk_draft_agent().name == "meeting_draft_agent"
-    assert create_adk_root_agent("gemini-2.0-flash").name == "meeting_resolution_agent"
+def test_native_agents_default_to_openai_frontier_model():
+    assert local_model_name() == "gpt-5.5"
+    assert default_model_name() == "gpt-5.5"
+    assert DEFAULT_MODEL_NAME == "gpt-5.5"
 
 
-def test_adk_tool_functions_use_structured_inputs():
+def test_native_tool_functions_use_structured_inputs():
     request = parsed_request()
     analysis = inspect_calendar_conflicts(
         json.dumps([window.model_dump(mode="json") for window in request.intent.preferred_windows]),
@@ -229,24 +167,79 @@ def test_adk_tool_functions_use_structured_inputs():
     assert strategy["decision"] == "schedule"
 
 
-def test_adk_runner_merges_model_reasoning_with_guardrails():
+def test_native_runner_merges_model_reasoning_with_guardrails():
     plan = SchedulingAgentPlanner().plan(parsed_request(), rules(), [])
     output = {
         "decision": "schedule",
         "confidence": 0.93,
-        "rationale": ["ADK reasoned through calendar, rules, risk, and strategy tools."],
+        "rationale": ["Model reasoned through calendar, rules, risk, and strategy tools."],
         "risks": [],
         "risk_level": "low",
         "safe_action": "unsafe_external_write",
         "proposed_slots": [],
     }
 
-    merged = AdkSchedulingAgentRunner(DEFAULT_ADK_MODEL)._merge_model_output(output, plan)
+    merged = NativeSchedulingAgentRunner(model_client=StubModelClient(output))._merge_model_output(output, plan)
 
     assert merged.confidence == 0.93
-    assert merged.rationale == ["ADK reasoned through calendar, rules, risk, and strategy tools."]
+    assert merged.rationale == ["Model reasoned through calendar, rules, risk, and strategy tools."]
     assert merged.safe_action == "propose_slot_for_human_review_before_final_send"
     assert merged.proposed_slots
+
+
+def test_native_parser_runner_sends_grounded_payload_to_model():
+    output = {
+        "raw_text": "Please meet with Acme for 30 minutes tomorrow.",
+        "intent": {
+            "title": "Acme meeting",
+            "requester": "Jordan",
+            "duration_minutes": 30,
+            "priority": "normal",
+            "attendees": ["Jordan", "Acme"],
+            "preferred_windows": [],
+            "constraints": ["tomorrow"],
+            "missing_fields": [],
+        },
+    }
+    client = StubModelClient(output)
+
+    parsed, trace = NativeRequestParserAgentRunner(model_client=client).parse_with_trace(output["raw_text"])
+
+    assert parsed.intent.title == "Acme meeting"
+    assert client.calls[0]["payload"]["entity_evidence"]
+    assert trace["runtime"] == NATIVE_AI_RUNTIME
+    assert trace["tool_calls"] == ["extract_meeting_entities", "extract_time_preferences"]
+
+
+def test_native_draft_runner_returns_model_draft_with_tool_trace():
+    output = {
+        "subject": "Meeting time available",
+        "body": "We can meet Monday at 9:00 AM. Please confirm.",
+        "tone": "warm",
+        "draft_type": "accept",
+        "model_status": "used",
+    }
+    recommendation = Recommendation.model_validate(
+        {
+            "decision": "schedule",
+            "confidence": 0.8,
+            "rationale": ["Works."],
+            "risks": [],
+            "proposed_slots": [
+                {
+                    "start": "2026-05-11T09:00:00-07:00",
+                    "end": "2026-05-11T09:30:00-07:00",
+                    "reason": "Open slot",
+                }
+            ],
+            "model_status": "used",
+        }
+    )
+
+    draft, trace = NativeDraftAgentRunner(model_client=StubModelClient(output)).generate_with_trace(recommendation)
+
+    assert draft.subject == "Meeting time available"
+    assert trace["tool_calls"] == ["compose_guarded_draft"]
 
 
 def test_request_parser_entity_and_time_tools_ground_customer_renewal_request():
@@ -268,3 +261,24 @@ def test_request_parser_entity_and_time_tools_ground_customer_renewal_request():
     assert len(time_preferences["preferred_windows"]) == 2
     assert time_preferences["preferred_windows"][0]["start"] == "2026-05-12T13:00:00-07:00"
     assert time_preferences["preferred_windows"][1]["start"] == "2026-05-13T09:00:00-07:00"
+
+
+def test_request_parser_coerces_common_model_json_to_schema_shape():
+    output = {
+        "intent": {"action": "schedule_meeting", "missing_fields": None},
+        "meeting_request": {
+            "subject": "Executive prep: Vendor contract renewal",
+            "duration": "30 minutes",
+            "attendees": ["Dana from Legal"],
+        },
+        "datetime": {"date": "tomorrow", "time_window": "afternoon"},
+    }
+
+    coerced = _coerce_parsed_request_output("Please schedule prep with Dana.", output)
+    parsed = ParsedMeetingRequest.model_validate(coerced)
+
+    assert parsed.intent.title == "Executive prep: Vendor contract renewal"
+    assert parsed.intent.duration_minutes == 30
+    assert parsed.intent.priority == "normal"
+    assert parsed.intent.attendees == ["Dana from Legal"]
+    assert parsed.intent.missing_fields == ["requester"]

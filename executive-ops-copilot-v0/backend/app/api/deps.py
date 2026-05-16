@@ -1,95 +1,36 @@
-from fastapi import Header, HTTPException, status
-
-from app.agents.scheduling import AdkDraftAgentRunner, AdkRequestParserAgentRunner, AdkSchedulingAgentRunner
+from app.agents.scheduling import NativeDraftAgentRunner, NativeRequestParserAgentRunner, NativeSchedulingAgentRunner
 from app.core.settings import get_settings
-from app.db.audit import ActorContext, AuditRepository
-from app.db.decision_log import DecisionLogRepository
-from app.db.session import Database
-from app.services.audit_service import AuditService
-from app.services.decision_log import DecisionLogService
+from app.llm.schemas import CalendarBlock, ExecutiveRules
+from app.services.ai_config_service import current_model_client_kwargs
 from app.services.draft_service import DraftService
 from app.services.recommendation_service import RecommendationService
 from app.services.request_parser import RequestParser
-from app.services.telemetry_service import TelemetryService
-from app.services.workflow_decision_log import WorkflowDecisionLogService
+from app.services.rules_engine import RulesEngine
 
 
-def get_adk_agent_runner(runner_class):
+def get_native_agent_runner(runner_class):
     settings = get_settings()
-    if settings.agent_runtime != "adk" or settings.llm_mode == "mock":
+    model_config = current_model_client_kwargs(settings)
+    if settings.agent_runtime != "native" or model_config["provider"] == "mock":
         return None
-    return runner_class(settings.adk_model, settings.ollama_base_url, timeout_seconds=settings.adk_agent_timeout_seconds)
-
-
-def get_database() -> Database:
-    return Database(get_settings().database_url)
-
-
-def get_actor_context(
-    x_actor_id: str | None = Header(default=None),
-    x_actor_email: str | None = Header(default=None),
-    x_actor_name: str | None = Header(default=None),
-    x_deskai_actor_token: str | None = Header(default=None),
-) -> ActorContext:
-    actor_auth_token = get_settings().actor_auth_token
-    if not actor_auth_token:
-        return ActorContext()
-    if x_deskai_actor_token != actor_auth_token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Trusted actor authentication is required.",
-        )
-    if not x_actor_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Trusted actor requests must include X-Actor-Id.",
-        )
-    return ActorContext(
-        actor_id=x_actor_id,
-        email=x_actor_email,
-        display_name=x_actor_name,
-    )
-
-
-def require_admin_access(
-    x_deskai_admin_key: str | None = Header(default=None),
-) -> None:
-    admin_api_key = get_settings().admin_api_key
-    if not admin_api_key:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Admin API access is not configured.",
-        )
-    if x_deskai_admin_key != admin_api_key:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Admin API access is required.",
-        )
-
-
-def get_audit_service() -> AuditService:
-    return AuditService(AuditRepository(get_database()))
-
-
-def get_telemetry_service() -> TelemetryService:
-    return TelemetryService(AuditRepository(get_database()))
+    return runner_class(**model_config, timeout_seconds=settings.ai_agent_timeout_seconds)
 
 
 def get_request_parser() -> RequestParser:
-    return RequestParser(agent_runner=get_adk_agent_runner(AdkRequestParserAgentRunner))
+    return RequestParser(agent_runner=get_native_agent_runner(NativeRequestParserAgentRunner))
 
 
 def get_recommendation_service() -> RecommendationService:
-    return RecommendationService(agent_runner=get_adk_agent_runner(AdkSchedulingAgentRunner))
+    return RecommendationService(agent_runner=get_native_agent_runner(NativeSchedulingAgentRunner))
 
 
 def get_draft_service() -> DraftService:
-    return DraftService(agent_runner=get_adk_agent_runner(AdkDraftAgentRunner))
+    return DraftService(agent_runner=get_native_agent_runner(NativeDraftAgentRunner))
 
 
-def get_decision_log_service() -> DecisionLogService:
-    return DecisionLogService(get_database())
+def get_rules() -> ExecutiveRules:
+    return RulesEngine().default_rules()
 
 
-def get_workflow_decision_log_service() -> WorkflowDecisionLogService:
-    return WorkflowDecisionLogService(DecisionLogRepository(get_database()))
+def get_calendar_blocks() -> list[CalendarBlock]:
+    return []

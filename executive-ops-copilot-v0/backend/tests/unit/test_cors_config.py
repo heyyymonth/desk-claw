@@ -19,8 +19,8 @@ def test_cors_defaults_allow_local_vite_origins(monkeypatch):
     assert "http://127.0.0.1:5174" in origins
 
 
-def test_cors_allows_configured_pages_origin(monkeypatch):
-    monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "https://heyyymonth.github.io, https://desk-ai.example.com")
+def test_cors_allows_configured_frontend_origin(monkeypatch):
+    monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "https://heyyymonth.github.io, https://request-parser.example.com")
     get_settings.cache_clear()
 
     try:

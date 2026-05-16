@@ -3,18 +3,12 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "executive-ops-copilot-backend"
+name = "agentic-request-parser-backend"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
-  "Deprecated>=1.2.14",
   "fastapi>=0.110",
-  "google-adk==0.4.0",
-  "litellm>=1.65.5",
-  "psycopg[binary]>=3.2",
   "pydantic>=2.7",
-  "pyyaml>=6.0",
-  "tabulate>=0.9",
   "uvicorn[standard]>=0.29",
 ]
 
@@ -25,21 +19,12 @@ dev = [
   "httpx>=0.27",
   "ruff>=0.8.0",
 ]
-evals = [
-  "pandas>=2.2",
-]
-
 [tool.setuptools.packages.find]
 include = ["app*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-addopts = ["-m", "not evals and not postgres"]
-markers = [
-  "evals: tests that execute ADK eval flows and are excluded from the default test suite",
-  "postgres: tests that require a live PostgreSQL database",
-]
 
 [tool.ruff]
 line-length = 120
