@@ -48,7 +48,7 @@ def test_parse_request_requires_native_runner():
     assert exc.value.ai_trace["model_status"] == "not_configured"
 
 
-def test_parse_request_normalizes_native_output_with_grounded_entities_and_windows():
+def test_parse_request_preserves_native_model_output_without_algorithmic_override():
     raw_text = (
         "Hi Morgan's team, can you find 30 minutes this week for Dana Patel from Atlas Finance "
         "to discuss renewal risk and contract timing with Morgan? Tuesday afternoon or Wednesday "
@@ -72,11 +72,11 @@ def test_parse_request_normalizes_native_output_with_grounded_entities_and_windo
 
     parsed = RequestParser(agent_runner=StubParserAgent(native_output)).parse(raw_text)
 
-    assert parsed.intent.requester == "Dana Patel"
-    assert {"Dana Patel", "Morgan", "Priya"}.issubset(set(parsed.intent.attendees))
-    assert parsed.intent.meeting_type == "customer"
-    assert parsed.intent.sensitivity == "medium"
-    assert len(parsed.intent.preferred_windows) == 2
+    assert parsed.intent.requester == "Atlas Finance"
+    assert parsed.intent.attendees == []
+    assert parsed.intent.meeting_type == "legal_hr"
+    assert parsed.intent.sensitivity == "high"
+    assert parsed.intent.preferred_windows == []
 
 
 def test_parse_request_reports_unavailable_native_runner_without_fallback():
@@ -88,6 +88,25 @@ def test_parse_request_reports_unavailable_native_runner_without_fallback():
     assert getattr(exc.value, "code", None) == "ai_model_unavailable"
     assert exc.value.ai_trace["runtime"] == "native-agent"
     assert exc.value.ai_trace["model_status"] == "unavailable"
+
+
+def test_parse_request_reports_invalid_model_schema_output():
+    trace = {
+        "runtime": "native-agent",
+        "model_status": "invalid_output",
+        "provider": "ollama",
+        "model": "gemma4",
+        "schema": "ParsedMeetingRequest",
+        "output_preview": '{"title":"missing intent"}',
+    }
+
+    with pytest.raises(Exception) as exc:
+        RequestParser(agent_runner=StubParserAgent(error=AgentRuntimeError("bad schema", model_status="invalid_output", ai_trace=trace))).parse_with_trace(
+            "Please schedule 30 minutes with Alex Tuesday afternoon."
+        )
+
+    assert getattr(exc.value, "code", None) == "ai_model_invalid_output"
+    assert exc.value.ai_trace == trace
 
 
 def test_parsed_request_rejects_invalid_priority():

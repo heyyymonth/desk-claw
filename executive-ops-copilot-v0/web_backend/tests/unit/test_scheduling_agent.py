@@ -26,12 +26,15 @@ from app.llm.schemas import CalendarBlock, ExecutiveRules, ParsedMeetingRequest,
 
 class StubModelClient:
     def __init__(self, output):
-        self.output = output
+        self.outputs = output if isinstance(output, list) else [output]
+        self.index = 0
         self.calls = []
 
     def complete_json(self, *, system_prompt, payload, timeout_seconds):
         self.calls.append({"system_prompt": system_prompt, "payload": payload, "timeout_seconds": timeout_seconds})
-        return ModelResponse(output=self.output, model_name="gpt-5.5", provider="openai")
+        output = self.outputs[min(self.index, len(self.outputs) - 1)]
+        self.index += 1
+        return ModelResponse(output=output, model_name="gpt-5.5", provider="openai")
 
 
 def parsed_request(**intent_updates):
@@ -187,28 +190,48 @@ def test_native_runner_merges_model_reasoning_with_guardrails():
     assert merged.proposed_slots
 
 
-def test_native_parser_runner_sends_grounded_payload_to_model():
-    output = {
+def test_native_parser_runner_uses_model_first_focused_calls_without_algorithmic_evidence():
+    compose_output = {
         "raw_text": "Please meet with Acme for 30 minutes tomorrow.",
         "intent": {
             "title": "Acme meeting",
-            "requester": "Jordan",
-            "duration_minutes": 30,
+            "requester": "Wrong requester",
+            "duration_minutes": 60,
             "priority": "normal",
-            "attendees": ["Jordan", "Acme"],
+            "attendees": ["From Jordan"],
             "preferred_windows": [],
             "constraints": ["tomorrow"],
             "missing_fields": [],
         },
     }
-    client = StubModelClient(output)
+    client = StubModelClient(
+        [
+            {"requester": "Jordan", "missing": False},
+            {"attendees": ["Acme"]},
+            {"duration_minutes": 30, "missing": False},
+            {"priority": "high", "rationale": "Customer context."},
+            compose_output,
+        ]
+    )
 
-    parsed, trace = NativeRequestParserAgentRunner(model_client=client).parse_with_trace(output["raw_text"])
+    parsed, trace = NativeRequestParserAgentRunner(model_client=client).parse_with_trace(compose_output["raw_text"])
 
     assert parsed.intent.title == "Acme meeting"
-    assert client.calls[0]["payload"]["entity_evidence"]
+    assert parsed.intent.requester == "Jordan"
+    assert parsed.intent.attendees == ["Acme"]
+    assert parsed.intent.duration_minutes == 30
+    assert parsed.intent.priority == "high"
+    assert len(client.calls) == 5
+    assert all("entity_evidence" not in call["payload"] for call in client.calls)
+    assert all("time_evidence" not in call["payload"] for call in client.calls)
     assert trace["runtime"] == NATIVE_AI_RUNTIME
-    assert trace["tool_calls"] == ["extract_meeting_entities", "extract_time_preferences"]
+    assert trace["tool_calls"] == [
+        "model_extract_requester",
+        "model_extract_attendees",
+        "model_extract_duration",
+        "model_classify_priority",
+        "model_compose_parsed_request",
+    ]
 
 
 def test_native_draft_runner_returns_model_draft_with_tool_trace():
@@ -280,5 +303,66 @@ def test_request_parser_coerces_common_model_json_to_schema_shape():
     assert parsed.intent.title == "Executive prep: Vendor contract renewal"
     assert parsed.intent.duration_minutes == 30
     assert parsed.intent.priority == "normal"
-    assert parsed.intent.attendees == ["Dana from Legal"]
+    assert parsed.intent.attendees == ["Dana"]
     assert parsed.intent.missing_fields == ["requester"]
+
+
+def test_request_parser_coerces_flat_gemma_json_to_schema_shape():
+    output = {
+        "requester": "Unknown requester",
+        "attendees": ["Alex"],
+        "title": "Launch plan meeting",
+        "meeting_type": "internal",
+        "sensitivity": "low",
+        "priority": "normal",
+        "duration": 30,
+        "preferred_windows": [
+            {
+                "start": "2026-05-19T13:00:00-07:00",
+                "end": "2026-05-19T17:00:00-07:00",
+            }
+        ],
+        "timezone": "America/Los_Angeles",
+    }
+
+    coerced = _coerce_parsed_request_output("Schedule launch plan meeting with Alex Tuesday afternoon.", output)
+    parsed = ParsedMeetingRequest.model_validate(coerced)
+
+    assert parsed.intent.title == "Launch plan meeting"
+    assert parsed.intent.duration_minutes == 30
+    assert parsed.intent.meeting_type == "internal"
+    assert parsed.intent.attendees == ["Alex"]
+    assert parsed.intent.preferred_windows[0].start.isoformat() == "2026-05-19T13:00:00-07:00"
+    assert parsed.intent.missing_fields == ["requester"]
+
+
+def test_request_parser_focused_outputs_clean_attendee_artifacts():
+    output = {
+        "raw_text": "From Jordan at Atlas Finance: can Dana meet for 30 minutes next Tuesday afternoon? Please include Priya from Legal.",
+        "intent": {
+            "title": "Atlas Finance renewal discussion",
+            "requester": "Wrong",
+            "duration_minutes": 60,
+            "priority": "normal",
+            "meeting_type": "customer",
+            "attendees": ["From Jordan"],
+            "preferred_windows": [],
+            "constraints": ["tuesday", "afternoon"],
+            "missing_fields": [],
+            "sensitivity": "medium",
+        },
+    }
+    focused_outputs = {
+        "requester": {"requester": "Jordan", "missing": False},
+        "attendees": {"attendees": ["Dana", "Priya from Legal", "From Jordan", "Dana"]},
+        "duration": {"duration_minutes": 30, "missing": False},
+        "priority": {"priority": "high", "rationale": "Customer renewal risk."},
+    }
+
+    coerced = _coerce_parsed_request_output(output["raw_text"], output, focused_outputs=focused_outputs)
+    parsed = ParsedMeetingRequest.model_validate(coerced)
+
+    assert parsed.intent.requester == "Jordan"
+    assert parsed.intent.attendees == ["Dana", "Priya"]
+    assert parsed.intent.duration_minutes == 30
+    assert parsed.intent.priority == "high"

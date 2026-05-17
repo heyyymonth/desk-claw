@@ -25,6 +25,13 @@ class DraftService:
                     draft = self.agent_runner.generate(recommendation)
                     trace = _native_trace("meeting_draft_agent")
             except AgentRuntimeError as exc:
+                if exc.model_status == "invalid_output":
+                    raise ServiceError(
+                        "ai_model_invalid_output",
+                        "Configured native draft model returned invalid schema output.",
+                        status_code=502,
+                        ai_trace=exc.ai_trace,
+                    ) from exc
                 trace = _native_trace("meeting_draft_agent", status="unavailable")
                 raise ServiceError(
                     "ai_model_unavailable",

@@ -12,7 +12,10 @@ class ServiceError(Exception):
 
 
 async def service_error_handler(_: Request, exc: ServiceError) -> JSONResponse:
+    content = {"error": {"code": exc.code, "message": exc.message}}
+    if exc.ai_trace:
+        content["error"]["details"] = exc.ai_trace
     return JSONResponse(
         status_code=exc.status_code,
-        content={"error": {"code": exc.code, "message": exc.message}},
+        content=content,
     )

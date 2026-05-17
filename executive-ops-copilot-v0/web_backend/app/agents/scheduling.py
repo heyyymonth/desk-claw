@@ -67,7 +67,10 @@ class AgentPlanningResult(BaseModel):
 
 
 class AgentRuntimeError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, model_status: str = "unavailable", ai_trace: dict | None = None) -> None:
+        self.model_status = model_status
+        self.ai_trace = ai_trace or {}
+        super().__init__(message)
 
 
 @dataclass(frozen=True)
@@ -75,6 +78,7 @@ class ModelResponse:
     output: dict[str, Any]
     model_name: str
     provider: str
+    raw_content: str = ""
 
 
 class ModelClient:
@@ -114,7 +118,15 @@ class AiBackendModelClient(ModelClient):
             raise AgentRuntimeError("AI Backend response did not include text content.")
         provider = body.get("provider") if isinstance(body.get("provider"), str) else DEFAULT_MODEL_PROVIDER
         model = body.get("model") if isinstance(body.get("model"), str) else DEFAULT_MODEL_NAME
-        return ModelResponse(output=_loads_json_object(content), model_name=model, provider=provider)
+        try:
+            output = _loads_json_object(content)
+        except AgentRuntimeError as exc:
+            raise AgentRuntimeError(
+                "AI Backend model returned invalid JSON output.",
+                model_status="invalid_output",
+                ai_trace=_model_output_trace(provider, model, content, "json_object", str(exc)),
+            ) from exc
+        return ModelResponse(output=output, model_name=model, provider=provider, raw_content=content)
 
 
 class UnsupportedProviderModelClient(ModelClient):
@@ -215,11 +227,50 @@ draft_agent_definition = AgentDefinition(
 
 
 PARSER_INSTRUCTION = (
-    "Return only one minified JSON object matching ParsedMeetingRequest. Use the supplied entity_evidence and "
-    "time_evidence. Do not invent attendees, times, authorization, or prose. Arrays must be arrays, never null. "
+    "Return only one minified JSON object matching ParsedMeetingRequest with exactly these top-level keys: "
+    "raw_text and intent. intent must contain title, requester, duration_minutes, priority, meeting_type, "
+    "attendees, preferred_windows, constraints, missing_fields, sensitivity, async_candidate, and "
+    "escalation_required. Use only the raw request and provided model outputs. Do not invent attendees, times, "
+    "authorization, or prose. Arrays must be arrays, never null. "
     "Valid priority values are low, normal, high, urgent. Valid meeting_type values are intro, internal, customer, "
     "investor, candidate, vendor, partner, board, legal_hr, personal, other. Valid sensitivity values are low, "
     "medium, high."
+)
+
+REQUESTER_INSTRUCTION = (
+    "You extract only the requester from an executive scheduling request. Return one minified JSON object with "
+    "requester and missing. requester is the person or group making or sending the request. Do not list every "
+    "person mentioned. In text like 'From Jordan at Atlas Finance', requester is 'Jordan'. If no requester is "
+    "present, return requester as 'Unknown requester' and missing as true."
+)
+
+ATTENDEES_INSTRUCTION = (
+    "You extract only meeting attendees from an executive scheduling request. Return one minified JSON object with "
+    "attendees as an array of person names. Attendees are people who should attend the meeting, not phrases, "
+    "companies, dates, or preposition fragments. Do not return strings like 'From Jordan'. Distinguish requester, "
+    "executive, and people to include. If the request asks whether Dana can meet and to include Priya, attendees "
+    "should include Dana and Priya."
+)
+
+DURATION_INSTRUCTION = (
+    "You extract only meeting duration. Return one minified JSON object with duration_minutes and missing. "
+    "duration_minutes must be an integer number of minutes between 15 and 240. If missing, use 30 and set missing true."
+)
+
+PRIORITY_INSTRUCTION = (
+    "You classify only scheduling priority. Return one minified JSON object with priority and rationale. "
+    "priority must be one of low, normal, high, urgent. Use urgent only for explicit same-day, asap, or emergency "
+    "language. Use high for important business, customer, board, investor, legal, confidential, or escalation "
+    "context. Use low for FYI or no-decision requests. Otherwise use normal."
+)
+
+COMPOSE_PARSE_INSTRUCTION = (
+    "Return only one minified JSON object matching ParsedMeetingRequest. Use focused_model_outputs for requester, "
+    "attendees, duration_minutes, and priority; do not override those fields. Fill remaining schema fields from "
+    "the raw request and context. Do not invent facts. preferred_windows must contain ISO datetime start and end "
+    "strings when the request names a usable time window, otherwise an empty array. Arrays must be arrays, never "
+    "null. Valid meeting_type values are intro, internal, customer, investor, candidate, vendor, partner, board, "
+    "legal_hr, personal, other. Valid sensitivity values are low, medium, high."
 )
 
 SCHEDULING_INSTRUCTION = (
@@ -258,21 +309,66 @@ class NativeRequestParserAgentRunner:
         return parsed
 
     def parse_with_trace(self, raw_text: str) -> tuple[ParsedMeetingRequest, dict]:
-        entity_evidence = extract_meeting_entities(raw_text)
-        time_evidence = extract_time_preferences(raw_text)
-        tool_calls = ["extract_meeting_entities", "extract_time_preferences"]
+        context = _model_parse_context(raw_text)
+        tool_calls = [
+            "model_extract_requester",
+            "model_extract_attendees",
+            "model_extract_duration",
+            "model_classify_priority",
+            "model_compose_parsed_request",
+        ]
         try:
+            requester_response = self.model_client.complete_json(
+                system_prompt=REQUESTER_INSTRUCTION,
+                payload=context,
+                timeout_seconds=self.timeout_seconds,
+            )
+            attendees_response = self.model_client.complete_json(
+                system_prompt=ATTENDEES_INSTRUCTION,
+                payload=context,
+                timeout_seconds=self.timeout_seconds,
+            )
+            duration_response = self.model_client.complete_json(
+                system_prompt=DURATION_INSTRUCTION,
+                payload=context,
+                timeout_seconds=self.timeout_seconds,
+            )
+            priority_response = self.model_client.complete_json(
+                system_prompt=PRIORITY_INSTRUCTION,
+                payload=context,
+                timeout_seconds=self.timeout_seconds,
+            )
+            focused_outputs = {
+                "requester": requester_response.output,
+                "attendees": attendees_response.output,
+                "duration": duration_response.output,
+                "priority": priority_response.output,
+            }
             response = self.model_client.complete_json(
-                system_prompt=PARSER_INSTRUCTION,
+                system_prompt=COMPOSE_PARSE_INSTRUCTION,
                 payload={
+                    **context,
                     "task": "Parse this raw scheduling request.",
-                    "raw_text": raw_text,
-                    "entity_evidence": entity_evidence,
-                    "time_evidence": time_evidence,
+                    "focused_model_outputs": focused_outputs,
                 },
                 timeout_seconds=self.timeout_seconds,
             )
-            parsed = ParsedMeetingRequest.model_validate(_coerce_parsed_request_output(raw_text, response.output))
+            try:
+                parsed = ParsedMeetingRequest.model_validate(
+                    _coerce_parsed_request_output(raw_text, response.output, focused_outputs=focused_outputs)
+                )
+            except ValidationError as exc:
+                raise AgentRuntimeError(
+                    "Native request parser returned invalid schema output.",
+                    model_status="invalid_output",
+                    ai_trace=_model_output_trace(
+                        response.provider,
+                        response.model_name,
+                        response.raw_content or json.dumps(response.output, default=str),
+                        "ParsedMeetingRequest",
+                        str(exc),
+                    ),
+                ) from exc
             trace = _native_trace(
                 request_parser_agent_definition.name,
                 "used",
@@ -281,8 +377,8 @@ class NativeRequestParserAgentRunner:
                 provider=response.provider,
             )
             return parsed, trace
-        except (AgentRuntimeError, ValidationError) as exc:
-            raise AgentRuntimeError("Native request parser could not complete.") from exc
+        except AgentRuntimeError:
+            raise
 
 
 class SchedulingAgentPlanner:
@@ -480,7 +576,20 @@ class NativeDraftAgentRunner:
                 },
                 timeout_seconds=self.timeout_seconds,
             )
-            draft = DraftResponse.model_validate(response.output)
+            try:
+                draft = DraftResponse.model_validate(response.output)
+            except ValidationError as exc:
+                raise AgentRuntimeError(
+                    "Native draft agent returned invalid schema output.",
+                    model_status="invalid_output",
+                    ai_trace=_model_output_trace(
+                        response.provider,
+                        response.model_name,
+                        response.raw_content or json.dumps(response.output, default=str),
+                        "DraftResponse",
+                        str(exc),
+                    ),
+                ) from exc
             return draft, _native_trace(
                 draft_agent_definition.name,
                 "used",
@@ -488,8 +597,8 @@ class NativeDraftAgentRunner:
                 model=response.model_name,
                 provider=response.provider,
             )
-        except (AgentRuntimeError, ValidationError) as exc:
-            raise AgentRuntimeError("Native draft agent could not complete.") from exc
+        except AgentRuntimeError:
+            raise
 
 
 def create_recommendation_from_plan(plan: AgentPlanningResult, model_status: str = "not_configured") -> Recommendation:
@@ -666,41 +775,184 @@ def _native_trace(
     }
 
 
-def _coerce_parsed_request_output(raw_text: str, output: dict) -> dict:
+def _model_parse_context(raw_text: str) -> dict:
+    timezone = "America/Los_Angeles"
+    today = datetime.now(ZoneInfo(timezone)).date().isoformat()
+    return {
+        "raw_text": raw_text,
+        "context": {
+            "timezone": timezone,
+            "current_date": today,
+            "executive_name": "Dana",
+            "product": "executive scheduling copilot",
+        },
+        "schema_contract": {
+            "top_level": ["raw_text", "intent"],
+            "intent_required": [
+                "title",
+                "requester",
+                "duration_minutes",
+                "priority",
+                "meeting_type",
+                "attendees",
+                "preferred_windows",
+                "constraints",
+                "missing_fields",
+                "sensitivity",
+                "async_candidate",
+                "escalation_required",
+            ],
+            "priority": ["low", "normal", "high", "urgent"],
+            "meeting_type": [
+                "intro",
+                "internal",
+                "customer",
+                "investor",
+                "candidate",
+                "vendor",
+                "partner",
+                "board",
+                "legal_hr",
+                "personal",
+                "other",
+            ],
+            "sensitivity": ["low", "medium", "high"],
+        },
+    }
+
+
+def _coerce_parsed_request_output(raw_text: str, output: dict, focused_outputs: dict | None = None) -> dict:
     if not isinstance(output, dict):
         return output
 
     intent = output.get("intent") if isinstance(output.get("intent"), dict) else {}
     meeting_request = output.get("meeting_request") if isinstance(output.get("meeting_request"), dict) else {}
+    flat_intent = _flat_parser_intent(output)
 
-    if not intent and not meeting_request:
+    if not intent and not meeting_request and not flat_intent:
         return output
 
-    missing_fields = _string_list(intent.get("missing_fields"))
-    requester = _string_value(intent.get("requester") or meeting_request.get("requester"), "Unknown requester")
+    source = {**flat_intent, **intent}
+    focused = focused_outputs or {}
+
+    missing_fields = _string_list(source.get("missing_fields"))
+    requester = _requester_from_model_output(focused.get("requester")) or _string_value(
+        source.get("requester") or meeting_request.get("requester"), "Unknown requester"
+    )
     if requester == "Unknown requester" and "requester" not in missing_fields:
         missing_fields.append("requester")
+    duration_minutes = _duration_from_model_output(focused.get("duration"))
+    if duration_minutes is None:
+        duration_minutes = _duration_minutes_value(
+            source.get("duration_minutes") or source.get("duration") or meeting_request.get("duration"), 30
+        )
+    priority = _priority_from_model_output(focused.get("priority")) or _enum_value(
+        source.get("priority"), {"low", "normal", "high", "urgent"}, "normal"
+    )
+    attendees = _attendees_from_model_output(focused.get("attendees"))
+    if attendees is None:
+        attendees = _clean_attendee_list(source.get("attendees") or meeting_request.get("attendees"))
 
     coerced_intent = {
-        "title": _string_value(intent.get("title") or meeting_request.get("subject"), "Meeting request"),
+        "title": _string_value(source.get("title") or meeting_request.get("subject"), "Meeting request"),
         "requester": requester,
-        "duration_minutes": _duration_minutes_value(intent.get("duration_minutes") or meeting_request.get("duration"), 30),
-        "priority": _enum_value(intent.get("priority"), {"low", "normal", "high", "urgent"}, "normal"),
+        "duration_minutes": duration_minutes,
+        "priority": priority,
         "meeting_type": _enum_value(
-            intent.get("meeting_type"),
+            source.get("meeting_type"),
             {"intro", "internal", "customer", "investor", "candidate", "vendor", "partner", "board", "legal_hr", "personal", "other"},
             "other",
         ),
-        "attendees": _string_list(intent.get("attendees") or meeting_request.get("attendees")),
-        "preferred_windows": _time_window_list(intent.get("preferred_windows")),
-        "constraints": _string_list(intent.get("constraints")),
+        "attendees": attendees,
+        "preferred_windows": _time_window_list(source.get("preferred_windows")),
+        "constraints": _string_list(source.get("constraints")),
         "missing_fields": missing_fields,
-        "sensitivity": _enum_value(intent.get("sensitivity"), {"low", "medium", "high"}, "low"),
+        "sensitivity": _enum_value(source.get("sensitivity"), {"low", "medium", "high"}, "low"),
     }
     for key in ("async_candidate", "escalation_required"):
-        if isinstance(intent.get(key), bool):
-            coerced_intent[key] = intent[key]
+        if isinstance(source.get(key), bool):
+            coerced_intent[key] = source[key]
     return {"raw_text": _string_value(output.get("raw_text"), raw_text), "intent": coerced_intent}
+
+
+def _flat_parser_intent(output: dict) -> dict:
+    flat_keys = {
+        "title",
+        "requester",
+        "duration",
+        "duration_minutes",
+        "priority",
+        "meeting_type",
+        "attendees",
+        "preferred_windows",
+        "constraints",
+        "missing_fields",
+        "sensitivity",
+        "async_candidate",
+        "escalation_required",
+    }
+    return {key: output[key] for key in flat_keys if key in output}
+
+
+def _requester_from_model_output(value) -> str | None:
+    if not isinstance(value, dict):
+        return None
+    requester = _string_value(value.get("requester"), "")
+    return requester or None
+
+
+def _attendees_from_model_output(value) -> list[str] | None:
+    if not isinstance(value, dict) or "attendees" not in value:
+        return None
+    return _clean_attendee_list(value.get("attendees"))
+
+
+def _duration_from_model_output(value) -> int | None:
+    if not isinstance(value, dict):
+        return None
+    if "duration_minutes" in value:
+        return _duration_minutes_value(value.get("duration_minutes"), 30)
+    return None
+
+
+def _priority_from_model_output(value) -> str | None:
+    if not isinstance(value, dict):
+        return None
+    priority = _enum_value(value.get("priority"), {"low", "normal", "high", "urgent"}, "")
+    return priority or None
+
+
+def _clean_attendee_list(value) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    attendees: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        cleaned = _clean_attendee_value(item)
+        if not cleaned:
+            continue
+        key = cleaned.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        attendees.append(cleaned)
+    return attendees
+
+
+def _clean_attendee_value(value) -> str:
+    if not isinstance(value, str):
+        return ""
+    cleaned = re.sub(r"\s+", " ", value).strip(" \t\r\n,.;:")
+    if not cleaned:
+        return ""
+    if re.match(r"(?i)^(from|for|by|at|with|include)\s+[A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)?$", cleaned):
+        return ""
+    cleaned = re.sub(r"(?i)\s+from\s+(legal|finance|sales|support|ops|hr)$", "", cleaned).strip()
+    if not re.search(r"[A-Za-z]", cleaned):
+        return ""
+    if cleaned.lower() in {"unknown requester", "none", "n/a", "unknown"}:
+        return ""
+    return cleaned
 
 
 def _string_value(value, default: str) -> str:
@@ -759,6 +1011,23 @@ def _loads_json_object(text: str) -> dict:
     if not isinstance(value, dict):
         raise AgentRuntimeError("Native agent returned a non-object JSON payload.")
     return value
+
+
+def _model_output_trace(provider: str, model: str, content: str, schema: str, error: str) -> dict:
+    return {
+        "runtime": NATIVE_AI_RUNTIME,
+        "model_status": "invalid_output",
+        "provider": provider,
+        "model": model,
+        "schema": schema,
+        "output_preview": _safe_preview(content),
+        "validation_error": _safe_preview(error, limit=600),
+    }
+
+
+def _safe_preview(value: str, limit: int = 500) -> str:
+    compact = re.sub(r"\s+", " ", value).strip()
+    return compact[:limit]
 
 
 def _loads_json_array(text: str) -> list:

@@ -63,6 +63,13 @@ class RecommendationService:
                 trace = _trace(NATIVE_AI_RUNTIME, plan.agent_name, "used", [])
             model_status = "used"
         except AgentRuntimeError as exc:
+            if exc.model_status == "invalid_output":
+                raise ServiceError(
+                    "ai_model_invalid_output",
+                    "Configured native recommendation model returned invalid schema output.",
+                    status_code=502,
+                    ai_trace=exc.ai_trace,
+                ) from exc
             trace = _trace(NATIVE_AI_RUNTIME, "meeting_resolution_agent", "unavailable", [])
             raise ServiceError(
                 "ai_model_unavailable",
