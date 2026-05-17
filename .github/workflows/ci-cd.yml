@@ -135,6 +135,80 @@ jobs:
               assert set(body["providers"]) == {"ollama", "openai", "anthropic", "gemini"}
           PY
 
+  eval-backend-check:
+    name: Eval Backend check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: executive-ops-copilot-v0/eval_backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -e ".[dev]"
+
+      - name: Lint
+        run: python -m ruff check app tests
+
+      - name: Test
+        env:
+          AI_BACKEND_URL: http://127.0.0.1:9000
+          EVAL_DB_PATH: /tmp/evals-ci.db
+        run: python -m pytest
+
+      - name: Startup smoke
+        env:
+          AI_BACKEND_URL: http://127.0.0.1:9000
+          EVAL_DB_PATH: /tmp/evals-smoke.db
+        run: |
+          python - <<'PY'
+          from fastapi.testclient import TestClient
+          from app.main import create_app
+
+          with TestClient(create_app()) as client:
+              response = client.get("/health")
+              response.raise_for_status()
+              body = response.json()
+              assert body["status"] == "ok"
+              assert body["service"] == "eval-backend"
+          PY
+
+  eval-frontend-check:
+    name: Eval Frontend check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: executive-ops-copilot-v0/eval_frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: executive-ops-copilot-v0/eval_frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test -- --run
+
+      - name: Build
+        run: npm run build
+
   compose-config:
     name: Compose config
     runs-on: ubuntu-latest
@@ -155,6 +229,8 @@ jobs:
       - frontend-check
       - web-backend-check
       - ai-backend-check
+      - eval-backend-check
+      - eval-frontend-check
       - compose-config
     strategy:
       fail-fast: false
@@ -178,6 +254,18 @@ jobs:
             dockerfile: executive-ops-copilot-v0/ai_backend/Dockerfile
             tag: app-ai-backend:ci
             cache-scope: ai-backend
+            build-args: ""
+          - service: eval-backend
+            context: executive-ops-copilot-v0/eval_backend
+            dockerfile: executive-ops-copilot-v0/eval_backend/Dockerfile
+            tag: app-eval-backend:ci
+            cache-scope: eval-backend
+            build-args: ""
+          - service: eval-frontend
+            context: executive-ops-copilot-v0/eval_frontend
+            dockerfile: executive-ops-copilot-v0/eval_frontend/Dockerfile
+            tag: app-eval-frontend:ci
+            cache-scope: eval-frontend
             build-args: ""
     steps:
       - name: Checkout
@@ -247,8 +335,20 @@ jobs:
           wait_for_http http://127.0.0.1:9000/health/providers "AI Backend provider health"
           wait_for_http http://127.0.0.1:8000/health "Web Backend"
           wait_for_http http://127.0.0.1:3000/ "Frontend"
+          wait_for_http http://127.0.0.1:9300/health "Eval Backend"
+          wait_for_http http://127.0.0.1:3300/ "Eval Frontend"
 
           docker compose exec -T web-backend python - <<'PY'
+          import json
+          import urllib.request
+
+          with urllib.request.urlopen("http://ai-backend:9000/health", timeout=5) as response:
+              body = json.loads(response.read().decode("utf-8"))
+          assert body["status"] == "ok"
+          assert body["service"] == "ai-backend"
+          PY
+
+          docker compose exec -T eval-backend python - <<'PY'
           import json
           import urllib.request
 
@@ -266,6 +366,8 @@ jobs:
       - frontend-check
       - web-backend-check
       - ai-backend-check
+      - eval-backend-check
+      - eval-frontend-check
       - compose-config
       - container-build
       - container-smoke
@@ -294,6 +396,18 @@ jobs:
             dockerfile: executive-ops-copilot-v0/ai_backend/Dockerfile
             image-suffix: ai-backend
             cache-scope: ai-backend
+            build-args: ""
+          - service: eval-backend
+            context: executive-ops-copilot-v0/eval_backend
+            dockerfile: executive-ops-copilot-v0/eval_backend/Dockerfile
+            image-suffix: eval-backend
+            cache-scope: eval-backend
+            build-args: ""
+          - service: eval-frontend
+            context: executive-ops-copilot-v0/eval_frontend
+            dockerfile: executive-ops-copilot-v0/eval_frontend/Dockerfile
+            image-suffix: eval-frontend
+            cache-scope: eval-frontend
             build-args: ""
     steps:
       - name: Checkout

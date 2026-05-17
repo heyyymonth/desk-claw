@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eval-backend
+  namespace: desk-claw
+  labels:
+    app.kubernetes.io/name: desk-claw
+    app.kubernetes.io/component: eval-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: desk-claw
+      app.kubernetes.io/component: eval-backend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: desk-claw
+        app.kubernetes.io/component: eval-backend
+    spec:
+      containers:
+        - name: eval-backend
+          image: ghcr.io/heyyymonth/desk-claw-eval-backend:REPLACE_TAG
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 9300
+          env:
+            - name: AI_BACKEND_URL
+              value: http://ai-backend:9000
+            - name: EVAL_DB_PATH
+              value: /data/evals.db
+            - name: EVAL_REQUEST_TIMEOUT_SECONDS
+              value: "180"
+          volumeMounts:
+            - name: eval-data
+              mountPath: /data
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+      volumes:
+        - name: eval-data
+          persistentVolumeClaim:
+            claimName: eval-backend-data

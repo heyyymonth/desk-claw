@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eval-frontend
+  namespace: desk-claw
+  labels:
+    app.kubernetes.io/name: desk-claw
+    app.kubernetes.io/component: eval-frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: desk-claw
+      app.kubernetes.io/component: eval-frontend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: desk-claw
+        app.kubernetes.io/component: eval-frontend
+    spec:
+      containers:
+        - name: eval-frontend
+          image: ghcr.io/heyyymonth/desk-claw-eval-frontend:REPLACE_TAG
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+          env:
+            - name: EVAL_BACKEND_URL
+              value: http://eval-backend:9300
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3

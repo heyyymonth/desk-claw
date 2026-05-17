@@ -1,0 +1,202 @@
+[
+  {
+    "name": "Customer renewal",
+    "description": "Customer renewal-risk request with legal participant.",
+    "prompt": "From Jordan at Atlas Finance: can Dana meet for 30 minutes next Tuesday afternoon to discuss renewal risk? Please include Priya from Legal if possible.",
+    "expected": {
+      "title": "Renewal Risk Discussion",
+      "requester": "Jordan",
+      "duration_minutes": 30,
+      "priority": "high",
+      "meeting_type": "customer",
+      "attendees": ["Dana", "Priya"],
+      "preferred_windows": [{"start": "Tuesday afternoon", "end": "Tuesday afternoon"}],
+      "constraints": [],
+      "missing_fields": [],
+      "sensitivity": "medium",
+      "async_candidate": false,
+      "escalation_required": false
+    },
+    "active": true
+  },
+  {
+    "name": "Internal sync",
+    "description": "Internal product sync with explicit requester and duration.",
+    "prompt": "Morgan from Product wants a 45 minute internal sync with Dana and Alex next Wednesday morning about launch readiness.",
+    "expected": {
+      "title": "Launch readiness sync",
+      "requester": "Morgan",
+      "duration_minutes": 45,
+      "priority": "normal",
+      "meeting_type": "internal",
+      "attendees": ["Dana", "Alex"],
+      "preferred_windows": [{"start": "Wednesday morning", "end": "Wednesday morning"}],
+      "constraints": [],
+      "missing_fields": [],
+      "sensitivity": "low",
+      "async_candidate": false,
+      "escalation_required": false
+    },
+    "active": true
+  },
+  {
+    "name": "Board chair urgent",
+    "description": "Urgent board request.",
+    "prompt": "The Board chair urgently needs 60 minutes with Dana today to review the acquisition disclosure.",
+    "expected": {
+      "title": "Acquisition disclosure review",
+      "requester": "Board chair",
+      "duration_minutes": 60,
+      "priority": "urgent",
+      "meeting_type": "board",
+      "attendees": ["Dana"],
+      "preferred_windows": [{"start": "today", "end": "today"}],
+      "constraints": [],
+      "missing_fields": [],
+      "sensitivity": "high",
+      "async_candidate": false,
+      "escalation_required": true
+    },
+    "active": true
+  },
+  {
+    "name": "Candidate final round",
+    "description": "Recruiting final-round candidate meeting.",
+    "prompt": "Recruiting asks if Dana can meet Sam Rivera for a 30 minute final-round candidate conversation Friday morning.",
+    "expected": {
+      "title": "Candidate final round",
+      "requester": "Recruiting",
+      "duration_minutes": 30,
+      "priority": "normal",
+      "meeting_type": "candidate",
+      "attendees": ["Dana", "Sam Rivera"],
+      "preferred_windows": [{"start": "Friday morning", "end": "Friday morning"}],
+      "constraints": [],
+      "missing_fields": [],
+      "sensitivity": "low",
+      "async_candidate": false,
+      "escalation_required": false
+    },
+    "active": true
+  },
+  {
+    "name": "Investor intro",
+    "description": "Investor introduction from an external requester.",
+    "prompt": "Taylor from Northstar Ventures requested a 30 minute intro with Dana next week to discuss the new fund.",
+    "expected": {
+      "title": "Investor intro",
+      "requester": "Taylor",
+      "duration_minutes": 30,
+      "priority": "high",
+      "meeting_type": "investor",
+      "attendees": ["Dana", "Northstar Ventures"],
+      "preferred_windows": [{"start": "next week", "end": "next week"}],
+      "constraints": [],
+      "missing_fields": [],
+      "sensitivity": "medium",
+      "async_candidate": false,
+      "escalation_required": false
+    },
+    "active": true
+  },
+  {
+    "name": "Vendor contract",
+    "description": "Vendor legal contract review request.",
+    "prompt": "Priya needs Dana and the vendor legal team for 45 minutes Thursday afternoon to review contract redlines.",
+    "expected": {
+      "title": "Vendor contract review",
+      "requester": "Priya",
+      "duration_minutes": 45,
+      "priority": "high",
+      "meeting_type": "vendor",
+      "attendees": ["Dana", "Vendor legal team"],
+      "preferred_windows": [{"start": "Thursday afternoon", "end": "Thursday afternoon"}],
+      "constraints": [],
+      "missing_fields": [],
+      "sensitivity": "medium",
+      "async_candidate": false,
+      "escalation_required": false
+    },
+    "active": true
+  },
+  {
+    "name": "FYI async update",
+    "description": "Async FYI update should not require attendees.",
+    "prompt": "Customer Success sent an FYI status update for Dana. No decision needed and no meeting required.",
+    "expected": {
+      "title": "Customer status update",
+      "requester": "Customer Success",
+      "duration_minutes": 30,
+      "priority": "low",
+      "meeting_type": "customer",
+      "attendees": [],
+      "preferred_windows": [],
+      "constraints": [],
+      "missing_fields": [],
+      "sensitivity": "low",
+      "async_candidate": true,
+      "escalation_required": false
+    },
+    "active": true
+  },
+  {
+    "name": "Missing requester",
+    "description": "Requester is absent and should be marked missing.",
+    "prompt": "Can Dana meet for 30 minutes next Tuesday afternoon about roadmap planning?",
+    "expected": {
+      "title": "Roadmap planning",
+      "requester": "Unknown requester",
+      "duration_minutes": 30,
+      "priority": "normal",
+      "meeting_type": "internal",
+      "attendees": ["Dana"],
+      "preferred_windows": [{"start": "Tuesday afternoon", "end": "Tuesday afternoon"}],
+      "constraints": [],
+      "missing_fields": ["requester"],
+      "sensitivity": "low",
+      "async_candidate": false,
+      "escalation_required": false
+    },
+    "active": true
+  },
+  {
+    "name": "Personal appointment",
+    "description": "Personal appointment for Dana.",
+    "prompt": "Dana needs to hold 60 minutes Monday morning for a personal appointment.",
+    "expected": {
+      "title": "Personal appointment",
+      "requester": "Dana",
+      "duration_minutes": 60,
+      "priority": "normal",
+      "meeting_type": "personal",
+      "attendees": ["Dana"],
+      "preferred_windows": [{"start": "Monday morning", "end": "Monday morning"}],
+      "constraints": [],
+      "missing_fields": [],
+      "sensitivity": "low",
+      "async_candidate": false,
+      "escalation_required": false
+    },
+    "active": true
+  },
+  {
+    "name": "Confidential employee relations",
+    "description": "Sensitive Legal/HR request.",
+    "prompt": "People team asks for Dana and Legal to meet for 30 minutes tomorrow about a confidential employee relations issue.",
+    "expected": {
+      "title": "Confidential employee relations",
+      "requester": "People team",
+      "duration_minutes": 30,
+      "priority": "high",
+      "meeting_type": "legal_hr",
+      "attendees": ["Dana", "Legal"],
+      "preferred_windows": [{"start": "tomorrow", "end": "tomorrow"}],
+      "constraints": [],
+      "missing_fields": [],
+      "sensitivity": "high",
+      "async_candidate": false,
+      "escalation_required": true
+    },
+    "active": true
+  }
+]

@@ -4,8 +4,13 @@ resources:
   - namespace.yaml
   - ai-backend-deployment.yaml
   - ai-backend-service.yaml
+  - eval-backend-pvc.yaml
+  - eval-backend-deployment.yaml
+  - eval-backend-service.yaml
   - web-backend-deployment.yaml
   - web-backend-service.yaml
   - frontend-deployment.yaml
   - frontend-service.yaml
+  - eval-frontend-deployment.yaml
+  - eval-frontend-service.yaml
   - ingress.yaml

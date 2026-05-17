@@ -1,6 +1,6 @@
 # Kubernetes Deployment
 
-This directory adds a lean Kubernetes layer for the three-service Desk Claw / Executive Ops Copilot app.
+This directory adds a lean Kubernetes layer for the five-service Desk Claw / Executive Ops Copilot app.
 
 ```text
 User
@@ -9,6 +9,16 @@ User
   -> frontend Pod
   -> web-backend Service
   -> web-backend Pod
+  -> ai-backend Service
+  -> ai-backend Pod
+  -> external model providers
+
+Evaluator
+  -> Ingress
+  -> eval-frontend Service
+  -> eval-frontend Pod
+  -> eval-backend Service
+  -> eval-backend Pod
   -> ai-backend Service
   -> ai-backend Pod
   -> external model providers
@@ -23,8 +33,12 @@ Docker Compose remains the local development and smoke-test path. Kubernetes is 
 | Frontend | `ghcr.io/heyyymonth/desk-claw-frontend:REPLACE_TAG` | `80` | `frontend:80` |
 | Web Backend | `ghcr.io/heyyymonth/desk-claw-web-backend:REPLACE_TAG` | `8000` | `web-backend:8000` |
 | AI Backend | `ghcr.io/heyyymonth/desk-claw-ai-backend:REPLACE_TAG` | `9000` | `ai-backend:9000` |
+| Eval Frontend | `ghcr.io/heyyymonth/desk-claw-eval-frontend:REPLACE_TAG` | `80` | `eval-frontend:80` |
+| Eval Backend | `ghcr.io/heyyymonth/desk-claw-eval-backend:REPLACE_TAG` | `9300` | `eval-backend:9300` |
 
 The Web Backend uses `AI_BACKEND_URL=http://ai-backend:9000`. The frontend nginx config proxies `/api/` to `web-backend:8000`; the `WEB_BACKEND_URL` env var is present for consistency but browser code does not receive provider secrets or the AI Backend URL.
+
+The Eval Backend uses `AI_BACKEND_URL=http://ai-backend:9000` and stores editable benchmark cases plus run results in `/data/evals.db` through the `eval-backend-data` PersistentVolumeClaim. It does not receive provider keys or provider base URLs. The Eval Frontend proxies `/api/` to `eval-backend:9300`.
 
 ## Configure Images
 
@@ -85,6 +99,8 @@ Check logs:
 kubectl logs -n desk-claw deployment/frontend
 kubectl logs -n desk-claw deployment/web-backend
 kubectl logs -n desk-claw deployment/ai-backend
+kubectl logs -n desk-claw deployment/eval-frontend
+kubectl logs -n desk-claw deployment/eval-backend
 ```
 
 Port-forward for local verification:
@@ -93,6 +109,8 @@ Port-forward for local verification:
 kubectl port-forward -n desk-claw svc/frontend 3000:80
 kubectl port-forward -n desk-claw svc/web-backend 8000:8000
 kubectl port-forward -n desk-claw svc/ai-backend 9000:9000
+kubectl port-forward -n desk-claw svc/eval-frontend 3300:80
+kubectl port-forward -n desk-claw svc/eval-backend 9300:9300
 ```
 
 Then test:
@@ -102,12 +120,15 @@ curl http://localhost:3000/
 curl http://localhost:8000/health
 curl http://localhost:9000/health
 curl http://localhost:9000/health/providers
+curl http://localhost:9300/health
+curl http://localhost:3300/
 ```
 
-With an ingress controller installed, add `desk-claw.local` to `/etc/hosts` for your cluster ingress address and open:
+With an ingress controller installed, add `desk-claw.local` and `desk-claw-evals.local` to `/etc/hosts` for your cluster ingress address and open:
 
 ```text
 http://desk-claw.local
+http://desk-claw-evals.local
 ```
 
 ## Local Cluster Notes
@@ -129,3 +150,4 @@ Missing model provider keys should not crash the pods. Expected behavior without
 - `ai-backend` `/health/providers` returns degraded provider metadata with `auth: missing`.
 - model chat endpoints return controlled provider configuration errors.
 - frontend and web-backend remain reachable.
+- eval-backend and eval-frontend remain reachable, but eval runs fail per case with provider configuration errors until the AI Backend has usable provider credentials.
