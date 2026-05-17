@@ -43,3 +43,5 @@ The service images are intentionally independent:
 Docker Compose wires the services as `frontend -> web-backend -> ai-backend`. Provider keys and provider base URLs are passed only to `ai-backend`; Web Backend receives only `AI_BACKEND_URL`; Frontend receives no provider secrets or AI Backend URL for browser code.
 
 CI/CD lives in one primary GitHub Actions workflow, `.github/workflows/ci-cd.yml`, which runs service checks in parallel, builds each container independently, runs container smoke tests, and publishes three GHCR images only for `v*.*.*` tags.
+
+Kubernetes manifests live in root `infra/k8s/` for production-style orchestration. They preserve the same service boundaries as Docker Compose: `frontend` is exposed through Ingress, `web-backend` is an internal ClusterIP service, and `ai-backend` is an internal ClusterIP service that owns provider secrets.

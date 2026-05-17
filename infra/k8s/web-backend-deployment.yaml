@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-backend
+  namespace: desk-claw
+  labels:
+    app.kubernetes.io/name: desk-claw
+    app.kubernetes.io/component: web-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: desk-claw
+      app.kubernetes.io/component: web-backend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: desk-claw
+        app.kubernetes.io/component: web-backend
+    spec:
+      containers:
+        - name: web-backend
+          image: ghcr.io/heyyymonth/desk-claw-web-backend:REPLACE_TAG
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: AI_BACKEND_URL
+              value: http://ai-backend:9000
+            - name: AGENT_RUNTIME
+              value: native
+            - name: WARM_MODEL_ON_STARTUP
+              value: "false"
+            - name: MODEL_WARMUP_TIMEOUT_SECONDS
+              value: "30"
+            - name: AI_AGENT_TIMEOUT_SECONDS
+              value: "180"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3

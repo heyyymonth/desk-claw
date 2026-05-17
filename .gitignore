@@ -1,0 +1,7 @@
+.DS_Store
+.pytest_cache/
+
+# Local Kubernetes secrets. Commit only *.example.yaml files.
+infra/k8s/secrets.yaml
+infra/k8s/*secret.yaml
+!infra/k8s/*secret.example.yaml

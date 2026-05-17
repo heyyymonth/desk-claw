@@ -118,6 +118,63 @@ curl http://localhost:9000/test/anthropic/chat -H "Content-Type: application/jso
 curl http://localhost:9000/test/gemini/chat -H "Content-Type: application/json" -d '{"message":"Say hello from Gemini"}'
 ```
 
+## Ollama Cloud Check
+
+Ollama Cloud direct API access is the production path for the AI Backend. Do not mount a local Ollama login into the container and do not install the Ollama CLI in the image. Keep `OLLAMA_API_KEY` in local runtime configuration only; `.env` and `.env.*` are gitignored.
+
+First validate the direct cloud API from the host:
+
+```bash
+export OLLAMA_API_KEY="your-local-key"
+
+curl https://ollama.com/api/tags \
+  -H "Authorization: Bearer $OLLAMA_API_KEY"
+
+curl https://ollama.com/api/chat \
+  -H "Authorization: Bearer $OLLAMA_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemma4:31b-cloud",
+    "messages": [{"role": "user", "content": "Reply with exactly: ollama-cloud-ok"}],
+    "stream": false
+  }'
+```
+
+Then validate the containerized AI Backend:
+
+```bash
+OLLAMA_API_KEY="$OLLAMA_API_KEY" \
+DEFAULT_AI_PROVIDER=ollama \
+FALLBACK_AI_PROVIDER= \
+OLLAMA_BASE_URL=https://ollama.com/api \
+OLLAMA_DEFAULT_MODEL=gemma4:31b-cloud \
+docker compose up -d --build ai-backend
+
+curl http://localhost:9000/health/ollama
+
+curl http://localhost:9000/v1/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "provider": "ollama",
+    "messages": [{"role": "user", "content": "Reply with exactly: ai-backend-ollama-ok"}],
+    "temperature": 0.2,
+    "max_tokens": 100,
+    "stream": false
+  }'
+```
+
+For a local-account sanity check only, a signed-in host Ollama daemon can be tested outside the containers:
+
+```bash
+curl http://localhost:11434/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemma4:31b-cloud",
+    "messages": [{"role": "user", "content": "Reply with exactly: ollama-cloud-ok"}],
+    "stream": false
+  }'
+```
+
 ## Development
 
 ```bash
@@ -160,6 +217,12 @@ If local ports are already in use, override host ports without changing containe
 ```bash
 FRONTEND_HOST_PORT=3100 WEB_BACKEND_HOST_PORT=8100 AI_BACKEND_HOST_PORT=9100 make smoke-containers
 ```
+
+## Deployment Levels
+
+- Docker Compose is the local development and smoke-test orchestrator.
+- GitHub Actions runs lint/test/build checks, builds each service image independently, smoke-tests the composed stack, and publishes GHCR images only for `v*.*.*` tags.
+- Kubernetes manifests in root `infra/k8s/` provide production-style orchestration for the same three-service layout. Apply them with `kubectl apply -k ../infra/k8s` from this directory or `kubectl apply -k infra/k8s` from the repo root.
 
 ## CI/CD
 

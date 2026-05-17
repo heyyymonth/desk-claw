@@ -28,10 +28,16 @@ class OllamaProvider(ModelProvider):
         body, headers = await self._post_json(f"{self.config.base_url}/chat", payload, self._headers())
         message = body.get("message") if isinstance(body.get("message"), dict) else {}
         content = message.get("content") if isinstance(message.get("content"), str) else body.get("response", "")
+        usage = Usage(
+            input_tokens=body.get("prompt_eval_count") if isinstance(body.get("prompt_eval_count"), int) else None,
+            output_tokens=body.get("eval_count") if isinstance(body.get("eval_count"), int) else None,
+        )
+        if usage.input_tokens is not None or usage.output_tokens is not None:
+            usage.total_tokens = (usage.input_tokens or 0) + (usage.output_tokens or 0)
         return self._response(
             model=body.get("model", model),
             content=content,
-            usage=Usage(),
+            usage=usage,
             finish_reason=body.get("done_reason") or "stop",
             provider_request_id=headers.get("x-request-id"),
             started=started,

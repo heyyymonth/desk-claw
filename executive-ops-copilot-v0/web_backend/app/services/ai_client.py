@@ -41,12 +41,10 @@ class AiBackendClient:
         try:
             response = httpx.post(f"{self.base_url}/v1/chat", json=payload, timeout=self.timeout_seconds)
             if response.status_code >= 400:
-                raise httpx.HTTPStatusError(
-                    "AI Backend request failed",
-                    request=httpx.Request("POST", f"{self.base_url}/v1/chat"),
-                    response=response,
-                )
+                raise _service_error_from_response(response)
             body = response.json()
+        except ServiceError:
+            raise
         except (httpx.HTTPError, ValueError) as exc:
             raise ServiceError(
                 "ai_backend_unavailable",
@@ -70,3 +68,26 @@ class AiBackendClient:
             model=model,
             latency_ms=int((time.perf_counter() - started) * 1000),
         )
+
+
+def _service_error_from_response(response: httpx.Response) -> ServiceError:
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = {}
+    error = payload.get("detail", {}).get("error") if isinstance(payload, dict) else None
+    if isinstance(error, dict) and error.get("type") == "provider_unavailable":
+        message = error.get("message")
+        provider = error.get("provider")
+        safe_message = message if isinstance(message, str) and message else "The selected model provider is unavailable."
+        return ServiceError(
+            "ai_provider_unavailable",
+            safe_message,
+            status_code=502,
+            ai_trace={"provider": provider} if isinstance(provider, str) else {},
+        )
+    return ServiceError(
+        "ai_backend_unavailable",
+        "The AI Backend is unavailable. Check service health before retrying.",
+        status_code=502,
+    )

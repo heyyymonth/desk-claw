@@ -1,0 +1,20 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: frontend
+  namespace: desk-claw
+  labels:
+    app.kubernetes.io/name: desk-claw
+    app.kubernetes.io/component: frontend
+spec:
+  rules:
+    - host: desk-claw.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  name: http

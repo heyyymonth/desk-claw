@@ -19,7 +19,16 @@ def test_ollama_health_and_chat_mapping():
         if request.url.path == "/api/tags":
             return httpx.Response(200, json={"models": []})
         seen["payload"] = _json(request)
-        return httpx.Response(200, json={"model": "gemma4:31b-cloud", "message": {"content": "hello"}, "done_reason": "stop"})
+        return httpx.Response(
+            200,
+            json={
+                "model": "gemma4:31b",
+                "message": {"content": "hello"},
+                "done_reason": "stop",
+                "prompt_eval_count": 23,
+                "eval_count": 7,
+            },
+        )
 
     provider = OllamaProvider(config("ollama", "https://ollama.com/api", "gemma4:31b-cloud"), 1, httpx.MockTransport(handler))
 
@@ -31,6 +40,10 @@ def test_ollama_health_and_chat_mapping():
     assert seen["url"] == "https://ollama.com/api/chat"
     assert seen["payload"]["model"] == "gemma4:31b-cloud"
     assert response.content == "hello"
+    assert response.model == "gemma4:31b"
+    assert response.usage.input_tokens == 23
+    assert response.usage.output_tokens == 7
+    assert response.usage.total_tokens == 30
 
 
 def test_openai_uses_responses_api_and_normalizes_usage():

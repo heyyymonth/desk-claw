@@ -34,3 +34,28 @@ def test_ai_client_normalizes_ai_backend_failure(monkeypatch):
         AiBackendClient("http://ai-backend:9000").chat("Say hello")
 
     assert exc.value.code == "ai_backend_unavailable"
+
+
+def test_ai_client_preserves_provider_configuration_failure(monkeypatch):
+    def fake_post(url, json, timeout):
+        return httpx.Response(
+            503,
+            json={
+                "detail": {
+                    "error": {
+                        "type": "provider_unavailable",
+                        "message": "ollama provider is not configured.",
+                        "provider": "ollama",
+                    }
+                }
+            },
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    with pytest.raises(ServiceError) as exc:
+        AiBackendClient("http://ai-backend:9000").chat("Say hello")
+
+    assert exc.value.code == "ai_provider_unavailable"
+    assert exc.value.message == "ollama provider is not configured."
+    assert exc.value.ai_trace == {"provider": "ollama"}
